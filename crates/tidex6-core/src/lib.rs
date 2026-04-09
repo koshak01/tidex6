@@ -19,3 +19,5 @@
 //! The threat model, known limitations, and the Day-1 Validation Checklist
 //! that governs the first steps of implementation live at
 //! `docs/release/security.md`.
+
+pub mod poseidon;
