@@ -21,5 +21,6 @@
 //! `docs/release/security.md`.
 
 pub mod keys;
+pub mod merkle;
 pub mod poseidon;
 pub mod types;
