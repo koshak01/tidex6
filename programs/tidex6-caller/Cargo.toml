@@ -1,6 +1,6 @@
 [package]
-name = "tidex6-verifier"
-description = "Onchain Groth16 verifier and Day-1 primitive validation for tidex6."
+name = "tidex6-caller"
+description = "Day-1 Validation Checklist Gate 4: proves Anchor 1.0 CPI with proof data works onchain by forwarding a Groth16 proof to tidex6-verifier."
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -10,7 +10,7 @@ repository.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "tidex6_verifier"
+name = "tidex6_caller"
 
 [features]
 default = []
@@ -22,8 +22,7 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "1.0.0"
-solana-poseidon = { workspace = true }
-groth16-solana = { workspace = true }
+tidex6-verifier = { path = "../tidex6-verifier", features = ["cpi"] }
 
 [lints]
 workspace = true

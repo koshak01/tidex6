@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 tidex6-core = { path = "../tidex6-core" }
 tidex6-verifier = { path = "../../programs/tidex6-verifier", features = ["no-entrypoint"] }
+tidex6-caller = { path = "../../programs/tidex6-caller", features = ["no-entrypoint"] }
 
 anchor-client = { workspace = true }
 anchor-lang = { workspace = true }
@@ -25,7 +26,14 @@ anyhow = { workspace = true }
 # copies of the same type in the dependency graph and fail to compile.
 solana-keypair = "3"
 solana-rpc-client-api = "3"
+solana-signature = "3"
 solana-transaction-status = "3"
+
+# arkworks for offchain proof_a negation before sending to the
+# onchain Groth16 verifier. Version-pinned to match tidex6-core.
+ark-bn254 = { workspace = true }
+ark-serialize = { workspace = true }
+ark-ff = { workspace = true }
 
 hex = "0.4"
 

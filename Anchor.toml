@@ -7,9 +7,11 @@ skip-lint = false
 
 [programs.localnet]
 tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
 
 [programs.devnet]
 tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
 
 [registry]
 url = "https://api.apr.dev"
@@ -22,4 +24,4 @@ wallet = "~/.config/solana/id.json"
 test = "echo 'Tests are written as Rust integration tests in crates/tidex6-verifier/tests/'"
 
 [workspace]
-members = ["programs/tidex6-verifier"]
+members = ["programs/tidex6-verifier", "programs/tidex6-caller"]

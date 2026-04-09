@@ -11,6 +11,7 @@ resolver = "2"
 members = [
     "crates/tidex6-core",
     "crates/tidex6-day1",
+    "programs/tidex6-caller",
     "programs/tidex6-verifier",
 ]
 
@@ -47,6 +48,10 @@ light-poseidon = "0.4"
 # Onchain Poseidon, used in the verifier program and as the ground truth
 # in the Day-1 Validation Checklist equivalence test.
 solana-poseidon = "4"
+
+# Groth16 verification on Solana via alt_bn128 syscalls. Used by the
+# tidex6-verifier program for onchain proof verification.
+groth16-solana = "0.2"
 
 # Error handling per ~/.claude/rules/rust/error-handling.md:
 # - library crates use thiserror

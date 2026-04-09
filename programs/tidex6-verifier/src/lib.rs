@@ -23,7 +23,11 @@
 //! programs call via CPI. See `docs/release/adr/ADR-005-non-upgradeable-verifier.md`.
 
 use anchor_lang::prelude::*;
+use groth16_solana::groth16::Groth16Verifier;
 use solana_poseidon::{Endianness, Parameters, hashv};
+
+mod groth16_test_vectors;
+use groth16_test_vectors::{PUBLIC_INPUTS, VERIFYING_KEY};
 
 declare_id!("77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42");
 
@@ -63,6 +67,49 @@ pub mod tidex6_verifier {
 
         Ok(())
     }
+
+    /// Verify a Groth16 proof onchain against the hardcoded
+    /// `VERIFYING_KEY` and `PUBLIC_INPUTS` from the upstream
+    /// `groth16-solana` test suite. The caller passes the three proof
+    /// components `(proof_a, proof_b, proof_c)` in the serialization
+    /// expected by `groth16-solana`: `proof_a` must already be negated
+    /// offchain, `proof_b` and `proof_c` are passed through verbatim.
+    ///
+    /// This is Day-1 Validation Checklist item 2 (Groth16 pipeline
+    /// smoke test) and item 3 (alt_bn128 syscall availability) in a
+    /// single instruction: a successful `Groth16Verifier::verify()`
+    /// proves that `alt_bn128_addition`, `alt_bn128_multiplication`,
+    /// and `alt_bn128_pairing` syscalls are all active on the target
+    /// cluster.
+    ///
+    /// Logs `tidex6-day1-groth16:VALID` on success or
+    /// `tidex6-day1-groth16:INVALID` on failure. Also logs
+    /// `tidex6-day1-alt_bn128:OK` because a successful pairing result
+    /// transitively validates Gate 3.
+    pub fn verify_test_proof(
+        context: Context<VerifyTestProof>,
+        proof_a: [u8; 64],
+        proof_b: [u8; 128],
+        proof_c: [u8; 64],
+    ) -> Result<()> {
+        let _ = context;
+
+        let mut verifier =
+            Groth16Verifier::<9>::new(&proof_a, &proof_b, &proof_c, &PUBLIC_INPUTS, &VERIFYING_KEY)
+                .map_err(|_| Tidex6VerifierError::Groth16VerifierConstructFailed)?;
+
+        match verifier.verify() {
+            Ok(()) => {
+                msg!("tidex6-day1-groth16:VALID");
+                msg!("tidex6-day1-alt_bn128:OK");
+                Ok(())
+            }
+            Err(_) => {
+                msg!("tidex6-day1-groth16:INVALID");
+                Err(Tidex6VerifierError::Groth16VerificationFailed.into())
+            }
+        }
+    }
 }
 
 /// Encode 32 bytes as a lowercase hexadecimal string.
@@ -91,10 +138,21 @@ pub struct HashPoseidon<'info> {
     pub payer: Signer<'info>,
 }
 
+/// Accounts required by `verify_test_proof`. Same minimum surface as
+/// `HashPoseidon` — pure compute, no program-owned state.
+#[derive(Accounts)]
+pub struct VerifyTestProof<'info> {
+    pub payer: Signer<'info>,
+}
+
 #[error_code]
 pub enum Tidex6VerifierError {
     #[msg("Unsupported Poseidon input count: must be between 1 and 12.")]
     UnsupportedInputCount,
     #[msg("Onchain Poseidon syscall failed.")]
     PoseidonSyscallFailed,
+    #[msg("Failed to construct the Groth16 verifier from the supplied proof.")]
+    Groth16VerifierConstructFailed,
+    #[msg("Groth16 proof verification failed.")]
+    Groth16VerificationFailed,
 }
