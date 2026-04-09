@@ -15,11 +15,8 @@
 use std::fmt;
 use std::str::FromStr;
 
-use rand::TryRng;
-use rand::rngs::SysRng;
-
 use crate::poseidon;
-use crate::types::{DOMAIN_VALUE_LEN, DomainError};
+use crate::types::{DOMAIN_VALUE_LEN, DomainError, sample_field_element_bytes};
 
 /// Domain separator mixed into the viewing-key derivation so the
 /// result cannot be confused with any other Poseidon hash in the
@@ -84,13 +81,11 @@ impl SpendingKey {
     }
 
     /// Generate a fresh `SpendingKey` from the operating system's
-    /// CSPRNG. This is the only correct way to create a new wallet.
+    /// CSPRNG. Guaranteed to produce a valid BN254 scalar field
+    /// element via rejection sampling. This is the only correct way
+    /// to create a new wallet.
     pub fn random() -> Result<Self, DomainError> {
-        let mut bytes = [0u8; DOMAIN_VALUE_LEN];
-        SysRng
-            .try_fill_bytes(&mut bytes)
-            .map_err(|err: rand::rngs::SysError| DomainError::Rand(err.to_string()))?;
-        Ok(Self(bytes))
+        Ok(Self(sample_field_element_bytes()?))
     }
 
     /// Derive the unique `ViewingKey` that corresponds to this
