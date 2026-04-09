@@ -49,8 +49,8 @@ The user is sovereign. The system honours that sovereignty cryptographically, no
 
 tidex6 stands on standard cryptographic primitives:
 
-- **Groth16** zero-knowledge proofs over the **BN254** elliptic curve, chosen for native Solana syscall support and proof size (~256 bytes) suitable for on-chain verification.
-- **Poseidon** hash function with circom-compatible parameters, used both off-chain (`light-poseidon`) and on-chain (`solana-poseidon` syscall) with byte-for-byte equivalence.
+- **Groth16** zero-knowledge proofs over the **BN254** elliptic curve, chosen for native Solana syscall support and proof size (~256 bytes) suitable for onchain verification.
+- **Poseidon** hash function with circom-compatible parameters, used both offchain (`light-poseidon`) and onchain (`solana-poseidon` syscall) with byte-for-byte equivalence.
 - **R1CS** constraint synthesis via the arkworks ecosystem.
 - **Hierarchical key derivation** — spending key, full viewing key, incoming-only viewing key, nullifier key.
 - **Pedersen commitments** with **Merkle tree** inclusion proofs for the shielded set.
@@ -123,12 +123,12 @@ DEVELOPER (uses our SDK)
 
 2. PROGRAM (uses tidex6-client SDK)
    ├── Receives commitment + transfers SOL into pool vault
-   ├── Adds commitment to Merkle tree (off-chain via indexer)
-   ├── Updates on-chain root ring buffer (last 30 roots)
+   ├── Adds commitment to Merkle tree (offchain via indexer)
+   ├── Updates onchain root ring buffer (last 30 roots)
    └── Emits DepositEvent { commitment, root, auditor_tag?, encrypted_memo? }
 
 3. WITHDRAWER (Bob, possibly Alice with a fresh address)
-   ├── Receives DepositNote off-chain (text format with secret + nullifier)
+   ├── Receives DepositNote offchain (text format with secret + nullifier)
    ├── Indexer provides Merkle proof for the commitment
    ├── Generates Groth16 proof locally
    │   ├── Public inputs:  nullifier_hash, root, recipient
@@ -166,8 +166,8 @@ Two ingredients only. Amount is implicit because of the fixed-denomination model
 ### 4.4 Merkle tree
 
 - **Depth:** 20 (~1M commitments capacity, sufficient for MVP and well into v0.2)
-- **On-chain storage:** ring buffer of the last 30 roots + a counter for the next leaf index
-- **Off-chain storage:** the full tree, maintained by the indexer
+- **Onchain storage:** ring buffer of the last 30 roots + a counter for the next leaf index
+- **Offchain storage:** the full tree, maintained by the indexer
 - **Updates:** the indexer rebuilds the tree from `DepositEvent` logs and serves Merkle proofs to clients on demand
 - **Concurrency:** because the program only stores roots and a counter, concurrent deposits do not race — the indexer linearizes them
 
@@ -202,7 +202,7 @@ The user attaches an optional ElGamal-encrypted tag to each deposit. The tag car
 
 Properties:
 - **Per-deposit granularity** — the user picks a different auditor (or no auditor) for each transaction
-- **No on-chain coordination** — the auditor scans events off-chain, no protocol-level disclosure mechanism
+- **No onchain coordination** — the auditor scans events offchain, no protocol-level disclosure mechanism
 - **No backdoor** — protocol developers cannot decrypt anything
 - **Revocable in spirit** — the user simply stops attaching the auditor tag to future deposits; past disclosures cannot be undone (this is a fundamental property of any encryption-based disclosure system)
 
@@ -220,7 +220,7 @@ The memo is **not part of the ZK circuit**. It is an application-layer field sto
 
 ### 5.3 Proof of Innocence (roadmap v0.2)
 
-In v0.2, users will be able to prove that their funds belong to a curated subset of approved deposits without revealing which specific deposit is theirs. Curation is done by an off-chain Association Set Provider that scans publicly available data sources. Users who decline disclosure can ragequit via public withdrawal — they keep their funds, they lose privacy.
+In v0.2, users will be able to prove that their funds belong to a curated subset of approved deposits without revealing which specific deposit is theirs. Curation is done by an offchain Association Set Provider that scans publicly available data sources. Users who decline disclosure can ragequit via public withdrawal — they keep their funds, they lose privacy.
 
 This is the compliance layer. It is the answer to *"how do you prove your funds are clean without KYC?"*
 
@@ -228,7 +228,7 @@ This is the compliance layer. It is the answer to *"how do you prove your funds 
 
 ## 6. Tech Stack
 
-### 6.1 On-chain (Anchor program)
+### 6.1 Onchain (Anchor program)
 
 ```toml
 [dependencies]
@@ -239,7 +239,7 @@ solana-poseidon = "4"        # native Poseidon syscall
 tidex6-core     = { path = "../tidex6-core" }
 ```
 
-### 6.2 Off-chain (client and prover)
+### 6.2 Offchain (client and prover)
 
 ```toml
 [dependencies]
@@ -254,17 +254,17 @@ ark-ec                 = "0.5"
 ark-serialize          = "0.5"
 ark-ed-on-bn254        = "0.5"   # Baby Jubjub for in-circuit key derivation
 
-light-poseidon         = "0.4"   # MUST match on-chain syscall byte-for-byte
+light-poseidon         = "0.4"   # MUST match onchain syscall byte-for-byte
                                  # Use Poseidon::<Fr>::new_circom(n) only.
 
 anchor-client          = "1.0"
-solana-sdk             = "3.0"
+solana-sdk             = "4.0"
 
 tidex6-core            = { path = "../tidex6-core" }
 tidex6-client          = { path = "../tidex6-client" }
 ```
 
-Pinned exact versions where compatibility is critical (`anchor-lang`). Strict version policy on `light-poseidon` to guarantee on-chain / off-chain hash equivalence.
+Pinned exact versions where compatibility is critical (`anchor-lang`). Strict version policy on `light-poseidon` to guarantee onchain / offchain hash equivalence.
 
 ### 6.3 What we are not adding to the MVP
 
@@ -286,7 +286,7 @@ tidex6/
 │       ├── commitment.rs           # Commitment type, Poseidon wrapper
 │       ├── nullifier.rs            # Nullifier type
 │       ├── keys.rs                 # SpendingKey, ViewingKey (one-level for MVP)
-│       ├── merkle.rs               # Merkle tree (off-chain) + root verification helpers
+│       ├── merkle.rs               # Merkle tree (offchain) + root verification helpers
 │       ├── elgamal.rs              # ElGamal on BN254 G1 + Baby Jubjub helpers
 │       ├── note.rs                 # DepositNote (first-class concept)
 │       ├── memo.rs                 # ECDH + AES-GCM helpers for shielded memo
@@ -321,7 +321,7 @@ tidex6/
 │
 ├── tidex6-indexer/                 # in-memory indexer (WebSocket)
 │   └── src/
-│       ├── tree.rs                 # off-chain Merkle tree rebuild
+│       ├── tree.rs                 # offchain Merkle tree rebuild
 │       ├── events.rs               # DepositEvent / WithdrawEvent listeners
 │       └── main.rs
 │
@@ -443,7 +443,7 @@ The library handles: key derivation, commitment computation, Merkle proof genera
 | Feature | Where it shows up |
 |---|---|
 | Fixed-denomination deposit | 10 deposits of 1 SOL each, monthly |
-| Deposit notes off-chain | Lena sends notes to her parents via encrypted message |
+| Deposit notes offchain | Lena sends notes to her parents via encrypted message |
 | Shielded memo | "October support — medicine + groceries" |
 | Per-deposit auditor tag | Each deposit tagged with Kai's viewing key |
 | Withdraw with ZK proof | Parents withdraw to fresh wallets |

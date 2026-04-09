@@ -9,7 +9,7 @@ MVP нуждается хотя бы в одной фиче помимо "ещё
 
 1. **Shielded Memo** — зашифрованное memo до ~200 байт прикреплённое к каждому депозиту. Расшифровывается только владельцем соответствующего viewing key. Application-layer фича, нет влияния на ZK circuit. Оценка реализации: **1–2 дня**.
 
-2. **Proof of Innocence (Association Sets)** — дополнительный ZK circuit который доказывает что депозит пользователя принадлежит курируемому подмножеству одобренных депозитов, не раскрывая какой именно депозит их. Compliance-by-choice без KYC. Оценка реализации: **5–7 дней** (новый circuit, новый trusted setup, off-chain Association Set Provider сервис).
+2. **Proof of Innocence (Association Sets)** — дополнительный ZK circuit который доказывает что депозит пользователя принадлежит курируемому подмножеству одобренных депозитов, не раскрывая какой именно депозит их. Compliance-by-choice без KYC. Оценка реализации: **5–7 дней** (новый circuit, новый trusted setup, offchain Association Set Provider сервис).
 
 MVP timeline не вмещает оба. Выбор только одного создаёт tradeoff:
 

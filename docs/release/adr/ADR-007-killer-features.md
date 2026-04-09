@@ -9,7 +9,7 @@ The MVP needs at least one feature beyond "another shielded pool" that gives the
 
 1. **Shielded Memo** — encrypted memo of up to ~200 bytes attached to each deposit. Decryptable only by the holder of the relevant viewing key. Application-layer feature, no impact on the ZK circuit. Estimated implementation: **1–2 days**.
 
-2. **Proof of Innocence (Association Sets)** — additional ZK circuit that proves the user's deposit belongs to a curated subset of approved deposits, without revealing which specific deposit is theirs. Compliance-by-choice without KYC. Estimated implementation: **5–7 days** (new circuit, new trusted setup, off-chain Association Set Provider service).
+2. **Proof of Innocence (Association Sets)** — additional ZK circuit that proves the user's deposit belongs to a curated subset of approved deposits, without revealing which specific deposit is theirs. Compliance-by-choice without KYC. Estimated implementation: **5–7 days** (new circuit, new trusted setup, offchain Association Set Provider service).
 
 The MVP timeline cannot fit both. Picking just one creates a tradeoff:
 

@@ -62,7 +62,7 @@ Every transaction is private by default. Sender, receiver, amount — all hidden
 
 ### Layer 2 — Selective Disclosure (the choice)
 
-Each transaction carries an optional, encrypted tag. The user — and **only** the user — decides whether to include it and who may read it. A viewing key, shared off-chain, lets a trusted party see the transaction history. This enables:
+Each transaction carries an optional, encrypted tag. The user — and **only** the user — decides whether to include it and who may read it. A viewing key, shared offchain, lets a trusted party see the transaction history. This enables:
 
 - Tax compliance without surveillance
 - Audit without exposure

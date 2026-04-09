@@ -37,7 +37,7 @@ The BN254 pairing-friendly elliptic curve was originally estimated at 128 bits o
 **Why we still use BN254:**
 - It is the only elliptic curve with native Solana syscall support (`alt_bn128`).
 - Groth16 proof verification on BN254 costs under 200,000 compute units through the `groth16-solana` crate.
-- Alternatives (BLS12-381, BLS12-377) have higher security but no Solana syscalls, which would push verification cost by orders of magnitude and make on-chain verification impractical.
+- Alternatives (BLS12-381, BLS12-377) have higher security but no Solana syscalls, which would push verification cost by orders of magnitude and make onchain verification impractical.
 - BN254 remains the standard for the broader Ethereum-ecosystem ZK applications, which means our stack benefits from shared tooling and shared scrutiny.
 
 **What users should understand:**
@@ -70,7 +70,7 @@ No production-ready Rust crate exists for ElGamal encryption on BN254. All major
 - The ElGamal implementation lives in `tidex6-core::elgamal` and is isolated from the consensus path. The privacy layer (Merkle tree, nullifiers, Groth16 verification) uses standard well-understood primitives. A bug in our ElGamal code can leak deposit metadata to the wrong party for users who opted into disclosure — but it cannot compromise the privacy of users who did not opt in, and it cannot enable theft.
 - The code is marked `unaudited` in the module documentation, in the README, and in this document.
 - Independent cryptographic audit is a precondition for mainnet deployment.
-- See [ADR-004](adr/ADR-004-elgamal-bn254.md) for the full rationale and the dual-curve design (BN254 G1 for on-chain ElGamal, Baby Jubjub for in-circuit operations).
+- See [ADR-004](adr/ADR-004-elgamal-bn254.md) for the full rationale and the dual-curve design (BN254 G1 for onchain ElGamal, Baby Jubjub for in-circuit operations).
 
 ### 1.4 Local Phase 2 trusted setup — DEVELOPMENT ONLY
 
@@ -110,13 +110,13 @@ We take this as a direct engineering lesson: **our own proof logic is not immune
 
 ### 2.2 Poseidon parameter mismatch (HIGH)
 
-tidex6 hashes data off-chain in the client (to compute commitments and nullifier hashes) and on-chain in the program (to validate Merkle roots). If the off-chain Poseidon parameters differ from the on-chain parameters by even one round constant, off-chain-computed commitments will not match on-chain-computed commitments and the entire pool will be unusable.
+tidex6 hashes data offchain in the client (to compute commitments and nullifier hashes) and onchain in the program (to validate Merkle roots). If the offchain Poseidon parameters differ from the onchain parameters by even one round constant, offchain-computed commitments will not match onchain-computed commitments and the entire pool will be unusable.
 
-The standard way this fails: using `ark-crypto-primitives::sponge::poseidon` off-chain (which ships with hardcoded parameters that may not match circom / Solana conventions) while the program uses the `solana-poseidon` syscall (which is circom-compatible). The hashes differ silently. Integrators only discover the mismatch when their first proof fails verification, by which point significant time has been lost.
+The standard way this fails: using `ark-crypto-primitives::sponge::poseidon` offchain (which ships with hardcoded parameters that may not match circom / Solana conventions) while the program uses the `solana-poseidon` syscall (which is circom-compatible). The hashes differ silently. Integrators only discover the mismatch when their first proof fails verification, by which point significant time has been lost.
 
 **Our defence:**
-- Off-chain Poseidon is provided exclusively through `light-poseidon::Poseidon::<Fr>::new_circom(n)`. The `new_circom` constructor locks parameters to the circom-compatible values that match `solana-poseidon` byte-for-byte.
-- Day-1 of the MVP timeline has a mandatory equivalence test: hash the same input off-chain and on-chain, compare byte-for-byte. If the result does not match, stop everything and debug before writing any other code.
+- Offchain Poseidon is provided exclusively through `light-poseidon::Poseidon::<Fr>::new_circom(n)`. The `new_circom` constructor locks parameters to the circom-compatible values that match `solana-poseidon` byte-for-byte.
+- Day-1 of the MVP timeline has a mandatory equivalence test: hash the same input offchain and onchain, compare byte-for-byte. If the result does not match, stop everything and debug before writing any other code.
 - `light-poseidon` version is pinned in `Cargo.toml` with a narrow constraint so auto-updates cannot silently change parameters.
 
 ### 2.3 BN254 weakening over time (MEDIUM, long-term)
@@ -137,17 +137,17 @@ Covered in section 1.3. Bugs in our custom ElGamal code are application-layer an
 
 ### 2.6 Indexer availability and honesty (OPERATIONAL)
 
-The Merkle tree of commitments is stored off-chain in the indexer. Withdrawers need the indexer to construct their Merkle proof before they can withdraw.
+The Merkle tree of commitments is stored offchain in the indexer. Withdrawers need the indexer to construct their Merkle proof before they can withdraw.
 
-**Honesty:** the indexer cannot lie undetectably about the tree state. Any Merkle proof it produces must verify against an on-chain root, which the program maintains in a ring buffer. A malicious indexer can at worst refuse to serve proofs; it cannot forge them.
+**Honesty:** the indexer cannot lie undetectably about the tree state. Any Merkle proof it produces must verify against an onchain root, which the program maintains in a ring buffer. A malicious indexer can at worst refuse to serve proofs; it cannot forge them.
 
-**Availability:** a malicious or offline indexer can block withdrawals by refusing to serve proofs. Mitigation: the indexer is reference code (`tidex6-indexer`), fully deterministic, and anyone can run their own. The protocol publishes instructions for rebuilding the tree from on-chain `DepositEvent` logs. For production, integrators should run their own indexer or use a community-run multi-indexer fallback.
+**Availability:** a malicious or offline indexer can block withdrawals by refusing to serve proofs. Mitigation: the indexer is reference code (`tidex6-indexer`), fully deterministic, and anyone can run their own. The protocol publishes instructions for rebuilding the tree from onchain `DepositEvent` logs. For production, integrators should run their own indexer or use a community-run multi-indexer fallback.
 
 See [ADR-002](adr/ADR-002-merkle-tree-storage.md) for the full rationale.
 
 ### 2.7 Viewing key compromise (LIMITED)
 
-If a user's viewing key is leaked, all past deposits encrypted under that key become visible to whoever holds the leaked key. The ciphertexts are already on-chain; the viewing key unlocks them retroactively and there is no way to "revoke" it.
+If a user's viewing key is leaked, all past deposits encrypted under that key become visible to whoever holds the leaked key. The ciphertexts are already onchain; the viewing key unlocks them retroactively and there is no way to "revoke" it.
 
 **Important:** viewing keys are **read-only**. A leaked viewing key reveals history to the attacker but does not allow the attacker to spend funds. The spending key is a separate value, generated and held independently.
 
@@ -173,8 +173,8 @@ Before writing any production code, the following four tests must pass. This is 
 
 ```bash
 # 1. Poseidon compatibility test
-#    Off-chain (Rust, using light-poseidon::new_circom) and
-#    on-chain (Solana syscall) hash the same input. Bytes must match exactly.
+#    Offchain (Rust, using light-poseidon::new_circom) and
+#    onchain (Solana syscall) hash the same input. Bytes must match exactly.
 
 # 2. Groth16 pipeline smoke test
 #    Write a trivial circuit ("I know x such that Poseidon(x) == y").

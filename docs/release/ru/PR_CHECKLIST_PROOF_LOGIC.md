@@ -50,7 +50,7 @@
 
 - [ ] **Curve point compression консистентен.** При absorbing G1 points в transcript, код использует либо compressed либо uncompressed encoding консистентно. Смешивание compressed и uncompressed производит разные transcripts для математически идентичных proofs и это немедленный verification failure.
 
-- [ ] **Public inputs для Groth16 сериализуются консистентно off-chain и on-chain.** Off-chain prover и on-chain verifier должны сериализовать public inputs в byte-for-byte одинаковом формате. Один off-by-one или различие в serialization convention молча отклоняет каждый proof.
+- [ ] **Public inputs для Groth16 сериализуются консистентно offchain и onchain.** Offchain prover и onchain verifier должны сериализовать public inputs в byte-for-byte одинаковом формате. Один off-by-one или различие в serialization convention молча отклоняет каждый proof.
 
 ---
 
@@ -62,7 +62,7 @@
 
 - [ ] **Никакие redundant constraints не были удалены как "оптимизация".** Удаление "unused" constraints из ZK circuit — это один из классических способов молча сломать soundness. Если любой constraint был удалён, описание PR объясняет почему это было безопасно.
 
-- [ ] **Witness generation код matchит circuit definition.** Off-chain код который вычисляет witness values должен применять те же операции что circuit ожидает. Divergence производит valid-looking proof который доказывает не то утверждение — и этот proof верифицируется успешно, приводя к silent vulnerability. Автор вручную трассировал witness generation путь против circuit constraints.
+- [ ] **Witness generation код matchит circuit definition.** Offchain код который вычисляет witness values должен применять те же операции что circuit ожидает. Divergence производит valid-looking proof который доказывает не то утверждение — и этот proof верифицируется успешно, приводя к silent vulnerability. Автор вручную трассировал witness generation путь против circuit constraints.
 
 - [ ] **Новые proof types имеют хотя бы один negative тест.** Для любого нового proof type или любой модификации существующего proof type, есть хотя бы один тест который конструирует намеренно tampered input и верифицирует что proof отклонён.
 

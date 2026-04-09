@@ -48,7 +48,7 @@ These items block merge unless the author provides a written justification in th
 
 - [ ] **Curve point compression is consistent.** When absorbing G1 points into the transcript, the code uses either compressed or uncompressed encoding consistently. Mixing compressed and uncompressed produces different transcripts for mathematically identical proofs and is an immediate verification failure.
 
-- [ ] **Public inputs to Groth16 are serialized consistently off-chain and on-chain.** The off-chain prover and the on-chain verifier must serialize public inputs in byte-for-byte the same format. A single off-by-one or a serialization convention difference silently rejects every proof.
+- [ ] **Public inputs to Groth16 are serialized consistently offchain and onchain.** The offchain prover and the onchain verifier must serialize public inputs in byte-for-byte the same format. A single off-by-one or a serialization convention difference silently rejects every proof.
 
 ---
 
@@ -60,7 +60,7 @@ These items require a review comment from the author acknowledging that the situ
 
 - [ ] **No redundant constraints were removed as "optimization".** Removing "unused" constraints from a ZK circuit is one of the classic ways to silently break soundness. If any constraint was removed, the PR description explains why it was safe.
 
-- [ ] **Witness generation code matches the circuit definition.** The off-chain code that computes witness values must apply the same operations that the circuit expects. A divergence produces a valid-looking proof that proves the wrong statement — and that proof will verify successfully, leading to silent vulnerability. The author has manually traced the witness generation path against the circuit constraints.
+- [ ] **Witness generation code matches the circuit definition.** The offchain code that computes witness values must apply the same operations that the circuit expects. A divergence produces a valid-looking proof that proves the wrong statement — and that proof will verify successfully, leading to silent vulnerability. The author has manually traced the witness generation path against the circuit constraints.
 
 - [ ] **New proof types have at least one negative test.** For any new proof type or any modification to an existing proof type, there is at least one test that constructs a deliberately tampered input and verifies that the proof is rejected.
 

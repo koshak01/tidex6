@@ -9,7 +9,7 @@ Anchor programs are upgradeable by default. The deployer holds an upgrade author
 
 1. **Trust:** users have to trust that the upgrade authority will never deploy a malicious version of the verifier (one that, for example, accepts forged proofs and lets the upgrade authority drain the pool).
 
-2. **Legal exposure:** in the United States, the November 2024 Fifth Circuit decision in *Van Loon v. Department of Treasury* established that **immutable smart contracts cannot be sanctioned as property under IEEPA** because they cannot be owned, controlled, or excluded from use by anyone. Crucially, this protection does **not** apply to mutable contracts — the Treasury explicitly argued that upgradeable contracts remain sanctionable, and the court did not contradict this.
+2. **Legal exposure:** in the United States, the November 2024 Fifth Circuit decision in *Van Loon v. Department of Treasury* established that **immutable onchain code cannot be sanctioned as property under IEEPA** because it cannot be owned, controlled, or excluded from use by anyone. Crucially, this protection does **not** apply to mutable onchain code — the Treasury explicitly argued that upgradeable programs remain sanctionable, and the court did not contradict this.
 
 For a privacy protocol whose value proposition includes resistance to weaponization by authorities, immutability is not optional.
 
@@ -25,7 +25,7 @@ This applies to:
 
 It does **not** apply to:
 - Integrator programs (those are owned by their respective developers)
-- The reference indexer / relayer (those are off-chain code, not on-chain programs)
+- The reference indexer / relayer (those are offchain code, not onchain programs)
 - The SDK crates (those are libraries, distributed via crates.io, versioned normally)
 
 ## Consequences

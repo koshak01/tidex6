@@ -15,14 +15,14 @@
 - Groth16 verifier как singleton, non-upgradeable Anchor program (CPI из программ интеграторов)
 - Поток Deposit / Withdraw через Groth16 zero-knowledge proofs
 - Хранение nullifier'ов как один PDA на каждый nullifier (анти double-spend)
-- Off-chain Merkle tree (глубина 20, ~1M ёмкости) с on-chain root ring buffer (последние 30 корней)
+- Offchain Merkle tree (глубина 20, ~1M ёмкости) с onchain root ring buffer (последние 30 корней)
 - Локальный Phase 2 trusted setup ceremony, помечен **DEVELOPMENT ONLY — не для реальных средств**
 
 ### Selective disclosure
 - Per-deposit ElGamal auditor tag (BN254 G1 group + Baby Jubjub для in-circuit derivation)
 - Одноуровневый viewing key (упрощённая иерархическая деривация для MVP)
 - Auditor scanning tool (CLI)
-- Off-chain передача ключей (hex format)
+- Offchain передача ключей (hex format)
 
 ### Shielded Memo
 - Зашифрованное memo до ~200 байт прикреплённое к каждому депозиту
@@ -40,10 +40,10 @@
 ### DepositNote
 - First-class `DepositNote` концепт в SDK
 - Текстовый формат: `tidex6-note-v1:<denomination>:<secret>:<nullifier>`
-- Передаваема off-chain (файл, clipboard, зашифрованное сообщение, QR через библиотеку)
+- Передаваема offchain (файл, clipboard, зашифрованное сообщение, QR через библиотеку)
 
 ### Инфраструктура
-- **Indexer** — in-memory, WebSocket подписка на события программы, off-chain Merkle tree rebuild
+- **Indexer** — in-memory, WebSocket подписка на события программы, offchain Merkle tree rebuild
 - **Relayer** — минимальный HTTP сервер, fee-payer abstraction
 
 ### Flagship пример
@@ -65,7 +65,7 @@
 
 ### Proof of Innocence
 - Дополнительный circuit: доказать вхождение в курируемое подмножество депозитов, не раскрывая какой именно депозит твой
-- Reference Association Set Provider (off-chain сервис)
+- Reference Association Set Provider (offchain сервис)
 - Ragequit механизм — публичный withdrawal если пользователь отказывается от disclosure
 - Compliance-compatible privacy без KYC
 

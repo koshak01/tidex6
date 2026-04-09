@@ -5,7 +5,7 @@
 
 ## Context
 
-Стоимость верификации Groth16 proof на Solana well-understood: меньше 200K compute units, детерминистично, предсказуемо. Стоимость *генерации* Groth16 proof off-chain редко бенчмаркается рано в проекте — и эта пропуска укусила больше одного ZK проекта в момент демо.
+Стоимость верификации Groth16 proof на Solana well-understood: меньше 200K compute units, детерминистично, предсказуемо. Стоимость *генерации* Groth16 proof offchain редко бенчмаркается рано в проекте — и эта пропуска укусила больше одного ZK проекта в момент демо.
 
 Для tidex6 withdrawal circuit включает:
 - Merkle inclusion proof для глубины 20 (~20 hash операций внутри circuit)

@@ -15,14 +15,14 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - Groth16 verifier as a singleton, non-upgradeable Anchor program (CPI from integrator programs)
 - Deposit / Withdraw flow via Groth16 zero-knowledge proofs
 - Nullifier storage as one PDA per nullifier (anti double-spend)
-- Off-chain Merkle tree (depth 20, ~1M capacity) with on-chain root ring buffer (last 30 roots)
+- Offchain Merkle tree (depth 20, ~1M capacity) with onchain root ring buffer (last 30 roots)
 - Local Phase 2 trusted setup ceremony, marked **DEVELOPMENT ONLY — not for real funds**
 
 ### Selective disclosure
 - Per-deposit ElGamal auditor tag (BN254 G1 group + Baby Jubjub for in-circuit derivation)
 - One-level viewing key (hierarchical derivation, simplified for MVP)
 - Auditor scanning tool (CLI)
-- Off-chain key sharing (hex format)
+- Offchain key sharing (hex format)
 
 ### Shielded Memo
 - Encrypted memo up to ~200 bytes attached to each deposit
@@ -40,10 +40,10 @@ The minimum coherent system. Everything in this layer ships in working code, run
 ### DepositNote
 - First-class `DepositNote` concept in the SDK
 - Text format: `tidex6-note-v1:<denomination>:<secret>:<nullifier>`
-- Off-chain transferable (file, clipboard, encrypted message, QR via library)
+- Offchain transferable (file, clipboard, encrypted message, QR via library)
 
 ### Infrastructure
-- **Indexer** — in-memory, WebSocket subscription to program events, off-chain Merkle tree rebuild
+- **Indexer** — in-memory, WebSocket subscription to program events, offchain Merkle tree rebuild
 - **Relayer** — minimal HTTP server, fee-payer abstraction
 
 ### Flagship example
@@ -65,7 +65,7 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 
 ### Proof of Innocence
 - Additional circuit: prove inclusion in a curated subset of deposits without revealing which deposit is yours
-- Reference Association Set Provider (off-chain service)
+- Reference Association Set Provider (offchain service)
 - Ragequit mechanism — public withdrawal if a user declines disclosure
 - Compliance-compatible privacy without KYC
 

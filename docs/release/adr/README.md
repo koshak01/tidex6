@@ -9,7 +9,7 @@
 | # | Title | Status |
 |---|---|---|
 | [ADR-001](ADR-001-commitment-scheme.md) | Commitment scheme: `Poseidon(secret, nullifier)` only | Accepted |
-| [ADR-002](ADR-002-merkle-tree-storage.md) | Merkle tree off-chain, root ring buffer on-chain | Accepted |
+| [ADR-002](ADR-002-merkle-tree-storage.md) | Merkle tree offchain, root ring buffer onchain | Accepted |
 | [ADR-003](ADR-003-nullifier-storage.md) | Nullifier storage: one PDA per nullifier | Accepted |
 | [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal on BN254 — custom dual-curve implementation | Accepted |
 | [ADR-005](ADR-005-non-upgradeable-verifier.md) | Verifier program is non-upgradeable after deploy | Accepted |

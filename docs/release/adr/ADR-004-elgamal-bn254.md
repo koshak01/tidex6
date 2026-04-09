@@ -17,7 +17,7 @@ A second consideration: in-circuit operations (where ElGamal randomness or audit
 
 A dual-curve approach:
 
-- **BN254 G1 (`ark-bn254::G1Projective`)** — used for the on-chain ElGamal ciphertext that the auditor decrypts off-chain. Standard additive ElGamal: encode message `m` as `m·G`, encrypt as `(r·G, m·G + r·PK_auditor)`. Public key is on G1.
+- **BN254 G1 (`ark-bn254::G1Projective`)** — used for the onchain ElGamal ciphertext that the auditor decrypts offchain. Standard additive ElGamal: encode message `m` as `m·G`, encrypt as `(r·G, m·G + r·PK_auditor)`. Public key is on G1.
 
 - **Baby Jubjub (`ark-ed-on-bn254`)** — used for in-circuit operations: ECDH key derivation for the encrypted memo, in-circuit auditor key handling, and any future selective-disclosure operations that must be proven inside the Groth16 circuit.
 
@@ -29,7 +29,7 @@ The implementation is written from scratch using arkworks primitives (`ark-bn254
 
 **Positive:**
 - We get cheap in-circuit ECDH and key derivation via Baby Jubjub.
-- We get on-chain-verifiable ElGamal ciphertexts via BN254 G1.
+- We get onchain-verifiable ElGamal ciphertexts via BN254 G1.
 - The two curves talk to each other through their shared scalar field, which is exactly what BN254's design supports.
 - ElGamal lives in the application layer, not in the consensus path. A bug in our ElGamal implementation can leak amounts to the wrong party for users who opted into disclosure — but it cannot compromise the privacy of users who did not opt in, and it cannot enable theft.
 

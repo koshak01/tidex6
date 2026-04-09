@@ -78,7 +78,7 @@ tidex6/
 ├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via CPI
 ├── tidex6-client/     — Rust SDK with builder pattern (no proc macros in MVP)
 ├── tidex6-cli/        — three commands: keygen, setup, scan
-├── tidex6-indexer/    — in-memory indexer, off-chain Merkle tree rebuild
+├── tidex6-indexer/    — in-memory indexer, offchain Merkle tree rebuild
 ├── tidex6-relayer/    — minimal HTTP relayer for fee abstraction
 └── examples/
     └── private-payroll/   — flagship example (Lena + parents + Kai)
@@ -90,11 +90,11 @@ Fixed decisions. Changing any of these without explicit approval breaks several 
 
 - **Curve:** BN254. The only curve with native Solana syscall support (`alt_bn128`). Approximately 100-bit security — documented in `security.md`.
 - **Proof system:** Groth16. Verification via CPI into the singleton `tidex6-verifier` program, never embedded into integrator programs.
-- **Hash:** Poseidon, circom-compatible parameters. Off-chain uses `light-poseidon::Poseidon::<Fr>::new_circom(n)` exclusively. Never use `ark-crypto-primitives::sponge::poseidon` — parameters will not match the Solana syscall.
+- **Hash:** Poseidon, circom-compatible parameters. Offchain uses `light-poseidon::Poseidon::<Fr>::new_circom(n)` exclusively. Never use `ark-crypto-primitives::sponge::poseidon` — parameters will not match the Solana syscall.
 - **Commitment scheme (ADR-001):** `commitment = Poseidon(secret, nullifier)` only. Auditor tag and encrypted memo live as separate fields in `DepositEvent`, not inside the commitment. See ADR-001 for the full rationale — note that the original brief had two contradictory schemes; this ADR fixes that bug.
-- **Merkle tree (ADR-002):** depth 20 (~1M capacity). Full tree off-chain in the indexer. On-chain stores a ring buffer of the **last 30 roots** + a `next_leaf_index` counter.
+- **Merkle tree (ADR-002):** depth 20 (~1M capacity). Full tree offchain in the indexer. Onchain stores a ring buffer of the **last 30 roots** + a `next_leaf_index` counter.
 - **Nullifier storage (ADR-003):** one PDA per used nullifier. Seeds `[b"nullifier", nullifier_hash]`, empty data, rent-exempt minimum.
-- **ElGamal (ADR-004):** custom dual-curve implementation. BN254 G1 for on-chain ciphertext, Baby Jubjub (`ark-ed-on-bn254`) for in-circuit operations. **Unaudited.** Isolated from the consensus path.
+- **ElGamal (ADR-004):** custom dual-curve implementation. BN254 G1 for onchain ciphertext, Baby Jubjub (`ark-ed-on-bn254`) for in-circuit operations. **Unaudited.** Isolated from the consensus path.
 - **Verifier (ADR-005):** non-upgradeable. Locked with `solana program set-upgrade-authority --final` immediately after deployment. This is legally and cryptographically load-bearing — bugs cannot be patched post-deploy.
 - **No proc macros in MVP (ADR-006):** builder pattern API instead. Macros are a v0.2 deliverable, built on top of the proven builder API.
 - **Killer features (ADR-007):** Shielded Memo ships in MVP code; Proof of Innocence (association sets) ships in roadmap v0.2 — prominently positioned in pitch deck, not yet implemented.
@@ -106,9 +106,9 @@ Fixed decisions. Changing any of these without explicit approval breaks several 
 
 Pinned in `docs/release/PROJECT_BRIEF.md §6`. Before adding any new dependency, check the list — anything outside it is an architectural decision requiring explicit approval.
 
-**On-chain:** `anchor-lang = "=1.0.0"`, `anchor-spl = "=1.0.0"`, `groth16-solana = "0.2"`, `solana-poseidon = "4"`, `tidex6-core`.
+**Onchain:** `anchor-lang = "=1.0.0"`, `anchor-spl = "=1.0.0"`, `groth16-solana = "0.2"`, `solana-poseidon = "4"`, `tidex6-core`.
 
-**Off-chain:** arkworks 0.5.x (`ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`), `light-poseidon = "0.4"`, `anchor-client = "1.0"`, `solana-sdk = "3.0"`.
+**Offchain:** arkworks 0.5.x (`ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`), `light-poseidon = "0.4"`, `anchor-client = "1.0"`, `solana-sdk = "4.0"`.
 
 **Explicitly not in MVP:** no SP1, no RISC0, no SPL tokens (SOL only), no range proofs, no proc macros.
 
@@ -116,7 +116,7 @@ Pinned in `docs/release/PROJECT_BRIEF.md §6`. Before adding any new dependency,
 
 Before writing any production code, four tests must pass. If any fails, **stop and debug** — do not proceed:
 
-1. **Poseidon equivalence** — off-chain `light-poseidon::new_circom` and on-chain `solana-poseidon` syscall hash the same input and produce byte-for-byte identical results.
+1. **Poseidon equivalence** — offchain `light-poseidon::new_circom` and onchain `solana-poseidon` syscall hash the same input and produce byte-for-byte identical results.
 2. **Groth16 pipeline smoke test** — trivial circuit proves, verifies through `groth16-solana` inside an Anchor test.
 3. **alt_bn128 availability** — minimal program calling the syscalls runs on devnet with expected CU consumption.
 4. **Anchor 1.0 CPI with proof data** — caller and callee programs exchange proof bytes as instruction data.
@@ -131,7 +131,7 @@ Two-reviewer policy: author plus one independent reviewer must sign off on trans
 
 ## Build / test / lint
 
-Not configured yet — no `Cargo.toml` exists. Do not invent commands that do not exist. Once the workspace is bootstrapped, the expected flow is standard Rust (`cargo build`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt`) plus `anchor build` / `anchor test` for on-chain programs. Update this section with the real commands after the workspace lands.
+Not configured yet — no `Cargo.toml` exists. Do not invent commands that do not exist. Once the workspace is bootstrapped, the expected flow is standard Rust (`cargo build`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt`) plus `anchor build` / `anchor test` for onchain programs. Update this section with the real commands after the workspace lands.
 
 ## Language and style
 
@@ -144,7 +144,7 @@ Not configured yet — no `Cargo.toml` exists. Do not invent commands that do no
 All nine architecture decision records live in `docs/release/adr/`. Each is a short, focused document (Status / Date / Context / Decision / Consequences / Related):
 
 - **ADR-001** — Commitment scheme: `Poseidon(secret, nullifier)` only
-- **ADR-002** — Merkle tree off-chain, root ring buffer on-chain
+- **ADR-002** — Merkle tree offchain, root ring buffer onchain
 - **ADR-003** — Nullifier storage: one PDA per nullifier
 - **ADR-004** — ElGamal on BN254, custom dual-curve implementation
 - **ADR-005** — Verifier program is non-upgradeable after deploy

@@ -5,7 +5,7 @@
 
 ## Context
 
-The cost of verifying a Groth16 proof on Solana is well-understood: under 200K compute units, deterministic, predictable. The cost of *generating* a Groth16 proof off-chain is rarely benchmarked early in a project — and that omission has bitten more than one ZK project at demo time.
+The cost of verifying a Groth16 proof on Solana is well-understood: under 200K compute units, deterministic, predictable. The cost of *generating* a Groth16 proof offchain is rarely benchmarked early in a project — and that omission has bitten more than one ZK project at demo time.
 
 For tidex6, the withdrawal circuit involves:
 - Merkle inclusion proof for depth 20 (~20 hash operations inside the circuit)

@@ -66,9 +66,9 @@ note.save_to_file("./october_invoice.note")?;
 
 ## Архитектура кратко
 
-- **Groth16** zero-knowledge доказательства на кривой **BN254**, верифицируемые on-chain через нативные Solana `alt_bn128` syscalls — меньше 200 000 compute units на доказательство.
-- **Poseidon** хеш-функция, параметры согласованы между off-chain (`light-poseidon`) и on-chain (`solana-poseidon`) компонентами.
-- **Off-chain Merkle tree** (глубина 20, ~1M ёмкости) с on-chain ring buffer корней.
+- **Groth16** zero-knowledge доказательства на кривой **BN254**, верифицируемые onchain через нативные Solana `alt_bn128` syscalls — меньше 200 000 compute units на доказательство.
+- **Poseidon** хеш-функция, параметры согласованы между offchain (`light-poseidon`) и onchain (`solana-poseidon`) компонентами.
+- **Offchain Merkle tree** (глубина 20, ~1M ёмкости) с onchain ring buffer корней.
 - **Per-deposit selective disclosure** через ElGamal auditor tags — пользователи выбирают кто что видит, по каждой транзакции.
 - **Shielded memos** — зашифрованные заметки до ~200 байт прикреплённые к каждому депозиту, читаемые только владельцем viewing key.
 - **Non-upgradeable verifier** — основной proof verifier блокируется после deployment, поэтому пользователям не нужно доверять deployer'у навсегда.
@@ -80,15 +80,15 @@ note.save_to_file("./october_invoice.note")?;
 
 ## Технический стек
 
-**On-chain (Anchor 1.0 программа):**
+**Onchain (Anchor 1.0 программа):**
 - `anchor-lang = "=1.0.0"`
 - `groth16-solana = "0.2"` — Groth16 verifier через `alt_bn128` syscalls
 - `solana-poseidon = "4"` — нативный Poseidon syscall
 
-**Off-chain (client и prover):**
+**Offchain (client и prover):**
 - `arkworks 0.5.x` — `ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`
-- `light-poseidon = "0.4"` — circom-compatible Poseidon, byte-for-byte эквивалентно on-chain syscall
-- `anchor-client = "1.0"`, `solana-sdk = "3.0"`
+- `light-poseidon = "0.4"` — circom-compatible Poseidon, byte-for-byte эквивалентно onchain syscall
+- `anchor-client = "1.0"`, `solana-sdk = "4.0"`
 
 ---
 
@@ -124,7 +124,7 @@ tidex6/
 ├── tidex6-verifier/   — singleton non-upgradeable Anchor verifier program
 ├── tidex6-client/     — Rust SDK с builder pattern API
 ├── tidex6-cli/        — developer CLI: keygen, setup, scan
-├── tidex6-indexer/    — in-memory indexer, off-chain Merkle tree rebuild
+├── tidex6-indexer/    — in-memory indexer, offchain Merkle tree rebuild
 ├── tidex6-relayer/    — минимальный HTTP relayer для fee abstraction
 └── examples/
     └── private-payroll/ — flagship пример

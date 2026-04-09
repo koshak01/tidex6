@@ -17,7 +17,7 @@ Selective disclosure (auditor tag в `DepositEvent`) требует асимме
 
 Dual-curve подход:
 
-- **BN254 G1 (`ark-bn254::G1Projective`)** — используется для on-chain ElGamal ciphertext который аудитор расшифровывает off-chain. Стандартный additive ElGamal: кодировать сообщение `m` как `m·G`, шифровать как `(r·G, m·G + r·PK_auditor)`. Public key на G1.
+- **BN254 G1 (`ark-bn254::G1Projective`)** — используется для onchain ElGamal ciphertext который аудитор расшифровывает offchain. Стандартный additive ElGamal: кодировать сообщение `m` как `m·G`, шифровать как `(r·G, m·G + r·PK_auditor)`. Public key на G1.
 
 - **Baby Jubjub (`ark-ed-on-bn254`)** — используется для in-circuit операций: ECDH key derivation для encrypted memo, in-circuit обработка auditor key, и любые будущие selective-disclosure операции которые должны быть доказаны внутри Groth16 circuit.
 
@@ -29,7 +29,7 @@ Dual-curve подход:
 
 **Positive:**
 - Получаем дешёвый in-circuit ECDH и key derivation через Baby Jubjub.
-- Получаем on-chain-verifiable ElGamal ciphertexts через BN254 G1.
+- Получаем onchain-verifiable ElGamal ciphertexts через BN254 G1.
 - Две кривые говорят друг с другом через shared scalar field, что и есть то, что поддерживает дизайн BN254.
 - ElGamal живёт в application layer, не в consensus path. Баг в нашей ElGamal имплементации может leak'нуть amounts не тому пользователю, который opt'нулся в disclosure — но не может скомпрометировать privacy пользователей которые не opt'нулись, и не может позволить кражу.
 

@@ -9,7 +9,7 @@ Anchor программы upgradeable по умолчанию. Deployer держ
 
 1. **Доверие:** пользователи должны доверять что upgrade authority никогда не задеплоит злонамеренную версию verifier (которая, например, принимает forged proofs и позволяет upgrade authority слить pool).
 
-2. **Юридическая экспозиция:** в США ноябрьское 2024 года решение Fifth Circuit в *Van Loon v. Department of Treasury* установило что **immutable smart contracts не могут быть санкционированы как property под IEEPA** потому что они не могут быть owned, controlled или excluded from use кем-либо. Критично, эта защита **не** применяется к mutable contracts — Treasury явно аргументировал что upgradeable contracts остаются sanctionable, и суд этому не противоречил.
+2. **Юридическая экспозиция:** в США ноябрьское 2024 года решение Fifth Circuit в *Van Loon v. Department of Treasury* установило что **immutable onchain code не может быть санкционирован как property под IEEPA** потому что он не может быть owned, controlled или excluded from use кем-либо. Критично, эта защита **не** применяется к mutable onchain коду — Treasury явно аргументировал что upgradeable programs остаются sanctionable, и суд этому не противоречил.
 
 Для privacy протокола чьё value proposition включает сопротивление weaponization властями, immutability — не опция.
 
@@ -25,7 +25,7 @@ Solana предоставляет one-way операцию: `solana program set-
 
 Это **не** применяется к:
 - Integrator программам (они принадлежат их разработчикам)
-- Reference indexer / relayer (это off-chain код, не on-chain программы)
+- Reference indexer / relayer (это offchain код, не onchain программы)
 - SDK crates (это библиотеки, distributed через crates.io, версионируются нормально)
 
 ## Consequences
