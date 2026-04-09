@@ -1,0 +1,164 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Status
+
+Greenfield Rust workspace. **Paperwork phase is complete.** Code has not started yet — no `Cargo.toml`, no crates, no tests, no CI. The next session should begin by reading this file, then the documents in `docs/release/`, and only then write the first line of Rust.
+
+MVP deadline: Colosseum Frontier hackathon, **2026-05-11**.
+
+Slogan: **"I grant access, not permission."**
+Subtitle: **"The Rust-native privacy framework for Solana."**
+
+## Reading order for a new session
+
+Before touching any code, read in this order:
+
+1. **`docs/release/THE_LEGEND.md`** — mission, philosophy, narrative identity. Don't skip — every design decision in the brief follows from this document.
+2. **`docs/release/PROJECT_BRIEF.md`** — the engineering brief: architecture, data flow, workspace layout, dependency stack, developer experience.
+3. **`docs/release/ROADMAP.md`** — now / next / later horizons.
+4. **`docs/release/security.md`** — threat model, known limitations, vulnerability classes.
+5. **`docs/release/adr/README.md`** — index of all nine architecture decision records.
+
+Russian versions of all of the above are available in `docs/release/ru/`.
+
+## Document structure
+
+**Public documents** (`docs/release/`) — everything that goes to GitHub, grant committees, Colosseum judges:
+
+```
+docs/release/
+├── THE_LEGEND.md                ← manifesto
+├── PROJECT_BRIEF.md             ← engineering brief
+├── ROADMAP.md                   ← now / next / later
+├── security.md                  ← threat model
+├── PR_CHECKLIST_PROOF_LOGIC.md  ← Fiat-Shamir discipline
+├── adr/                         ← 9 ADRs + index
+└── ru/                          ← Russian mirror of everything above
+```
+
+**Internal working documents** (`docs/` top level) — research, reviews, strategy Q&A. **Not public.** Contain references to other projects that must never be ported to public documents.
+
+```
+docs/
+├── compass_artifact_wf-*.md          ← market research
+├── REVIEW_AND_RECOMMENDATIONS.md     ← Claude Desktop review, round 1
+└── STRATEGIC_QA_ROUND2.md            ← Claude Desktop review, round 2
+```
+
+## Principles (apply to every public document we write)
+
+These principles were established during the paperwork phase and must be followed in every new public document:
+
+1. **No competitor mentions.** Public documents in `docs/release/` describe what tidex6 does, not how it compares to other projects. No "unlike X", no "first to Y", no "where others failed", no tables of dead competitors. Describe the mechanism, not the positioning against anyone.
+2. **No references to our own past projects either.** The same principle applies internally: the product stands on its own, without a lineage.
+3. **Academic citations of cryptographic primitives are OK.** Groth16, Poseidon, ECDH, Pedersen, Fiat-Shamir — these are standard primitives and naming them is normal engineering writing, not competitive positioning.
+4. **One exception:** `security.md` explicitly mentions the 2025 Token-2022 Confidential Transfers Fiat-Shamir incidents as *engineering lessons learned*. This is standard security practice — learning from known incidents — not marketing.
+5. **Dual-language.** Every public document exists in English under `docs/release/` and Russian under `docs/release/ru/`. Both versions must stay synchronised.
+6. **The slogan is used consistently.** `I grant access, not permission.` — header, footer, README, pitch. Never paraphrase.
+
+## Flagship example
+
+`examples/private-payroll/` — the story of **Lena**:
+
+Lena lives in Amsterdam. Her elderly parents live in a country where bank transfers from Europe trigger automatic financial-intelligence flags. She supports them every month — medicine, groceries, utilities. With tidex6 she does what her grandmother did with cash in envelopes: sends dignity home, invisibly. At tax time her Dutch accountant Kai imports her viewing key, sees every transfer with memos, and prepares a compliant tax report.
+
+Three binaries: `sender.rs` (Lena), `receiver.rs` (parents), `accountant.rs` (Kai). The demo video will show three terminal windows side by side — three actors with three different sets of capabilities and three different views of the same chain state.
+
+This replaces every earlier story idea. Do not substitute banya, freelancers, or other metaphors.
+
+## Planned workspace layout
+
+```
+tidex6/
+├── tidex6-core/       — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper,
+│                        ElGamal on BN254 + Baby Jubjub, DepositNote, memo helpers
+├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit
+├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via CPI
+├── tidex6-client/     — Rust SDK with builder pattern (no proc macros in MVP)
+├── tidex6-cli/        — three commands: keygen, setup, scan
+├── tidex6-indexer/    — in-memory indexer, off-chain Merkle tree rebuild
+├── tidex6-relayer/    — minimal HTTP relayer for fee abstraction
+└── examples/
+    └── private-payroll/   — flagship example (Lena + parents + Kai)
+```
+
+## Architectural invariants
+
+Fixed decisions. Changing any of these without explicit approval breaks several ADRs at once.
+
+- **Curve:** BN254. The only curve with native Solana syscall support (`alt_bn128`). Approximately 100-bit security — documented in `security.md`.
+- **Proof system:** Groth16. Verification via CPI into the singleton `tidex6-verifier` program, never embedded into integrator programs.
+- **Hash:** Poseidon, circom-compatible parameters. Off-chain uses `light-poseidon::Poseidon::<Fr>::new_circom(n)` exclusively. Never use `ark-crypto-primitives::sponge::poseidon` — parameters will not match the Solana syscall.
+- **Commitment scheme (ADR-001):** `commitment = Poseidon(secret, nullifier)` only. Auditor tag and encrypted memo live as separate fields in `DepositEvent`, not inside the commitment. See ADR-001 for the full rationale — note that the original brief had two contradictory schemes; this ADR fixes that bug.
+- **Merkle tree (ADR-002):** depth 20 (~1M capacity). Full tree off-chain in the indexer. On-chain stores a ring buffer of the **last 30 roots** + a `next_leaf_index` counter.
+- **Nullifier storage (ADR-003):** one PDA per used nullifier. Seeds `[b"nullifier", nullifier_hash]`, empty data, rent-exempt minimum.
+- **ElGamal (ADR-004):** custom dual-curve implementation. BN254 G1 for on-chain ciphertext, Baby Jubjub (`ark-ed-on-bn254`) for in-circuit operations. **Unaudited.** Isolated from the consensus path.
+- **Verifier (ADR-005):** non-upgradeable. Locked with `solana program set-upgrade-authority --final` immediately after deployment. This is legally and cryptographically load-bearing — bugs cannot be patched post-deploy.
+- **No proc macros in MVP (ADR-006):** builder pattern API instead. Macros are a v0.2 deliverable, built on top of the proven builder API.
+- **Killer features (ADR-007):** Shielded Memo ships in MVP code; Proof of Innocence (association sets) ships in roadmap v0.2 — prominently positioned in pitch deck, not yet implemented.
+- **Pool isolation (ADR-008):** per-program pool in MVP. Shared anonymity pool is a v0.3 target with the *network effect* framing: the more apps integrate tidex6, the stronger privacy becomes for all users.
+- **Proving time (ADR-009):** Day-8 benchmark is mandatory. Acceptance threshold ≤30 seconds. If exceeded, reduce Merkle depth.
+- **Compliance by user choice, not by backdoor:** disclosure keys are issued by the user, never by the developer or the protocol. There is no mandatory auditor, no mandatory relayer network, no key escrow.
+
+## Dependency stack
+
+Pinned in `docs/release/PROJECT_BRIEF.md §6`. Before adding any new dependency, check the list — anything outside it is an architectural decision requiring explicit approval.
+
+**On-chain:** `anchor-lang = "=1.0.0"`, `anchor-spl = "=1.0.0"`, `groth16-solana = "0.2"`, `solana-poseidon = "4"`, `tidex6-core`.
+
+**Off-chain:** arkworks 0.5.x (`ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`), `light-poseidon = "0.4"`, `anchor-client = "1.0"`, `solana-sdk = "3.0"`.
+
+**Explicitly not in MVP:** no SP1, no RISC0, no SPL tokens (SOL only), no range proofs, no proc macros.
+
+## Day-1 Validation Checklist (kill gate)
+
+Before writing any production code, four tests must pass. If any fails, **stop and debug** — do not proceed:
+
+1. **Poseidon equivalence** — off-chain `light-poseidon::new_circom` and on-chain `solana-poseidon` syscall hash the same input and produce byte-for-byte identical results.
+2. **Groth16 pipeline smoke test** — trivial circuit proves, verifies through `groth16-solana` inside an Anchor test.
+3. **alt_bn128 availability** — minimal program calling the syscalls runs on devnet with expected CU consumption.
+4. **Anchor 1.0 CPI with proof data** — caller and callee programs exchange proof bytes as instruction data.
+
+Full text: `docs/release/security.md §3`.
+
+## Fiat-Shamir discipline
+
+Every PR that touches proof logic, circuit definitions, transcript construction, or cryptographic primitives must complete `docs/release/PR_CHECKLIST_PROOF_LOGIC.md`. The checklist starts with **Rule 0**: *"Anything the prover touches goes into the transcript."*
+
+Two-reviewer policy: author plus one independent reviewer must sign off on transcript construction before merge. This is non-negotiable — the 2025 Token-2022 CT incidents (referenced in `security.md §2.1`) are exactly the class of bug this checklist catches.
+
+## Build / test / lint
+
+Not configured yet — no `Cargo.toml` exists. Do not invent commands that do not exist. Once the workspace is bootstrapped, the expected flow is standard Rust (`cargo build`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt`) plus `anchor build` / `anchor test` for on-chain programs. Update this section with the real commands after the workspace lands.
+
+## Language and style
+
+- **Public documentation** is in English under `docs/release/`. Russian translations live under `docs/release/ru/`.
+- **Conversation with the user** in a Claude Code session is in Russian (global rule in `~/.claude/rules/common/general.md`).
+- **Rust code** must follow the global Rust rules in `~/.claude/rules/rust/`: idiomatic imports, `thiserror` in library crates / `anyhow` in binaries, no `unwrap()` on production paths, newtype domain types instead of raw primitives, actor pattern over `Arc<Mutex<_>>` for shared mutable state.
+
+## ADR index
+
+All nine architecture decision records live in `docs/release/adr/`. Each is a short, focused document (Status / Date / Context / Decision / Consequences / Related):
+
+- **ADR-001** — Commitment scheme: `Poseidon(secret, nullifier)` only
+- **ADR-002** — Merkle tree off-chain, root ring buffer on-chain
+- **ADR-003** — Nullifier storage: one PDA per nullifier
+- **ADR-004** — ElGamal on BN254, custom dual-curve implementation
+- **ADR-005** — Verifier program is non-upgradeable after deploy
+- **ADR-006** — No proc macros in MVP, builder pattern instead
+- **ADR-007** — Killer features: Shielded Memo (MVP) + Association Sets (v0.2)
+- **ADR-008** — Per-program pool in MVP, shared pool in v0.3
+- **ADR-009** — Proving time budget: Day-8 benchmark, 30s acceptance
+
+When a new architectural decision is made, write a new ADR before writing code that implements it.
+
+## References
+
+- **Primary (read first):** `docs/release/THE_LEGEND.md`, `docs/release/PROJECT_BRIEF.md`.
+- **Planning:** `docs/release/ROADMAP.md`, `docs/release/adr/`.
+- **Security:** `docs/release/security.md`, `docs/release/PR_CHECKLIST_PROOF_LOGIC.md`.
+- **Repository README:** `README.md` (root of the repo, public-facing landing).
+- **Global rules:** `~/.claude/rules/rust/` and `~/.claude/rules/common/` — style, imports, error handling, naming conventions.

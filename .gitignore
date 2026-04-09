@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Keys and secrets (never commit these)
+*.key
+*.pem
+secrets/
+keys/private/
+
+# Trusted setup artefacts (ephemeral, regenerated locally)
+*.ptau
+*.zkey
+/setup/
+
+# Build artefacts
+/build/
+/dist/
+
+# Logs
+*.log
+logs/
