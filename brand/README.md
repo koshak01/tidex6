@@ -17,16 +17,19 @@ Privacy is not about hiding — it is about choosing who sees what.
 
 | File | Background | Use case |
 |---|---|---|
-| `logo-dark.png` | Dark (`#0A0A0A`) | Hero logo. GitHub social preview, dark-mode site, presentations, Colosseum submission. |
+| `logo-dark.png` | Dark (`#0A0A0A`) | Hero logo, gradient fill. GitHub social preview, dark-mode site, presentations, Colosseum submission. |
+| `logo-mono.png` | White (`#FFFFFF`) | Monochrome fill in Solana purple (`#9945FF`). README in light mode, documentation, stickers, print, favicons, embeds in third-party documents. |
 | `logo-variants-study.png` | Comparison sheet | Reference only. Shows the gradient-on-dark, gradient-on-white, and monochrome-purple variants side by side. Not for direct use. |
+
+The repository README uses a `<picture>` element to automatically
+serve `logo-dark.png` to visitors with dark mode enabled and
+`logo-mono.png` to visitors with light mode enabled.
 
 ## Planned additional variants
 
-- `logo-light.png` — gradient hat on a pure white background, for
-  README (light mode) and documentation.
-- `logo-mono.png` — solid Solana purple (`#9945FF`) on white, for
-  single-colour use cases: stickers, print, favicons at small
-  sizes, embeds in third-party documents.
+- `logo-light.png` — the full gradient hat on a pure white
+  background, for use cases that want the gradient on light
+  surfaces (landing page hero, pitch deck title slide).
 - `logo.svg` — vector-native version for infinite scaling. The
   current PNGs are raster; an SVG trace would be ideal before
   launch.
