@@ -9,6 +9,7 @@
 # works with 2024 edition and is understood by both cargo and anchor.
 resolver = "2"
 members = [
+    "crates/tidex6-circuits",
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "programs/tidex6-caller",

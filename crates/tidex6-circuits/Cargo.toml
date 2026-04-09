@@ -1,0 +1,36 @@
+[package]
+name = "tidex6-circuits"
+description = "Arkworks R1CS circuits and Groth16 proving helpers for the tidex6 shielded pool."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+tidex6-core = { path = "../tidex6-core" }
+
+ark-bn254 = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-crypto-primitives = { workspace = true }
+ark-r1cs-std = { workspace = true }
+ark-relations = { workspace = true }
+ark-ff = { workspace = true }
+ark-ec = { workspace = true }
+ark-serialize = { workspace = true }
+ark-snark = "0.5"
+ark-std = "0.5"
+
+rand = "0.10"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# `groth16-solana` is only used in tests (`tests/square_end_to_end.rs`)
+# to verify that a converted VK + proof round-trips through the same
+# verifier the onchain program uses. It is not a runtime dependency of
+# this crate because the onchain verifier already pulls it in directly.
+groth16-solana = { workspace = true }
+
+[lints]
+workspace = true
