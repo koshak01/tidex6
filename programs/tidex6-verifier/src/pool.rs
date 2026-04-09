@@ -216,9 +216,16 @@ pub fn handle_deposit(ctx: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTE
     let denomination_copy = pool.denomination;
     drop(pool);
 
+    // The log line is parsed offchain by tidex6-indexer to
+    // replay the full Merkle tree from chain history. Format:
+    //   tidex6-deposit:<leaf_index>:<commitment_hex>:<new_root_hex>
+    // Adding the commitment hex is what lets the indexer avoid
+    // having to decode the base64 Anchor event data; it is the
+    // same value emitted in DepositEvent below.
     msg!(
-        "tidex6-deposit:{}:{}",
+        "tidex6-deposit:{}:{}:{}",
         leaf_index,
+        crate::encode_hex(commitment),
         crate::encode_hex(current_hash)
     );
     emit!(DepositEvent {

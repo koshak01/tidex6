@@ -132,7 +132,7 @@ fn main() -> Result<()> {
     println!("signature     : {deposit_signature}");
 
     let deposit_logs = fetch_transaction_logs(&program, &deposit_signature)?;
-    let (leaf_index, onchain_root) = parse_deposit_log(&deposit_logs)?;
+    let (leaf_index, _log_commitment, onchain_root) = parse_deposit_log(&deposit_logs)?;
     println!("leaf index    : {leaf_index}");
     println!("onchain root  : {}", hex::encode(onchain_root));
     if leaf_index != 0 {
@@ -488,7 +488,7 @@ where
     Ok(true)
 }
 
-fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
+fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32], [u8; 32])> {
     const PREFIX: &str = "Program log: tidex6-deposit:";
 
     for line in logs {
@@ -497,6 +497,9 @@ fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
             let leaf_index_str = parts
                 .next()
                 .ok_or_else(|| anyhow!("deposit log missing leaf index"))?;
+            let hex_commitment = parts
+                .next()
+                .ok_or_else(|| anyhow!("deposit log missing commitment hex"))?;
             let hex_root = parts
                 .next()
                 .ok_or_else(|| anyhow!("deposit log missing root hex"))?;
@@ -504,12 +507,17 @@ fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
             let leaf_index = leaf_index_str
                 .parse::<u64>()
                 .context("deposit log leaf index is not a number")?;
+            let commitment_bytes =
+                hex::decode(hex_commitment.trim()).context("deposit commitment hex decode")?;
+            let commitment: [u8; 32] = commitment_bytes
+                .try_into()
+                .map_err(|_| anyhow!("deposit commitment is not 32 bytes"))?;
             let root_bytes = hex::decode(hex_root.trim()).context("deposit root hex decode")?;
             let root: [u8; 32] = root_bytes
                 .try_into()
                 .map_err(|_| anyhow!("deposit root is not 32 bytes"))?;
 
-            return Ok((leaf_index, root));
+            return Ok((leaf_index, commitment, root));
         }
     }
 

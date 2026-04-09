@@ -4,7 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Greenfield Rust workspace. **Paperwork phase is complete.** Code has not started yet — no `Cargo.toml`, no crates, no tests, no CI. The next session should begin by reading this file, then the documents in `docs/release/`, and only then write the first line of Rust.
+**Days 1–18 complete. Full MVP product stack working on Solana devnet.**
+
+- **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
+- **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
+- **Onchain verifier** (programs/tidex6-verifier): deployed at `77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
+- **Indexer** (tidex6-indexer): `PoolIndexer::rebuild_tree` replays `tidex6-deposit:<leaf>:<commitment>:<root>` program logs into an offchain Merkle tree. Enables withdraws on non-empty pools.
+- **Client SDK** (tidex6-client): `PrivatePool::connect`, `DepositBuilder::send`, `WithdrawBuilder::send` — the builder-pattern API from ADR-006 is real and used by the CLI internally.
+- **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw`, thin wrapper over the SDK.
+- **Flagship example** (examples/private-payroll): three binaries telling Lena's story — sender, receiver, accountant. `scripts/run_demo.sh` runs all three in a tmux session against live devnet.
+- **Live devnet flight harnesses** (tidex6-day1): Day-1 kill gates, Day-5 deposit, Day-11 withdraw, Day-12 negative tests (front-run + double-spend). All PASS on devnet.
+- **Brand**: logos in `brand/`, pitch video script in `video/PITCH_VIDEO_SCRIPT.md`.
+
+**Remaining to ship (Days 19–32):**
+- Day 19–23: security hardening (fuzz, proptest, adversarial harness) — optional.
+- Day 24–30: record pitch video and demo video per scripts in `video/`.
+- Day 31–32: final Colosseum submission, buffer.
 
 MVP deadline: Colosseum Frontier hackathon, **2026-05-11**.
 
@@ -68,21 +83,54 @@ Three binaries: `sender.rs` (Lena), `receiver.rs` (parents), `accountant.rs` (Ka
 
 This replaces every earlier story idea. Do not substitute banya, freelancers, or other metaphors.
 
-## Planned workspace layout
+## Actual workspace layout
 
 ```
 tidex6/
-├── tidex6-core/       — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper,
-│                        ElGamal on BN254 + Baby Jubjub, DepositNote, memo helpers
-├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit
-├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via CPI
-├── tidex6-client/     — Rust SDK with builder pattern (no proc macros in MVP)
-├── tidex6-cli/        — three commands: keygen, setup, scan
-├── tidex6-indexer/    — in-memory indexer, offchain Merkle tree rebuild
-├── tidex6-relayer/    — minimal HTTP relayer for fee abstraction
-└── examples/
-    └── private-payroll/   — flagship example (Lena + parents + Kai)
+├── crates/
+│   ├── tidex6-core/       — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, DepositNote
+│   ├── tidex6-circuits/   — arkworks R1CS: Poseidon gadget, DepositCircuit, WithdrawCircuit<20>, solana_bytes
+│   ├── tidex6-indexer/    — PoolIndexer: replays on-chain DepositEvent logs into a fresh MerkleTree
+│   ├── tidex6-client/     — Rust SDK with builder pattern (PrivatePool, DepositBuilder, WithdrawBuilder)
+│   ├── tidex6-cli/        — three commands: keygen, deposit, withdraw (thin wrapper over the SDK)
+│   └── tidex6-day1/       — live devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
+├── programs/
+│   ├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via alt_bn128 syscalls
+│   └── tidex6-caller/     — test CPI caller for Day-1 gate 4
+├── examples/
+│   └── private-payroll/   — flagship example: sender (Lena), receiver (parents), accountant (Kai)
+├── brand/                  — logo assets (dark + monochrome PNGs)
+└── video/                  — PITCH_VIDEO_SCRIPT.md, DEMO_VIDEO_SCRIPT.md
+
+Planned for v0.2 (not yet in the workspace):
+  - tidex6-relayer — minimal HTTP relayer for fee abstraction
+  - ElGamal + Baby Jubjub viewing-key machinery (ADR-004, ADR-007)
+  - On-chain encrypted memos (Shielded Memo killer feature)
 ```
+
+## Running the demo
+
+Two ways to exercise the whole pipeline on devnet:
+
+**CLI, solo:**
+
+```bash
+cargo run --release -p tidex6-cli -- keygen --force
+cargo run --release -p tidex6-cli -- deposit --amount 0.5 --note-out /tmp/n.note
+cargo run --release -p tidex6-cli -- withdraw --note /tmp/n.note --to <pubkey>
+```
+
+**Flagship three-actor demo (the video scene):**
+
+```bash
+cd examples/private-payroll
+./scripts/run_demo.sh
+```
+
+The script splits one terminal into three tmux panes and runs
+`sender` (Lena) → `receiver` (parents) → `accountant` (Kai)
+sequentially against live devnet. Takes ~90 seconds from cold
+cargo build.
 
 ## Architectural invariants
 

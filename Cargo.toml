@@ -10,8 +10,12 @@
 resolver = "2"
 members = [
     "crates/tidex6-circuits",
+    "crates/tidex6-cli",
+    "crates/tidex6-client",
     "crates/tidex6-core",
     "crates/tidex6-day1",
+    "crates/tidex6-indexer",
+    "examples/private-payroll",
     "programs/tidex6-caller",
     "programs/tidex6-verifier",
 ]

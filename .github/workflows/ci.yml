@@ -47,14 +47,32 @@ jobs:
         run: cargo check -p tidex6-core --all-targets
       - name: cargo check -p tidex6-circuits
         run: cargo check -p tidex6-circuits --all-targets
+      - name: cargo check -p tidex6-indexer
+        run: cargo check -p tidex6-indexer --all-targets
+      - name: cargo check -p tidex6-client
+        run: cargo check -p tidex6-client --all-targets
+      - name: cargo check -p tidex6-cli
+        run: cargo check -p tidex6-cli --all-targets
+      - name: cargo check -p tidex6-example-private-payroll
+        run: cargo check -p tidex6-example-private-payroll --all-targets
       - name: cargo clippy -p tidex6-core
         run: cargo clippy -p tidex6-core --all-targets -- -D warnings
       - name: cargo clippy -p tidex6-circuits
         run: cargo clippy -p tidex6-circuits --all-targets -- -D warnings
+      - name: cargo clippy -p tidex6-indexer
+        run: cargo clippy -p tidex6-indexer --all-targets -- -D warnings
+      - name: cargo clippy -p tidex6-client
+        run: cargo clippy -p tidex6-client --all-targets -- -D warnings
+      - name: cargo clippy -p tidex6-cli
+        run: cargo clippy -p tidex6-cli --all-targets -- -D warnings
+      - name: cargo clippy -p tidex6-example-private-payroll
+        run: cargo clippy -p tidex6-example-private-payroll --all-targets -- -D warnings
       - name: cargo test -p tidex6-core
         run: cargo test -p tidex6-core --all-targets
       - name: cargo test -p tidex6-circuits
         run: cargo test -p tidex6-circuits --all-targets
+      - name: cargo test -p tidex6-indexer
+        run: cargo test -p tidex6-indexer --all-targets
 
   onchain-check:
     name: cargo check (onchain programs)

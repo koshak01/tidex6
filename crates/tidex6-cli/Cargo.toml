@@ -1,0 +1,41 @@
+[package]
+name = "tidex6-cli"
+description = "tidex6 command-line interface: generate keys, deposit into a shielded pool, withdraw with a zero-knowledge proof."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tidex6"
+path = "src/main.rs"
+
+[dependencies]
+# The CLI is a thin wrapper over the tidex6 SDK. After the Day-15
+# refactor almost all logic lives in tidex6-client; the CLI only
+# handles argument parsing, keypair loading and output formatting.
+tidex6-core = { path = "../tidex6-core" }
+tidex6-client = { path = "../tidex6-client" }
+
+anchor-client = { workspace = true }
+anchor-lang = { workspace = true }
+anyhow = { workspace = true }
+
+# clap 4 with derive feature — command parsing and `--help` generation.
+clap = { version = "4", features = ["derive"] }
+
+# JSON for the identity file (spending key + viewing key).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Solana crates at the 3.x series to match anchor-client 1.0.0's
+# transitive dependencies.
+solana-keypair = "3"
+solana-signature = "3"
+
+hex = "0.4"
+
+[lints]
+workspace = true

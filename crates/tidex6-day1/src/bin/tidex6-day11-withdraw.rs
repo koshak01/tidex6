@@ -128,7 +128,7 @@ fn main() -> Result<()> {
     println!("signature     : {deposit_signature}");
 
     let deposit_logs = fetch_transaction_logs(&program, &deposit_signature)?;
-    let (leaf_index, onchain_root) = parse_deposit_log(&deposit_logs)?;
+    let (leaf_index, _log_commitment, onchain_root) = parse_deposit_log(&deposit_logs)?;
     println!("leaf index    : {leaf_index}");
     println!("onchain root  : {}", hex::encode(onchain_root));
     if leaf_index != 0 {
@@ -216,7 +216,7 @@ fn main() -> Result<()> {
 
     // Deterministic RNG so a repeated run against the same fresh
     // pool produces the same proof — useful for debugging.
-    let mut rng = StdRng::seed_from_u64(0xf11_6_7e_57);
+    let mut rng = StdRng::seed_from_u64(0xf116_7e57);
     let (proof, public_inputs_fr) =
         prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut rng)
             .context("prove withdraw")?;
@@ -399,9 +399,10 @@ where
     Ok(true)
 }
 
-/// Parse the `tidex6-deposit:<leaf_index>:<hex root>` log line
-/// emitted by the deposit instruction.
-fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
+/// Parse the `tidex6-deposit:<leaf_index>:<commitment>:<root>` log
+/// line emitted by the deposit instruction. Returns the new leaf
+/// index, the inserted commitment and the updated Merkle root.
+fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32], [u8; 32])> {
     const PREFIX: &str = "Program log: tidex6-deposit:";
 
     for line in logs {
@@ -410,6 +411,9 @@ fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
             let leaf_index_str = parts
                 .next()
                 .ok_or_else(|| anyhow!("deposit log missing leaf index"))?;
+            let hex_commitment = parts
+                .next()
+                .ok_or_else(|| anyhow!("deposit log missing commitment hex"))?;
             let hex_root = parts
                 .next()
                 .ok_or_else(|| anyhow!("deposit log missing root hex"))?;
@@ -417,12 +421,17 @@ fn parse_deposit_log(logs: &[String]) -> Result<(u64, [u8; 32])> {
             let leaf_index = leaf_index_str
                 .parse::<u64>()
                 .context("deposit log leaf index is not a number")?;
+            let commitment_bytes =
+                hex::decode(hex_commitment.trim()).context("deposit commitment hex decode")?;
+            let commitment: [u8; 32] = commitment_bytes
+                .try_into()
+                .map_err(|_| anyhow!("deposit commitment is not 32 bytes"))?;
             let root_bytes = hex::decode(hex_root.trim()).context("deposit root hex decode")?;
             let root: [u8; 32] = root_bytes
                 .try_into()
                 .map_err(|_| anyhow!("deposit root is not 32 bytes"))?;
 
-            return Ok((leaf_index, root));
+            return Ok((leaf_index, commitment, root));
         }
     }
 

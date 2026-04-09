@@ -29,14 +29,21 @@ const NOTE_PREFIX: &str = "tidex6-note-v1";
 
 /// Fixed deposit denominations supported by the MVP shielded pool.
 ///
-/// Per ROADMAP and ADR-001, the MVP only supports three fixed
-/// denominations. Variable amounts are a v0.3 item that requires a
-/// new circuit and a new trusted setup.
+/// Per ROADMAP and ADR-001, the MVP only supports a handful of
+/// fixed denominations. Variable amounts are a v0.3 item that
+/// requires a new circuit and a new trusted setup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Denomination {
     /// 0.1 SOL — smallest pool, meant for micro-payments and for
     /// demos that want cheap transactions.
     OneTenthSol,
+    /// 0.5 SOL — introduced alongside the Day-14 indexer as a
+    /// guaranteed-fresh pool for the integration tests. The other
+    /// denominations already contain Day-5 / Day-11 / Day-12
+    /// deposits with the old log format that the indexer cannot
+    /// parse; this variant gives new CLI runs a clean starting
+    /// tree.
+    HalfSol,
     /// 1 SOL — the default pool used by the flagship example.
     OneSol,
     /// 10 SOL — larger pool for bigger transfers.
@@ -50,6 +57,7 @@ impl Denomination {
     pub const fn lamports(self) -> u64 {
         match self {
             Self::OneTenthSol => 100_000_000,
+            Self::HalfSol => 500_000_000,
             Self::OneSol => 1_000_000_000,
             Self::TenSol => 10_000_000_000,
         }
@@ -59,6 +67,7 @@ impl Denomination {
     pub const fn tag(self) -> &'static str {
         match self {
             Self::OneTenthSol => "0.1",
+            Self::HalfSol => "0.5",
             Self::OneSol => "1",
             Self::TenSol => "10",
         }
@@ -69,6 +78,7 @@ impl Denomination {
     pub fn from_tag(tag: &str) -> Result<Self, NoteError> {
         match tag {
             "0.1" => Ok(Self::OneTenthSol),
+            "0.5" => Ok(Self::HalfSol),
             "1" => Ok(Self::OneSol),
             "10" => Ok(Self::TenSol),
             _ => Err(NoteError::UnknownDenomination(tag.to_string())),

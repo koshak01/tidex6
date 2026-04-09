@@ -17,59 +17,80 @@
 
 tidex6 is a Rust-native, open-source framework that lets Solana developers add full transaction privacy to their Anchor programs through a small SDK surface. Transactions are private by default — sender, receiver, and amount are hidden. Users can optionally share a viewing key with someone they trust (an accountant, an auditor, a family member) to selectively disclose history, on their own terms.
 
-**Status:** MVP crypto core **working on Solana devnet**. Deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, and recipient-binding front-run protection all validated end-to-end on live devnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
+**Status:** full MVP product stack **working on Solana devnet**. Deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, user-facing `tidex6` CLI, `PoolIndexer` Merkle replay, `tidex6-client` SDK with builder API, and the flagship `examples/private-payroll` three-binary demo all validated end-to-end on live devnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
 
 > **DEVELOPMENT ONLY.** Pre-audit, pre-mainnet, single-contributor trusted setup. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
 
 ---
 
-## Quick Start
+## Quick start — CLI
 
-Add privacy to an existing Anchor program in five lines of Rust:
+Three commands, no setup beyond a devnet wallet at
+`~/.config/solana/id.json`:
 
-```rust
-use anchor_lang::prelude::*;
-use tidex6::{PrivatePool, DepositNote};
+```bash
+# Generate a tidex6 identity (spending + viewing key).
+cargo run --release -p tidex6-cli -- keygen
 
-#[program]
-pub mod my_program {
-    use super::*;
+# Make a private 0.5 SOL deposit to the shielded pool.
+cargo run --release -p tidex6-cli -- deposit \
+    --amount 0.5 --note-out parents.note
 
-    pub fn init_pool(ctx: Context<InitPool>) -> Result<()> {
-        let _pool = PrivatePool::new(&ctx)
-            .denomination(LAMPORTS_PER_SOL)
-            .with_auditor(auditor_pubkey()?)
-            .build()?;
-        Ok(())
-    }
-
-    pub fn contribute(
-        ctx: Context<Contribute>,
-        secret: [u8; 32],
-        nullifier: [u8; 32],
-    ) -> Result<()> {
-        ctx.accounts.pool.deposit(&ctx.accounts.signer, secret, nullifier)
-    }
-}
+# Redeem the note into any recipient wallet. The CLI rebuilds
+# the offchain Merkle tree from on-chain history via the
+# indexer, generates a Groth16 withdraw proof, and submits it
+# to the verifier program.
+cargo run --release -p tidex6-cli -- withdraw \
+    --note parents.note --to <recipient_pubkey>
 ```
 
-Client side:
+## Quick start — SDK
+
+Integrate a shielded pool into your own Rust app in a handful
+of lines using the `tidex6-client` builder API:
 
 ```rust
-use tidex6::{PrivatePool, Denomination};
+use anchor_client::Cluster;
+use tidex6_client::PrivatePool;
+use tidex6_core::note::Denomination;
 
-let pool = PrivatePool::connect(&rpc, my_program::ID).await?;
+# fn demo(
+#     payer: &solana_keypair::Keypair,
+#     recipient: anchor_client::anchor_lang::prelude::Pubkey,
+# ) -> anyhow::Result<()> {
+let pool = PrivatePool::connect(Cluster::Devnet, Denomination::OneSol)?;
 
-let note = pool
-    .deposit(&wallet)
-    .denomination(Denomination::OneSol)
-    .with_memo("Invoice #3847")
-    .with_auditor(accountant_viewing_key)
-    .send()
-    .await?;
+// Deposit side: get a note back to share with the recipient.
+let (deposit_sig, note, _leaf_index) = pool.deposit(payer).send()?;
+std::fs::write("parents.note", note.to_text())?;
 
-note.save_to_file("./october_invoice.note")?;
+// Withdraw side: rebuild the tree, prove, submit.
+let withdraw_sig = pool
+    .withdraw(payer)
+    .note(note)
+    .to(recipient)
+    .send()?;
+# drop((deposit_sig, withdraw_sig));
+# Ok(())
+# }
 ```
+
+## Try the flagship demo
+
+[`examples/private-payroll`](examples/private-payroll/) is the
+full story of Lena sending monthly support to her parents, with
+her accountant Kai producing a tax report from a shared scan
+file. Three binaries — `sender`, `receiver`, `accountant` —
+hit live devnet.
+
+```bash
+cd examples/private-payroll
+./scripts/run_demo.sh
+```
+
+The script splits one terminal into three tmux panes and runs
+the whole flow side by side — deposit → rebuild → prove →
+withdraw → report — in under a minute.
 
 ---
 
@@ -124,19 +145,29 @@ Public documentation lives in [`docs/release/`](docs/release/):
 
 ---
 
-## Workspace layout (planned)
+## Workspace layout
 
 ```
 tidex6/
-├── tidex6-core/       — commitments, nullifiers, Merkle tree, keys, Poseidon, ElGamal, DepositNote
-├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit
-├── tidex6-verifier/   — singleton non-upgradeable Anchor verifier program
-├── tidex6-client/     — Rust SDK with builder pattern API
-├── tidex6-cli/        — developer CLI: keygen, setup, scan
-├── tidex6-indexer/    — in-memory indexer, offchain Merkle tree rebuild
-├── tidex6-relayer/    — minimal HTTP relayer for fee abstraction
-└── examples/
-    └── private-payroll/ — flagship example
+├── crates/
+│   ├── tidex6-core/       — commitments, nullifiers, Merkle tree, keys, Poseidon, DepositNote
+│   ├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit<20>
+│   ├── tidex6-indexer/    — offchain Merkle tree rebuild from on-chain DepositEvent logs
+│   ├── tidex6-client/     — Rust SDK with builder pattern API (PrivatePool, DepositBuilder, WithdrawBuilder)
+│   ├── tidex6-cli/        — developer CLI: `tidex6 keygen | deposit | withdraw`
+│   └── tidex6-day1/       — Day-1..12 devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
+├── programs/
+│   ├── tidex6-verifier/   — singleton non-upgradeable Anchor verifier program
+│   └── tidex6-caller/     — test CPI caller used by Day-1 gate 4
+├── examples/
+│   └── private-payroll/   — flagship example: sender, receiver, accountant
+├── brand/                  — logo assets
+└── video/                  — pitch and demo video scripts
+
+Planned for v0.2, not yet in the workspace:
+  - tidex6-relayer  — minimal HTTP relayer for fee abstraction
+  - ElGamal viewing-key machinery (Baby Jubjub) for the accountant flow
+  - Shielded memos (encrypted on-chain)
 ```
 
 ---
