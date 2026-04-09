@@ -24,6 +24,11 @@ idl-build = ["anchor-lang/idl-build"]
 anchor-lang = "1.0.0"
 solana-poseidon = { workspace = true }
 groth16-solana = { workspace = true }
+# bytemuck is pulled in by the `#[account(zero_copy)]` macro expansion
+# so the PoolState struct can implement Pod + Zeroable. Anchor does
+# not re-export it at the path the macro generates, so we depend on
+# it directly.
+bytemuck = { version = "1", features = ["derive"] }
 
 [lints]
 workspace = true

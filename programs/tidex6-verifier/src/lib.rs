@@ -27,7 +27,10 @@ use groth16_solana::groth16::Groth16Verifier;
 use solana_poseidon::{Endianness, Parameters, hashv};
 
 mod groth16_test_vectors;
+mod pool;
+
 use groth16_test_vectors::{PUBLIC_INPUTS, VERIFYING_KEY};
+pub use pool::{DepositEvent, FIELD_ELEMENT_BYTES, PoolState, ROOT_RING_SIZE, TREE_DEPTH};
 
 declare_id!("77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42");
 
@@ -86,6 +89,20 @@ pub mod tidex6_verifier {
     /// `tidex6-day1-groth16:INVALID` on failure. Also logs
     /// `tidex6-day1-alt_bn128:OK` because a successful pairing result
     /// transitively validates Gate 3.
+    /// Initialise a new shielded pool for the given denomination.
+    /// Delegates to `pool::handle_init_pool`. See `pool.rs` and
+    /// ADR-002 for the full rationale.
+    pub fn init_pool(context: Context<InitPool>, denomination: u64) -> Result<()> {
+        pool::handle_init_pool(context, denomination)
+    }
+
+    /// Deposit `commitment` into the pool, transferring
+    /// `denomination` lamports from the payer into the vault PDA
+    /// and updating the onchain Merkle root.
+    pub fn deposit(context: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTES]) -> Result<()> {
+        pool::handle_deposit(context, commitment)
+    }
+
     pub fn verify_test_proof(
         context: Context<VerifyTestProof>,
         proof_a: [u8; 64],
@@ -138,6 +155,73 @@ pub struct HashPoseidon<'info> {
     pub payer: Signer<'info>,
 }
 
+/// Accounts for `init_pool`. Creates the `PoolState` PDA for a
+/// given denomination and its companion vault PDA. Both seeds are
+/// derived from the denomination so there is exactly one pool per
+/// denomination on any given cluster.
+///
+/// `pool` uses `AccountLoader` because `PoolState` is a zero-copy
+/// account — see the type definition in `pool.rs` for the rationale.
+#[derive(Accounts)]
+#[instruction(denomination: u64)]
+pub struct InitPool<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = PoolState::DISCRIMINATOR.len() + std::mem::size_of::<PoolState>(),
+        seeds = [PoolState::POOL_SEED_PREFIX, &denomination.to_le_bytes()],
+        bump,
+    )]
+    pub pool: AccountLoader<'info, PoolState>,
+
+    /// CHECK: the vault is a system-owned PDA created here with a
+    /// deterministic seed; lamports flow in via the system program
+    /// and out via a seeded signer at withdrawal time. No further
+    /// account-level validation is needed.
+    #[account(
+        init,
+        payer = payer,
+        space = 0,
+        seeds = [PoolState::VAULT_SEED_PREFIX, &denomination.to_le_bytes()],
+        bump,
+        owner = anchor_lang::system_program::ID,
+    )]
+    pub vault: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+/// Accounts for `deposit`. The pool PDA and vault PDA are both
+/// re-derived from the pool's denomination field at runtime so the
+/// caller cannot confuse one denomination for another.
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(
+        mut,
+        seeds = [PoolState::POOL_SEED_PREFIX, &pool.load()?.denomination.to_le_bytes()],
+        bump = pool.load()?.bump,
+    )]
+    pub pool: AccountLoader<'info, PoolState>,
+
+    /// CHECK: vault is a known-seed system-owned PDA derived from
+    /// the same denomination as `pool`. SOL flows into it via the
+    /// system program.
+    #[account(
+        mut,
+        seeds = [PoolState::VAULT_SEED_PREFIX, &pool.load()?.denomination.to_le_bytes()],
+        bump,
+    )]
+    pub vault: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
 /// Accounts required by `verify_test_proof`. Same minimum surface as
 /// `HashPoseidon` — pure compute, no program-owned state.
 #[derive(Accounts)]
@@ -155,4 +239,8 @@ pub enum Tidex6VerifierError {
     Groth16VerifierConstructFailed,
     #[msg("Groth16 proof verification failed.")]
     Groth16VerificationFailed,
+    #[msg("Pool denomination must be greater than zero.")]
+    InvalidDenomination,
+    #[msg("Pool is full; no more deposits can be accepted into this tree.")]
+    PoolFull,
 }

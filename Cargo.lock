@@ -4590,6 +4590,7 @@ name = "tidex6-verifier"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "bytemuck",
  "groth16-solana",
  "solana-poseidon",
 ]
