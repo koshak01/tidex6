@@ -59,7 +59,11 @@ fn main() -> Result<()> {
     println!("cluster       : {}", cluster.url());
     println!("payer         : {}", payer.pubkey());
     println!("program id    : {program_id}");
-    println!("denomination  : {} ({} lamports)", FLIGHT_DENOMINATION, FLIGHT_DENOMINATION.lamports());
+    println!(
+        "denomination  : {} ({} lamports)",
+        FLIGHT_DENOMINATION,
+        FLIGHT_DENOMINATION.lamports()
+    );
     println!();
 
     let payer_handle = Rc::new(clone_keypair(&payer));
@@ -242,16 +246,11 @@ fn main() -> Result<()> {
     println!();
     println!("--- Sending withdraw transaction ---");
 
-    let (nullifier_pda, _nullifier_bump) = Pubkey::find_program_address(
-        &[b"nullifier", nullifier_hash.as_bytes()],
-        &program_id,
-    );
+    let (nullifier_pda, _nullifier_bump) =
+        Pubkey::find_program_address(&[b"nullifier", nullifier_hash.as_bytes()], &program_id);
     println!("nullifier PDA : {nullifier_pda}");
 
-    let pre_balance = program
-        .rpc()
-        .get_balance(&recipient.pubkey())
-        .unwrap_or(0);
+    let pre_balance = program.rpc().get_balance(&recipient.pubkey()).unwrap_or(0);
     println!("recipient pre : {pre_balance} lamports");
 
     let withdraw_signature = program
@@ -283,17 +282,15 @@ fn main() -> Result<()> {
         .context("get recipient post-withdraw balance")?;
     println!("recipient post: {post_balance} lamports");
 
-    let delta = post_balance.checked_sub(pre_balance).ok_or_else(|| {
-        anyhow!("recipient balance decreased after withdraw; something is wrong")
-    })?;
+    let delta = post_balance
+        .checked_sub(pre_balance)
+        .ok_or_else(|| anyhow!("recipient balance decreased after withdraw; something is wrong"))?;
     if delta != denomination_lamports {
         return Err(anyhow!(
             "recipient balance delta {delta} lamports does not equal denomination {denomination_lamports}"
         ));
     }
-    println!(
-        "delta         : {delta} lamports == denomination ({denomination_lamports})"
-    );
+    println!("delta         : {delta} lamports == denomination ({denomination_lamports})");
 
     println!();
     println!("===================================");
@@ -308,8 +305,8 @@ fn main() -> Result<()> {
 /// `gen_withdraw_vk.rs`. Deserialize it back here.
 fn load_withdraw_proving_key() -> Result<ProvingKey<ark_bn254::Bn254>> {
     let path = find_pk_path()?;
-    let bytes = fs::read(&path)
-        .with_context(|| format!("read proving key from {}", path.display()))?;
+    let bytes =
+        fs::read(&path).with_context(|| format!("read proving key from {}", path.display()))?;
     let pk = ProvingKey::<ark_bn254::Bn254>::deserialize_uncompressed_unchecked(&bytes[..])
         .map_err(|err| anyhow!("deserialize proving key: {err}"))?;
     Ok(pk)
@@ -333,9 +330,7 @@ fn find_pk_path() -> Result<PathBuf> {
         if candidate.exists() {
             let text = fs::read_to_string(&candidate).unwrap_or_default();
             if text.contains("[workspace]") {
-                return Ok(
-                    current.join("crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin"),
-                );
+                return Ok(current.join("crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin"));
             }
         }
         match current.parent() {
@@ -382,9 +377,7 @@ where
                     .try_into()
                     .expect("next_leaf_index slice is 8 bytes"),
             );
-            println!(
-                "--- pool already initialised, next_leaf_index = {next_leaf_index} ---"
-            );
+            println!("--- pool already initialised, next_leaf_index = {next_leaf_index} ---");
             return Ok(next_leaf_index == 0);
         }
     }

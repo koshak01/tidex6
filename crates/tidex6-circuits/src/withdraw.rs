@@ -117,8 +117,7 @@ impl<const DEPTH: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<DEPTH> {
         })?;
 
         let nullifier_hash_var = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.nullifier_hash
-                .ok_or(SynthesisError::AssignmentMissing)
+            self.nullifier_hash.ok_or(SynthesisError::AssignmentMissing)
         })?;
 
         let recipient_var = FpVar::<Fr>::new_input(cs.clone(), || {
@@ -126,12 +125,11 @@ impl<const DEPTH: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<DEPTH> {
         })?;
 
         // ── Constraint 1: commitment = Poseidon(secret, nullifier) ─
-        let commitment_var =
-            poseidon_hash_pair_var(cs.clone(), &secret_var, &nullifier_var)?;
+        let commitment_var = poseidon_hash_pair_var(cs.clone(), &secret_var, &nullifier_var)?;
 
         // ── Constraint 2: nullifier_hash = Poseidon(nullifier) ────
         let computed_nullifier_hash =
-            poseidon_hash_n_var(cs.clone(), &[nullifier_var.clone()])?;
+            poseidon_hash_n_var(cs.clone(), std::slice::from_ref(&nullifier_var))?;
         computed_nullifier_hash.enforce_equal(&nullifier_hash_var)?;
 
         // ── Constraint 3: Merkle authentication path ─────────────

@@ -117,9 +117,8 @@ fn proof_rejects_wrong_commitment() {
     let wrong_commitment =
         Commitment::derive(&other_secret, &other_nullifier).expect("derive other");
 
-    let wrong_fr = <ark_bn254::Fr as ark_ff::PrimeField>::from_be_bytes_mod_order(
-        wrong_commitment.as_bytes(),
-    );
+    let wrong_fr =
+        <ark_bn254::Fr as ark_ff::PrimeField>::from_be_bytes_mod_order(wrong_commitment.as_bytes());
     let prepared = prepare_verifying_key(&vk);
     let ok = verify_deposit_proof(&prepared, &proof, wrong_fr).expect("verify");
     assert!(!ok, "arkworks verifier must reject wrong commitment");

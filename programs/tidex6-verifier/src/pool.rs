@@ -331,9 +331,7 @@ pub fn handle_withdraw(
 /// subtraction of the modulus; the input is at most ~5× the
 /// modulus (since 2^256 / BN254_MODULUS ≈ 5.3) so the loop runs at
 /// most 5 iterations — cheap in compute units.
-fn reduce_mod_bn254(
-    bytes: &[u8; FIELD_ELEMENT_BYTES],
-) -> [u8; FIELD_ELEMENT_BYTES] {
+fn reduce_mod_bn254(bytes: &[u8; FIELD_ELEMENT_BYTES]) -> [u8; FIELD_ELEMENT_BYTES] {
     let mut result = *bytes;
     while ge_be_32(&result, &BN254_MODULUS_BE) {
         sub_be_32_in_place(&mut result, &BN254_MODULUS_BE);
@@ -356,10 +354,7 @@ fn ge_be_32(a: &[u8; FIELD_ELEMENT_BYTES], b: &[u8; FIELD_ELEMENT_BYTES]) -> boo
 
 /// Big-endian 32-byte in-place subtraction: `a -= b`. Assumes
 /// `a >= b`, which the caller guarantees via `ge_be_32`.
-fn sub_be_32_in_place(
-    a: &mut [u8; FIELD_ELEMENT_BYTES],
-    b: &[u8; FIELD_ELEMENT_BYTES],
-) {
+fn sub_be_32_in_place(a: &mut [u8; FIELD_ELEMENT_BYTES], b: &[u8; FIELD_ELEMENT_BYTES]) {
     let mut borrow: i16 = 0;
     for index in (0..FIELD_ELEMENT_BYTES).rev() {
         let difference = a[index] as i16 - b[index] as i16 - borrow;

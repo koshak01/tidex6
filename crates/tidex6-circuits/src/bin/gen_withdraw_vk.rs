@@ -43,9 +43,8 @@ const SETUP_SEED: u64 = 0x7715_ef25_d061_3517;
 fn main() {
     let workspace_root = find_workspace_root();
     let verifier_output_path = workspace_root.join("programs/tidex6-verifier/src/withdraw_vk.rs");
-    let pk_output_path = workspace_root.join(
-        "crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin",
-    );
+    let pk_output_path =
+        workspace_root.join("crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin");
 
     println!("Generating WithdrawCircuit<{WITHDRAW_TREE_DEPTH}> verifying key...");
     println!("  seed            = 0x{SETUP_SEED:016x}");
@@ -89,6 +88,20 @@ fn main() {
     }
     fs::write(&verifier_output_path, source).expect("write verifier vk file");
     println!("Wrote {}", verifier_output_path.display());
+
+    // Run `rustfmt` on the generated file so its formatting matches
+    // the repo style check in CI. Our template produces readable
+    // output but does not match every rustfmt rule (line width,
+    // struct field alignment, etc.), so we defer formatting to the
+    // real tool instead of trying to emulate it.
+    let fmt_status = std::process::Command::new("rustfmt")
+        .arg(&verifier_output_path)
+        .status()
+        .expect("spawn rustfmt; is it on PATH?");
+    if !fmt_status.success() {
+        panic!("rustfmt failed on {}", verifier_output_path.display());
+    }
+    println!("Formatted {} via rustfmt", verifier_output_path.display());
 
     // ── Serialize the proving key to an artifact file ────────────
     let mut pk_bytes: Vec<u8> = Vec::new();

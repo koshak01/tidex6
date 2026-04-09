@@ -69,8 +69,7 @@ pub fn poseidon_hash_n_var(
         inputs.len()
     );
 
-    let params =
-        parameters_for(inputs.len()).map_err(|_| SynthesisError::AssignmentMissing)?;
+    let params = parameters_for(inputs.len()).map_err(|_| SynthesisError::AssignmentMissing)?;
 
     let width = params.width;
     let full_rounds = params.full_rounds;
@@ -165,9 +164,9 @@ fn apply_mds(
     let mut next = Vec::with_capacity(width);
     for i in 0..width {
         let mut accumulator = FpVar::<Fr>::new_constant(cs.clone(), Fr::from(0u64))?;
-        for j in 0..width {
+        for (j, state_j) in state.iter().enumerate().take(width) {
             let mds_entry = FpVar::<Fr>::new_constant(cs.clone(), params.mds[i][j])?;
-            accumulator += &state[j] * mds_entry;
+            accumulator += state_j * mds_entry;
         }
         next.push(accumulator);
     }

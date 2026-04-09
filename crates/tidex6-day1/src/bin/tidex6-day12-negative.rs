@@ -207,10 +207,8 @@ fn main() -> Result<()> {
         ..
     } = &solana_bytes;
 
-    let (nullifier_pda, _nullifier_bump) = Pubkey::find_program_address(
-        &[b"nullifier", nullifier_hash.as_bytes()],
-        &program_id,
-    );
+    let (nullifier_pda, _nullifier_bump) =
+        Pubkey::find_program_address(&[b"nullifier", nullifier_hash.as_bytes()], &program_id);
     println!("nullifier PDA : {nullifier_pda}");
 
     // ════════════════════════════════════════════════════════════
@@ -337,7 +335,10 @@ fn main() -> Result<()> {
             "Nullifier PDA should exist after successful withdraw"
         ));
     }
-    println!("nullifier PDA : created ({} bytes)", nullifier_after_legit.data.len());
+    println!(
+        "nullifier PDA : created ({} bytes)",
+        nullifier_after_legit.data.len()
+    );
 
     // ════════════════════════════════════════════════════════════
     // TEST 3: Double-spend. Resend the same withdraw. Anchor's
@@ -409,8 +410,8 @@ fn main() -> Result<()> {
 /// Load the cached proving key from disk.
 fn load_withdraw_proving_key() -> Result<ProvingKey<ark_bn254::Bn254>> {
     let path = find_pk_path()?;
-    let bytes = fs::read(&path)
-        .with_context(|| format!("read proving key from {}", path.display()))?;
+    let bytes =
+        fs::read(&path).with_context(|| format!("read proving key from {}", path.display()))?;
     let pk = ProvingKey::<ark_bn254::Bn254>::deserialize_uncompressed_unchecked(&bytes[..])
         .map_err(|err| anyhow!("deserialize proving key: {err}"))?;
     Ok(pk)
@@ -428,9 +429,7 @@ fn find_pk_path() -> Result<PathBuf> {
         if candidate.exists() {
             let text = fs::read_to_string(&candidate).unwrap_or_default();
             if text.contains("[workspace]") {
-                return Ok(
-                    current.join("crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin"),
-                );
+                return Ok(current.join("crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin"));
             }
         }
         match current.parent() {
@@ -467,9 +466,7 @@ where
                     .try_into()
                     .expect("next_leaf_index slice is 8 bytes"),
             );
-            println!(
-                "--- pool already initialised, next_leaf_index = {next_leaf_index} ---"
-            );
+            println!("--- pool already initialised, next_leaf_index = {next_leaf_index} ---");
             return Ok(next_leaf_index == 0);
         }
     }

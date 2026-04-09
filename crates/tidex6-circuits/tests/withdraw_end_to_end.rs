@@ -76,13 +76,9 @@ fn end_to_end_withdraw_pipeline() {
 
     // Sanity check: the offchain verify_proof must accept before we
     // even think about the circuit.
-    let ok_offchain = tidex6_core::merkle::verify_proof(
-        commitment,
-        &merkle_proof,
-        merkle_root,
-        TEST_DEPTH,
-    )
-    .expect("offchain verify");
+    let ok_offchain =
+        tidex6_core::merkle::verify_proof(commitment, &merkle_proof, merkle_root, TEST_DEPTH)
+            .expect("offchain verify");
     assert!(ok_offchain, "offchain merkle verify must accept");
 
     // 3. Local trusted setup.
@@ -157,14 +153,9 @@ fn end_to_end_withdraw_pipeline() {
         fr_to_be_bytes(public_inputs[2]),
     ];
 
-    let mut verifier = Groth16Verifier::<3>::new(
-        proof_a,
-        proof_b,
-        proof_c,
-        &solana_public_inputs,
-        &groth_vk,
-    )
-    .expect("Groth16Verifier::new");
+    let mut verifier =
+        Groth16Verifier::<3>::new(proof_a, proof_b, proof_c, &solana_public_inputs, &groth_vk)
+            .expect("Groth16Verifier::new");
 
     verifier
         .verify()
