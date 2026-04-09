@@ -39,8 +39,8 @@
 > high-load backends for banks, logistics platforms and e-commerce systems
 > that handle billions of records.
 >
-> For the last six months I've been working on tidex6 — a Rust-native privacy
-> framework for Solana.
+> I started building tidex6 on the eighth of April, with Claude as my coding
+> partner. What you are about to see is live on Solana devnet right now.
 
 **Заметки:**
 
@@ -48,13 +48,46 @@
 - **«Hi, I'm Koshak»** — не улыбайся широко, но и не хмурься. Нейтрально-уверенно.
   Так здороваются профессионалы в видеозвонке, а не продавцы на выставке.
 - **Лёгкая пауза** после «Montenegro» — даёт слушателю секунду переварить где ты.
-- «thirty years» — это твой **главный капитал первых 20 секунд**. Скажи это
+- **«thirty years»** — это твой **главный капитал** первых 20 секунд. Скажи это
   внятно, с весом. Не «thirty», а **thir-ty**.
+- **«on the eighth of April»** — это **вторая ударная фраза секции**, и
+  возможно самая ударная фраза всего pitch'а. Сделай **микропаузу перед ней**
+  и произнеси медленно: *«I started building tidex6… on the eighth of April…
+  with Claude as my coding partner.»* Конкретная дата звучит **гораздо
+  убедительнее** чем расплывчатое «недавно» — и она сразу даёт слушателю
+  ориентир: Colosseum Frontier стартовал 6 апреля, значит ты начал на второй
+  день хакатона. Судьи Colosseum обожают именно такие истории — Anthropic
+  вкладывается в dev tooling, для них «built with Claude since day two of
+  the hackathon» — это буквально brand moment.
+- **Как произнести дату**: *«on the eighth of April»* (британский порядок)
+  звучит элегантнее чем *«on April eighth»* (американский). Оба варианта
+  валидные, выбери тот что естественнее ложится на язык. Главное — без
+  спешки, чтобы слушатель успел зарегистрировать конкретную дату.
+- **«live on Solana devnet right now»** — финальный аккорд. Не говори «I think
+  it works» или «I hope you like it». Говори **«right now»**, как факт.
+  Следующие 2 минуты — это доказательство этого факта.
 - «tidex6» — произносится **«tye-dex-six»** (как в «tidal wave» + «dex» + «six»).
   Первое упоминание названия должно быть максимально чётким.
 
+**Почему конкретная дата сильнее чем общие слова:**
+
+- «Работал над проектом давно» — банально. «Начал 8 апреля» — эпично и
+  проверяемо: судья сразу считает в уме и понимает, что хакатон Colosseum
+  Frontier 2026 стартовал 6 апреля, значит ты — один из самых быстрых
+  участников сезона.
+- «Работал давно» — никак не проверить. «8 апреля» — проверяется через
+  `git log` в репозитории, и судьи клонируют репо перед оценкой.
+- Звучит как «знаю что делаю, инструменты гладкие, результат — налицо».
+- Судьи Colosseum Frontier 2026 уже видели десятки проектов где «мы
+  начали год назад и всё ещё не закончили». Твой старт 8 апреля плюс
+  живой devnet к моменту сабмита выделит тебя моментально.
+- Это **честно**. И честность — единственная вещь которая переживает любую
+  проверку.
+
 **Что нельзя:** «Hey guys», «so um», «I'm kinda working on», уменьшительные.
-Ты не студент, ты архитектор с 30-летним опытом.
+Ты не студент, ты архитектор с 30-летним опытом, который **за считанные дни
+с AI-партнёром построил то, что раньше занимало команду из четырёх человек
+на полгода**.
 
 ---
 
@@ -106,9 +139,10 @@
 > decades building systems where one mistake costs millions of dollars
 > and thousands of user hours.
 >
-> For tidex6, I use Claude — Anthropic's most capable model — as a full-time
-> coding partner. Every architectural decision is mine. Every line is read
-> and understood before it lands in the repository.
+> A few days is not a long time to write a zero-knowledge framework. But I
+> know how to read papers. I know how to validate primitives. I use Claude
+> as a full-time coding partner — every architectural decision is mine,
+> every line is read and understood before it lands in the repository.
 >
 > This is not AI-generated slop. It's a system built by a senior engineer
 > using AI the way a senior engineer uses any tool: to move faster without
