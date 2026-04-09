@@ -1,8 +1,13 @@
-# tidex6
+<p align="center">
+  <img alt="tidex6" src="brand/logo-dark.png" width="180">
+</p>
 
-> **I grant access, not permission.**
->
-> *The Rust-native privacy framework for Solana.*
+<h1 align="center">tidex6</h1>
+
+<p align="center">
+  <strong>I grant access, not permission.</strong><br>
+  <em>The Rust-native privacy framework for Solana.</em>
+</p>
 
 ---
 
