@@ -1,0 +1,76 @@
+# tidex6 — Rust-native privacy framework for Solana
+#
+# Workspace root. Member crates live under crates/.
+# See docs/release/PROJECT_BRIEF.md section 7 for the full planned layout.
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/tidex6-core",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+authors = ["tidex6 contributors"]
+repository = "https://github.com/koshak01/tidex6"
+readme = "README.md"
+keywords = ["solana", "privacy", "zero-knowledge", "groth16", "anchor"]
+categories = ["cryptography"]
+
+# Shared dependency versions used across member crates.
+# Before adding any new dependency, check docs/release/PROJECT_BRIEF.md section 6.
+[workspace.dependencies]
+# Arkworks 0.5.x — zero-knowledge stack for BN254
+ark-bn254 = "0.5"
+ark-groth16 = "0.5"
+ark-crypto-primitives = { version = "0.5", features = ["r1cs", "crh", "merkle_tree", "sponge"] }
+ark-r1cs-std = "0.5"
+ark-relations = "0.5"
+ark-ff = "0.5"
+ark-ec = "0.5"
+ark-serialize = "0.5"
+ark-ed-on-bn254 = "0.5"
+
+# Hashing: circom-compatible Poseidon, byte-for-byte equivalent to the
+# onchain solana-poseidon syscall. MUST use Poseidon::<Fr>::new_circom(n).
+# See ADR-001 and docs/release/security.md section 2.2.
+light-poseidon = "0.4"
+
+# Error handling per ~/.claude/rules/rust/error-handling.md:
+# - library crates use thiserror
+# - binary crates use anyhow
+thiserror = "2"
+anyhow = "1"
+
+# Dev dependencies
+criterion = "0.8"
+proptest = "1"
+
+# Lints applied to every member crate via `lints.workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+wildcard_imports = "deny"
+enum_glob_use = "deny"
+todo = "warn"
+unimplemented = "warn"
+
+# Release profile tuned for onchain programs and prover binaries.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+overflow-checks = true
+
+# Dev profile: keep overflow checks on so we catch arithmetic bugs early.
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true

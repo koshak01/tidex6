@@ -1,0 +1,19 @@
+[package]
+name = "tidex6-core"
+description = "Core primitives for the tidex6 privacy framework: commitments, nullifiers, Merkle tree, keys, Poseidon wrapper, ElGamal on BN254."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true
