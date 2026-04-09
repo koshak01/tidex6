@@ -16,6 +16,12 @@ light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 
+# rand is used by `Secret::random`, `Nullifier::random`, and
+# `SpendingKey::random` — the only ways tidex6 generates fresh
+# cryptographic material offchain. The `sys_rng` feature pulls in
+# `getrandom` so we can reach the OS-level CSPRNG through `OsRng`.
+rand = { version = "0.10", default-features = false, features = ["std", "std_rng", "sys_rng"] }
+
 [dev-dependencies]
 # solana-poseidon is a dev-dependency here because tidex6-core is a
 # pure-primitives library and must not pull in Solana machinery at the

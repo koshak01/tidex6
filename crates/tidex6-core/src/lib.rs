@@ -20,4 +20,6 @@
 //! that governs the first steps of implementation live at
 //! `docs/release/security.md`.
 
+pub mod keys;
 pub mod poseidon;
+pub mod types;
