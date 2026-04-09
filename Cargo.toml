@@ -4,9 +4,14 @@
 # See docs/release/PROJECT_BRIEF.md section 7 for the full planned layout.
 
 [workspace]
-resolver = "3"
+# resolver "3" is the default for Rust 2024 edition, but the Anchor CLI
+# bundles an older Cargo that does not recognise it. We use "2" which
+# works with 2024 edition and is understood by both cargo and anchor.
+resolver = "2"
 members = [
     "crates/tidex6-core",
+    "crates/tidex6-day1",
+    "programs/tidex6-verifier",
 ]
 
 [workspace.package]
@@ -48,6 +53,12 @@ solana-poseidon = "4"
 # - binary crates use anyhow
 thiserror = "2"
 anyhow = "1"
+
+# Anchor client and ecosystem — used by the Day-1 validation harness and
+# by any future Rust-based integrator code. Version pinned to match the
+# onchain anchor-lang version used in programs/tidex6-verifier.
+anchor-client = "1.0.0"
+anchor-lang = "1.0.0"
 
 # Dev dependencies
 criterion = "0.8"

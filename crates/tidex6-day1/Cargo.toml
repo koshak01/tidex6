@@ -1,0 +1,33 @@
+[package]
+name = "tidex6-day1"
+description = "Day-1 Validation Checklist harness: exercises the onchain primitives on a live Solana network and compares them against the offchain wrappers."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tidex6-day1"
+path = "src/main.rs"
+
+[dependencies]
+tidex6-core = { path = "../tidex6-core" }
+tidex6-verifier = { path = "../../programs/tidex6-verifier", features = ["no-entrypoint"] }
+
+anchor-client = { workspace = true }
+anchor-lang = { workspace = true }
+anyhow = { workspace = true }
+
+# Solana crates at the 3.x series to match anchor-client 1.0.0's
+# transitive dependencies — mixing 3.x and 4.x here would produce two
+# copies of the same type in the dependency graph and fail to compile.
+solana-keypair = "3"
+solana-rpc-client-api = "3"
+solana-transaction-status = "3"
+
+hex = "0.4"
+
+[lints]
+workspace = true

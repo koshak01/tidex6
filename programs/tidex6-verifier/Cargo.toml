@@ -1,0 +1,28 @@
+[package]
+name = "tidex6-verifier"
+description = "Onchain Groth16 verifier and Day-1 primitive validation for tidex6."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "tidex6_verifier"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "1.0.0"
+solana-poseidon = { workspace = true }
+
+[lints]
+workspace = true

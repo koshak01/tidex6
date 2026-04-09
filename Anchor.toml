@@ -1,0 +1,25 @@
+[toolchain]
+anchor_version = "1.0.0"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+
+[programs.devnet]
+tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "echo 'Tests are written as Rust integration tests in crates/tidex6-verifier/tests/'"
+
+[workspace]
+members = ["programs/tidex6-verifier"]

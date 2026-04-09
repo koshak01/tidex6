@@ -38,3 +38,8 @@ keys/private/
 # Logs
 *.log
 logs/
+
+# Anchor / Solana build outputs
+.anchor/
+target/deploy/*.json
+!target/deploy/.gitkeep
