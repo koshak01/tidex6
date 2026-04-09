@@ -8,7 +8,9 @@
 
 tidex6 is a Rust-native, open-source framework that lets Solana developers add full transaction privacy to their Anchor programs through a small SDK surface. Transactions are private by default — sender, receiver, and amount are hidden. Users can optionally share a viewing key with someone they trust (an accountant, an auditor, a family member) to selectively disclose history, on their own terms.
 
-**Status:** paperwork phase complete, code in progress. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
+**Status:** MVP crypto core **working on Solana devnet**. Deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, and recipient-binding front-run protection all validated end-to-end on live devnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
+
+> **DEVELOPMENT ONLY.** Pre-audit, pre-mainnet, single-contributor trusted setup. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
 
 ---
 

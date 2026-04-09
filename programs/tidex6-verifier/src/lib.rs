@@ -28,9 +28,13 @@ use solana_poseidon::{Endianness, Parameters, hashv};
 
 mod groth16_test_vectors;
 mod pool;
+mod withdraw_vk;
 
 use groth16_test_vectors::{PUBLIC_INPUTS, VERIFYING_KEY};
-pub use pool::{DepositEvent, FIELD_ELEMENT_BYTES, PoolState, ROOT_RING_SIZE, TREE_DEPTH};
+pub use pool::{
+    DepositEvent, FIELD_ELEMENT_BYTES, NullifierRecord, PoolState, ROOT_RING_SIZE, TREE_DEPTH,
+    WithdrawEvent,
+};
 
 declare_id!("77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42");
 
@@ -101,6 +105,34 @@ pub mod tidex6_verifier {
     /// and updating the onchain Merkle root.
     pub fn deposit(context: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTES]) -> Result<()> {
         pool::handle_deposit(context, commitment)
+    }
+
+    /// Withdraw a previously-deposited note. The caller supplies a
+    /// Groth16 `WithdrawCircuit<20>` proof plus the three public
+    /// inputs: `merkle_root` (one of the recent roots), the
+    /// `nullifier_hash` (goes into a fresh per-nullifier PDA), and
+    /// — implicitly — the `recipient` account that receives the
+    /// vault payout. The recipient pubkey is reduced onchain to a
+    /// BN254 scalar field element and passed as the third public
+    /// input; the circuit binds the proof to it, so a front-runner
+    /// who rewrites the recipient field in the submitted
+    /// transaction invalidates the proof.
+    pub fn withdraw(
+        context: Context<Withdraw>,
+        proof_a: [u8; 64],
+        proof_b: [u8; 128],
+        proof_c: [u8; 64],
+        merkle_root: [u8; FIELD_ELEMENT_BYTES],
+        nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+    ) -> Result<()> {
+        pool::handle_withdraw(
+            context,
+            proof_a,
+            proof_b,
+            proof_c,
+            merkle_root,
+            nullifier_hash,
+        )
     }
 
     pub fn verify_test_proof(
@@ -229,6 +261,69 @@ pub struct VerifyTestProof<'info> {
     pub payer: Signer<'info>,
 }
 
+/// Accounts for `withdraw`. The caller must pass the pool and its
+/// companion vault, the nullifier PDA (created fresh — a second
+/// attempt to use the same nullifier_hash fails the `init`), the
+/// recipient account that will receive the payout, and the payer
+/// that funds the nullifier PDA rent.
+///
+/// `#[instruction(...)]` pulls in the same raw arguments the
+/// handler receives so the nullifier PDA seed can reference
+/// `nullifier_hash`. `proof_a`, `proof_b`, `proof_c`, and
+/// `merkle_root` are unused at the account-constraint level — they
+/// are only referenced inside the handler — but Anchor requires
+/// every instruction argument ahead of `nullifier_hash` to appear
+/// in the `#[instruction(...)]` list.
+#[derive(Accounts)]
+#[instruction(
+    proof_a: [u8; 64],
+    proof_b: [u8; 128],
+    proof_c: [u8; 64],
+    merkle_root: [u8; FIELD_ELEMENT_BYTES],
+    nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+)]
+pub struct Withdraw<'info> {
+    #[account(
+        mut,
+        seeds = [PoolState::POOL_SEED_PREFIX, &pool.load()?.denomination.to_le_bytes()],
+        bump = pool.load()?.bump,
+    )]
+    pub pool: AccountLoader<'info, PoolState>,
+
+    /// CHECK: vault is a known-seed system-owned PDA derived from
+    /// the same denomination as `pool`. Payout flows out of it via
+    /// a seeded signer system-program CPI.
+    #[account(
+        mut,
+        seeds = [PoolState::VAULT_SEED_PREFIX, &pool.load()?.denomination.to_le_bytes()],
+        bump,
+    )]
+    pub vault: UncheckedAccount<'info>,
+
+    /// The per-nullifier PDA. Created here; double-spend attempts
+    /// fail at `init` before any Groth16 work runs.
+    #[account(
+        init,
+        payer = payer,
+        space = NullifierRecord::ACCOUNT_SIZE,
+        seeds = [NullifierRecord::SEED_PREFIX, &nullifier_hash],
+        bump,
+    )]
+    pub nullifier: Account<'info, NullifierRecord>,
+
+    /// CHECK: the recipient is any system account. Its pubkey is
+    /// reduced modulo the BN254 scalar field and bound to the
+    /// proof as a public input, so a front-runner who swaps this
+    /// field invalidates the proof.
+    #[account(mut)]
+    pub recipient: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
 #[error_code]
 pub enum Tidex6VerifierError {
     #[msg("Unsupported Poseidon input count: must be between 1 and 12.")]
@@ -243,4 +338,6 @@ pub enum Tidex6VerifierError {
     InvalidDenomination,
     #[msg("Pool is full; no more deposits can be accepted into this tree.")]
     PoolFull,
+    #[msg("The supplied Merkle root is not in the pool's recent-root ring buffer.")]
+    MerkleRootNotRecent,
 }

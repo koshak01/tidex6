@@ -15,9 +15,11 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{Transfer, transfer};
+use groth16_solana::groth16::Groth16Verifier;
 use solana_poseidon::{Endianness, Parameters, hashv};
 
-use crate::{Deposit, InitPool, Tidex6VerifierError};
+use crate::withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
+use crate::{Deposit, InitPool, Tidex6VerifierError, Withdraw};
 
 /// Tree depth used by the MVP shielded pool. Matches
 /// `tidex6_core::merkle::DEFAULT_DEPTH`. 2^20 ≈ 1 048 576 leaves.
@@ -28,6 +30,16 @@ pub const TREE_DEPTH: usize = 20;
 /// some slack to generate a proof before the root drifts. Tornado
 /// Cash uses 30; we follow the same convention.
 pub const ROOT_RING_SIZE: usize = 30;
+
+/// BN254 scalar field modulus encoded big-endian. Used to reduce
+/// an arbitrary 32-byte value (e.g. a Solana pubkey) into a valid
+/// field-element encoding before handing it to the Groth16
+/// verifier. Matches the constant in
+/// `tidex6_core::types::BN254_SCALAR_FIELD_MODULUS_BE`.
+pub const BN254_MODULUS_BE: [u8; FIELD_ELEMENT_BYTES] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
+];
 
 /// Length in bytes of a BN254 scalar field element — the unit used
 /// for commitments, nullifiers, and Merkle roots.
@@ -217,4 +229,175 @@ pub fn handle_deposit(ctx: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTE
     });
 
     Ok(())
+}
+
+/// Handle a withdraw request. Verifies a Groth16 proof of
+/// `WithdrawCircuit<20>` against the hardcoded `WITHDRAW_VERIFYING_KEY`
+/// and, on success, transfers `denomination` lamports from the pool
+/// vault to the recipient account. The nullifier PDA is created
+/// during the instruction via Anchor's `init` constraint, so a
+/// double-spend fails at the account-initialisation step before any
+/// Groth16 work happens.
+pub fn handle_withdraw(
+    ctx: Context<Withdraw>,
+    proof_a: [u8; 64],
+    proof_b: [u8; 128],
+    proof_c: [u8; 64],
+    merkle_root: [u8; FIELD_ELEMENT_BYTES],
+    nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+) -> Result<()> {
+    // 1. Sanity-check that the claimed Merkle root is present in
+    //    the pool's recent-root ring buffer.
+    let (denomination, root_accepted, vault_bump) = {
+        let pool = ctx.accounts.pool.load()?;
+        let mut accepted = false;
+        for entry in pool.root_history.iter() {
+            if entry == &merkle_root {
+                accepted = true;
+                break;
+            }
+        }
+        (pool.denomination, accepted, ctx.bumps.vault)
+    };
+    require!(root_accepted, Tidex6VerifierError::MerkleRootNotRecent);
+
+    // 2. The nullifier PDA was initialised via the `init` attribute
+    //    in the account constraints, so if we reach this point the
+    //    nullifier_hash seed has never been used before. Record the
+    //    hash inside it for offchain observability.
+    ctx.accounts.nullifier.nullifier_hash = nullifier_hash;
+
+    // 3. Reduce the recipient pubkey to a BN254 scalar. The prover
+    //    used the same reduction offchain when building the witness.
+    let recipient_raw = ctx.accounts.recipient.key().to_bytes();
+    let recipient_fr = reduce_mod_bn254(&recipient_raw);
+
+    // 4. Run the Groth16 verifier against the hardcoded VK.
+    let public_inputs: [[u8; 32]; 3] = [merkle_root, nullifier_hash, recipient_fr];
+
+    let mut verifier = Groth16Verifier::<{ WITHDRAW_NR_PUBLIC_INPUTS }>::new(
+        &proof_a,
+        &proof_b,
+        &proof_c,
+        &public_inputs,
+        &WITHDRAW_VERIFYING_KEY,
+    )
+    .map_err(|_| Tidex6VerifierError::Groth16VerifierConstructFailed)?;
+
+    verifier
+        .verify()
+        .map_err(|_| Tidex6VerifierError::Groth16VerificationFailed)?;
+
+    // 5. Transfer `denomination` lamports from the vault PDA to
+    //    the recipient via a system-program CPI with a seeded
+    //    signer (the vault is a system-owned PDA).
+    let denomination_bytes: [u8; 8] = denomination.to_le_bytes();
+    let vault_signer_seeds: &[&[u8]] = &[
+        PoolState::VAULT_SEED_PREFIX,
+        &denomination_bytes,
+        std::slice::from_ref(&vault_bump),
+    ];
+    let signer_seeds = &[vault_signer_seeds];
+
+    transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.system_program.key(),
+            Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.recipient.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        denomination,
+    )?;
+
+    msg!(
+        "tidex6-withdraw:{}:{}",
+        denomination,
+        crate::encode_hex(nullifier_hash)
+    );
+    emit!(WithdrawEvent {
+        denomination,
+        nullifier_hash,
+        merkle_root,
+        recipient: ctx.accounts.recipient.key(),
+    });
+
+    Ok(())
+}
+
+/// Reduce an arbitrary 32-byte big-endian value into the canonical
+/// representation of a BN254 scalar field element. Repeated
+/// subtraction of the modulus; the input is at most ~5× the
+/// modulus (since 2^256 / BN254_MODULUS ≈ 5.3) so the loop runs at
+/// most 5 iterations — cheap in compute units.
+fn reduce_mod_bn254(
+    bytes: &[u8; FIELD_ELEMENT_BYTES],
+) -> [u8; FIELD_ELEMENT_BYTES] {
+    let mut result = *bytes;
+    while ge_be_32(&result, &BN254_MODULUS_BE) {
+        sub_be_32_in_place(&mut result, &BN254_MODULUS_BE);
+    }
+    result
+}
+
+/// Big-endian 32-byte `>=` comparison.
+fn ge_be_32(a: &[u8; FIELD_ELEMENT_BYTES], b: &[u8; FIELD_ELEMENT_BYTES]) -> bool {
+    for index in 0..FIELD_ELEMENT_BYTES {
+        if a[index] > b[index] {
+            return true;
+        }
+        if a[index] < b[index] {
+            return false;
+        }
+    }
+    true
+}
+
+/// Big-endian 32-byte in-place subtraction: `a -= b`. Assumes
+/// `a >= b`, which the caller guarantees via `ge_be_32`.
+fn sub_be_32_in_place(
+    a: &mut [u8; FIELD_ELEMENT_BYTES],
+    b: &[u8; FIELD_ELEMENT_BYTES],
+) {
+    let mut borrow: i16 = 0;
+    for index in (0..FIELD_ELEMENT_BYTES).rev() {
+        let difference = a[index] as i16 - b[index] as i16 - borrow;
+        if difference < 0 {
+            a[index] = (difference + 256) as u8;
+            borrow = 1;
+        } else {
+            a[index] = difference as u8;
+            borrow = 0;
+        }
+    }
+}
+
+/// Per-nullifier PDA. Seeds `[b"nullifier", nullifier_hash]`. The
+/// only data is the nullifier hash itself (stored redundantly for
+/// offchain observability — the seeds already encode it). Created
+/// during the `withdraw` instruction and never closed; its
+/// existence is the double-spend prevention mechanism.
+#[account]
+pub struct NullifierRecord {
+    pub nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+}
+
+impl NullifierRecord {
+    /// Seed prefix used for the per-nullifier PDA.
+    pub const SEED_PREFIX: &'static [u8] = b"nullifier";
+
+    /// Statically known account size: Anchor discriminator (8 bytes)
+    /// plus a single 32-byte field.
+    pub const ACCOUNT_SIZE: usize = 8 + FIELD_ELEMENT_BYTES;
+}
+
+/// Emitted by every successful `withdraw`. Offchain indexers use
+/// it to track SOL outflow from the pool.
+#[event]
+pub struct WithdrawEvent {
+    pub denomination: u64,
+    pub nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+    pub merkle_root: [u8; FIELD_ELEMENT_BYTES],
+    pub recipient: Pubkey,
 }

@@ -27,5 +27,8 @@
 //!   crate, which is the layout the onchain `tidex6-verifier`
 //!   program consumes.
 
+pub mod deposit;
+pub mod poseidon_gadget;
 pub mod solana_bytes;
 pub mod square;
+pub mod withdraw;

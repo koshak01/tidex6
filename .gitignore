@@ -43,3 +43,7 @@ logs/
 .anchor/
 target/deploy/*.json
 !target/deploy/.gitkeep
+
+# Claude Code session files (local scratch, never published)
+.claude/
+.DS_Store

@@ -22,6 +22,13 @@ ark-serialize = { workspace = true }
 ark-snark = "0.5"
 ark-std = "0.5"
 
+# light-poseidon is the source of truth for circom-compatible
+# parameters. The in-circuit `poseidon_gadget` reuses the exact
+# round constants and MDS matrix from this crate so the in-circuit
+# hash cannot drift from `tidex6_core::poseidon::hash_pair`, which
+# uses the same library at runtime.
+light-poseidon = { workspace = true }
+
 rand = "0.10"
 thiserror = { workspace = true }
 

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: "10"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  offchain:
+    name: cargo check + test (offchain crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: offchain
+      - name: cargo check -p tidex6-core
+        run: cargo check -p tidex6-core --all-targets
+      - name: cargo check -p tidex6-circuits
+        run: cargo check -p tidex6-circuits --all-targets
+      - name: cargo clippy -p tidex6-core
+        run: cargo clippy -p tidex6-core --all-targets -- -D warnings
+      - name: cargo clippy -p tidex6-circuits
+        run: cargo clippy -p tidex6-circuits --all-targets -- -D warnings
+      - name: cargo test -p tidex6-core
+        run: cargo test -p tidex6-core --all-targets
+      - name: cargo test -p tidex6-circuits
+        run: cargo test -p tidex6-circuits --all-targets
+
+  onchain-check:
+    name: cargo check (onchain programs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: onchain
+      - name: cargo check -p tidex6-verifier
+        run: cargo check -p tidex6-verifier
+      - name: cargo check -p tidex6-caller
+        run: cargo check -p tidex6-caller

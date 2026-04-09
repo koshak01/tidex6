@@ -14,12 +14,15 @@ path = "src/main.rs"
 
 [dependencies]
 tidex6-core = { path = "../tidex6-core" }
+tidex6-circuits = { path = "../tidex6-circuits" }
 tidex6-verifier = { path = "../../programs/tidex6-verifier", features = ["no-entrypoint"] }
 tidex6-caller = { path = "../../programs/tidex6-caller", features = ["no-entrypoint"] }
 
 anchor-client = { workspace = true }
 anchor-lang = { workspace = true }
 anyhow = { workspace = true }
+ark-std = "0.5"
+ark-groth16 = { workspace = true }
 
 # Solana crates at the 3.x series to match anchor-client 1.0.0's
 # transitive dependencies — mixing 3.x and 4.x here would produce two
