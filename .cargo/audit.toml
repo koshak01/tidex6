@@ -1,0 +1,78 @@
+# cargo-audit configuration for tidex6.
+#
+# Each entry here is an advisory we have reviewed and consciously
+# chosen to accept, with a written rationale. `cargo audit` will
+# still print the advisory in its output so the developer sees it
+# every run, but it will not cause CI to fail.
+#
+# Review policy: every advisory listed here MUST be revisited when
+# - its upstream fix version lands, or
+# - arkworks / solana-sdk release a new minor version that might
+#   bump the transient dep, or
+# - we touch the offending code path directly.
+#
+# Never add an advisory here without a Rationale line explaining
+# both the technical reason and the reason we cannot fix it now.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2025-0055 — tracing-subscriber 0.2.25
+    #
+    # Vulnerability: ANSI escape sequence injection in log output.
+    # If a program logs attacker-controlled text via tracing-subscriber
+    # 0.2.x with the default formatting layer, the attacker can inject
+    # ANSI escape sequences that corrupt terminal output or mislead
+    # log analysis tools.
+    #
+    # Upstream fix: upgrade to tracing-subscriber >= 0.3.20.
+    #
+    # Why we cannot fix directly:
+    # tidex6 does not depend on tracing-subscriber. The advisory fires
+    # because `ark-relations 0.5.1` has an *optional* dependency on
+    # tracing-subscriber 0.2 (behind its `std` feature). Arkworks
+    # 0.5.x is pinned to 0.2; upgrading requires a new arkworks
+    # release, which we cannot force.
+    #
+    # Why we accept the risk:
+    # 1. We do not use the `ark-relations` `std` feature in a way
+    #    that routes untrusted input through `tracing-subscriber`.
+    #    Our circuit constraint synthesis logs are emitted only on
+    #    deliberately-triggered debug runs, never with user data.
+    # 2. The vulnerability is cosmetic (log formatting), not a
+    #    memory-safety or logic bug. An attacker can at worst
+    #    corrupt our dev-machine terminal output, not the onchain
+    #    state or the withdraw proof.
+    # 3. The fix path is a new arkworks minor release; we track
+    #    https://github.com/arkworks-rs/arkworks for 0.6.x and
+    #    will upgrade as soon as it ships.
+    # Review-by: next arkworks minor release.
+    "RUSTSEC-2025-0055",
+
+    # RUSTSEC-2025-0141 — bincode 1.3.3 (unmaintained)
+    # Pulled in transitively by solana-zk-sdk 4.0.0 via several
+    # spl-token-2022-interface dependencies. We have no control
+    # over the Solana SDK dep graph; upgrading requires a
+    # solana-sdk minor release that we track separately.
+    #
+    # Accepting risk: bincode 1.3.3 works fine; "unmaintained" here
+    # means no new CVE fixes will land, not that the existing code
+    # is broken.
+    # Review-by: next solana-sdk minor release (>= 4.1.x).
+    "RUSTSEC-2025-0141",
+
+    # RUSTSEC-unknown — derivative 2.2.0 (unmaintained)
+    # Pulled in transitively by ark-ff and ark-ec via the
+    # arkworks 0.5 stack. Same situation as tracing-subscriber:
+    # we cannot upgrade without a new arkworks release. The
+    # `derivative` crate is a proc-macro that expands at compile
+    # time and carries no runtime attack surface.
+    # Review-by: next arkworks minor release.
+    "RUSTSEC-2024-0388",
+
+    # RUSTSEC-unknown — paste 1.0.15 (unmaintained)
+    # Pulled in transitively by ark-ff-asm. Same "no runtime attack
+    # surface" argument as derivative: `paste` is a proc-macro that
+    # runs only at compile time.
+    # Review-by: next arkworks minor release.
+    "RUSTSEC-2024-0436",
+]

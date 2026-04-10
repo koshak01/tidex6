@@ -14,7 +14,6 @@ categories.workspace = true
 thiserror = { workspace = true }
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
-ark-ff = { workspace = true }
 
 # rand is used by `Secret::random`, `Nullifier::random`, and
 # `SpendingKey::random` — the only ways tidex6 generates fresh
@@ -28,6 +27,10 @@ rand = { version = "0.10", default-features = false, features = ["std", "std_rng
 # public API surface. It is used in `tests/poseidon_equivalence.rs` as
 # the ground truth for the Day-1 Validation Checklist.
 solana-poseidon = { workspace = true }
+# proptest is used in `tests/property_tests.rs` for Day-20 security
+# hardening: randomised invariant checking across 10k+ inputs for
+# every core primitive.
+proptest = { workspace = true }
 
 [lints]
 workspace = true

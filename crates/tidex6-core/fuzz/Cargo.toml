@@ -1,0 +1,43 @@
+[package]
+name = "tidex6-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Standalone workspace — must not be part of the parent workspace
+# because cargo-fuzz adds its own build flags (sanitizers) that
+# conflict with the workspace's profile.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.tidex6-core]
+path = ".."
+
+# Fuzz targets — one binary per attack surface.
+# Run a specific target: cargo +nightly fuzz run fuzz_poseidon -- -max_total_time=60
+
+[[bin]]
+name = "fuzz_poseidon"
+path = "fuzz_targets/fuzz_poseidon.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_note_parse"
+path = "fuzz_targets/fuzz_note_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_merkle"
+path = "fuzz_targets/fuzz_merkle.rs"
+test = false
+doc = false
+bench = false

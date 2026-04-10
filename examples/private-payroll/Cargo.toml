@@ -34,7 +34,6 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 solana-keypair = "3"
-solana-signature = "3"
 
 [lints]
 workspace = true

@@ -8,6 +8,13 @@
 # bundles an older Cargo that does not recognise it. We use "2" which
 # works with 2024 edition and is understood by both cargo and anchor.
 resolver = "2"
+exclude = [
+    # cargo-fuzz crates have their own Cargo.toml and are built
+    # separately with `cargo +nightly fuzz run`. They must NOT be
+    # in the workspace members list or the normal `cargo build`
+    # would try to compile them and fail on stable.
+    "crates/tidex6-core/fuzz",
+]
 members = [
     "crates/tidex6-circuits",
     "crates/tidex6-cli",

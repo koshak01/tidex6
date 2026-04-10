@@ -34,7 +34,7 @@ const BN254_SCALAR_FIELD_MODULUS_BE: [u8; DOMAIN_VALUE_LEN] = [
 
 /// Constant-time lexicographic check that a 32-byte big-endian
 /// integer is strictly less than the BN254 scalar field modulus.
-pub(crate) fn is_below_bn254_modulus(bytes: &[u8; DOMAIN_VALUE_LEN]) -> bool {
+pub fn is_below_bn254_modulus(bytes: &[u8; DOMAIN_VALUE_LEN]) -> bool {
     for (byte, modulus_byte) in bytes.iter().zip(BN254_SCALAR_FIELD_MODULUS_BE.iter()) {
         if byte < modulus_byte {
             return true;
@@ -52,7 +52,7 @@ pub(crate) fn is_below_bn254_modulus(bytes: &[u8; DOMAIN_VALUE_LEN]) -> bool {
 /// valid BN254 scalar field element. Uses rejection sampling; the
 /// rejection probability is ~2^-2 so the expected number of draws
 /// per successful sample is ~1.33.
-pub(crate) fn sample_field_element_bytes() -> Result<[u8; DOMAIN_VALUE_LEN], DomainError> {
+pub fn sample_field_element_bytes() -> Result<[u8; DOMAIN_VALUE_LEN], DomainError> {
     loop {
         let mut bytes = [0u8; DOMAIN_VALUE_LEN];
         SysRng

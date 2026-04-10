@@ -32,3 +32,10 @@ bytemuck = { version = "1", features = ["derive"] }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+# bytemuck is pulled in by Anchor's `#[account(zero_copy)]` proc-macro
+# expansion at crate::pool::PoolState. cargo-machete cannot see
+# macro-generated references, so it reports bytemuck as unused. It
+# is required for the PoolState layout; do not remove.
+ignored = ["bytemuck"]

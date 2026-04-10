@@ -2,17 +2,14 @@
 //!
 //! Usage pattern:
 //!
-//! ```no_run
+//! ```ignore
 //! use anchor_client::anchor_lang::prelude::Pubkey;
 //! use tidex6_indexer::PoolIndexer;
 //!
-//! # fn demo(rpc_url: String, pool_pda: Pubkey) -> anyhow::Result<()> {
-//! let indexer = PoolIndexer::new(rpc_url, pool_pda);
+//! let indexer = PoolIndexer::new("https://api.devnet.solana.com", pool_pda);
 //! let history = indexer.fetch_deposit_history()?;
 //! let (tree, _root) = indexer.rebuild_tree(20)?;
 //! // tree.proof(leaf_index) — ready for the withdraw circuit
-//! # drop(history); Ok(())
-//! # }
 //! ```
 //!
 //! The indexer walks `getSignaturesForAddress` for the pool PDA

@@ -12,14 +12,11 @@ repository.workspace = true
 tidex6-core = { path = "../tidex6-core" }
 
 anchor-client = { workspace = true }
-anchor-lang = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 # Solana crates pinned to the same 3.x series as the rest of the
 # offchain stack. Mixing with 4.x produces two copies of the same
 # types in the dep graph and breaks compilation.
-solana-keypair = "3"
 solana-rpc-client = "3"
 solana-rpc-client-api = "3"
 solana-signature = "3"
