@@ -29,6 +29,10 @@ groth16-solana = { workspace = true }
 # not re-export it at the path the macro generates, so we depend on
 # it directly.
 bytemuck = { version = "1", features = ["derive"] }
+# On-chain security.txt — tells the world how to contact the
+# developer if a vulnerability is found. Shows as a green checkmark
+# on Solscan program pages.
+solana-security-txt = "1.1"
 
 [lints]
 workspace = true

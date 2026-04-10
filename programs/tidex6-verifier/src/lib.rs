@@ -36,7 +36,18 @@ pub use pool::{
     WithdrawEvent,
 };
 
-declare_id!("77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42");
+declare_id!("2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C");
+
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "tidex6-verifier",
+    project_url: "https://github.com/koshak01/tidex6",
+    contacts: "email:koshak01@users.noreply.github.com",
+    policy: "https://github.com/koshak01/tidex6/blob/master/SECURITY.md",
+    preferred_languages: "en,ru",
+    source_code: "https://github.com/koshak01/tidex6",
+    auditors: "Unaudited - see docs/release/security.md for threat model"
+}
 
 #[program]
 pub mod tidex6_verifier {

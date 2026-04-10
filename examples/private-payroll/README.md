@@ -34,7 +34,7 @@ by default *and* compliance by choice, without a central auditor.
 3. A devnet wallet with a few SOL at `~/.config/solana/id.json`.
    `solana airdrop 2` works if you need more.
 4. The `tidex6-verifier` program deployed on devnet — already live
-   at `77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42`, no action
+   at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, no action
    needed.
 
 ## Running the individual binaries

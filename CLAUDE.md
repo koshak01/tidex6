@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
-- **Onchain verifier** (programs/tidex6-verifier): deployed at `77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
+- **Onchain verifier** (programs/tidex6-verifier): deployed at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
 - **Indexer** (tidex6-indexer): `PoolIndexer::rebuild_tree` replays `tidex6-deposit:<leaf>:<commitment>:<root>` program logs into an offchain Merkle tree. Enables withdraws on non-empty pools.
 - **Client SDK** (tidex6-client): `PrivatePool::connect`, `DepositBuilder::send`, `WithdrawBuilder::send` — the builder-pattern API from ADR-006 is real and used by the CLI internally.
 - **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw`, thin wrapper over the SDK.

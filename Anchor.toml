@@ -6,12 +6,15 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
 tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
 
 [programs.devnet]
-tidex6_verifier = "77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42"
+tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
 tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
+
+[programs.mainnet]
+tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
 
 [registry]
 url = "https://api.apr.dev"
