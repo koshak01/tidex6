@@ -15,11 +15,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Flagship example** (examples/private-payroll): three binaries telling Lena's story — sender, receiver, accountant. `scripts/run_demo.sh` runs all three in a tmux session against live devnet.
 - **Live devnet flight harnesses** (tidex6-day1): Day-1 kill gates, Day-5 deposit, Day-11 withdraw, Day-12 negative tests (front-run + double-spend). All PASS on devnet.
 - **Brand**: logos in `brand/`, pitch video script in `video/PITCH_VIDEO_SCRIPT.md`.
+- **Website** (separate repo: tidex6-web): production site at **tidex6.com**. 5-microservice architecture (database, notifier, solana, ws_gateway, web_server). Deposit/withdraw via browser with Phantom wallet. Invite system with Telegram bot approval. tidex6-client used natively (not CLI subprocess).
 
-**Remaining to ship (Days 19–32):**
-- Day 19–23: security hardening (fuzz, proptest, adversarial harness) — optional.
-- Day 24–30: record pitch video and demo video per scripts in `video/`.
-- Day 31–32: final Colosseum submission, buffer.
+**Remaining to ship:**
+- Record pitch video (2 min) and demo video (3 min) per scripts in `video/`.
+- Final Colosseum submission.
 
 MVP deadline: Colosseum Frontier hackathon, **2026-05-11**.
 
