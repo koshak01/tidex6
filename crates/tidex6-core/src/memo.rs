@@ -308,6 +308,26 @@ pub fn derive_aes_key(shared: &SharedSecret) -> [u8; AES_KEY_LEN] {
     out
 }
 
+/// Build a minimal valid `MemoPayload` for tests and live-flight
+/// harnesses that do not care about memo content but still need to
+/// satisfy the on-chain length bounds of
+/// `tidex6_verifier::pool::MEMO_PAYLOAD_MIN_LEN`.
+///
+/// Generates a fresh auditor keypair in memory, encrypts a short
+/// fixed plaintext under it, and returns the binary payload. No
+/// persistence: the key is dropped at function return, so the
+/// resulting memo is cryptographically unreadable — which is
+/// exactly what we want for a harness that only exercises the
+/// transport path.
+pub fn placeholder_payload_for_harness() -> Vec<u8> {
+    use crate::elgamal::AuditorSecretKey;
+    let sk = AuditorSecretKey::random().expect("OS CSPRNG must succeed");
+    let pk = sk.public_key();
+    MemoPayload::encrypt(&pk, b"flight-harness-placeholder")
+        .expect("encrypting a 26-byte plaintext cannot fail")
+        .to_bytes()
+}
+
 /// High-level helper: encrypt `plaintext` under `auditor_pk` and
 /// return the base64 string ready for an SPL Memo instruction.
 ///

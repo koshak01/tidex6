@@ -112,10 +112,23 @@ pub mod tidex6_verifier {
     }
 
     /// Deposit `commitment` into the pool, transferring
-    /// `denomination` lamports from the payer into the vault PDA
-    /// and updating the onchain Merkle root.
-    pub fn deposit(context: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTES]) -> Result<()> {
-        pool::handle_deposit(context, commitment)
+    /// `denomination` lamports from the payer into the vault PDA,
+    /// updating the onchain Merkle root, and storing the Shielded
+    /// Memo payload in the emitted `DepositEvent`.
+    ///
+    /// `memo_payload` must be the binary wire format produced by
+    /// `tidex6_core::memo::MemoPayload::to_bytes` — concatenation
+    /// of `ephemeral_pk || iv || tag || ciphertext`. The verifier
+    /// does not attempt to decrypt or validate the memo
+    /// cryptographically; it only enforces length bounds so an
+    /// integrator program cannot inflate the instruction data
+    /// beyond what a single deposit should cost.
+    pub fn deposit(
+        context: Context<Deposit>,
+        commitment: [u8; FIELD_ELEMENT_BYTES],
+        memo_payload: Vec<u8>,
+    ) -> Result<()> {
+        pool::handle_deposit(context, commitment, memo_payload)
     }
 
     /// Withdraw a previously-deposited note. The caller supplies a
@@ -178,8 +191,16 @@ pub mod tidex6_verifier {
 /// dependency graph stays as small as possible. Runs in O(64) with
 /// negligible compute-unit cost.
 fn encode_hex(bytes: [u8; 32]) -> String {
+    encode_hex_bytes(&bytes)
+}
+
+/// Variable-length variant of [`encode_hex`], used for the memo
+/// trailer in the `tidex6-deposit` log line. Same hex alphabet and
+/// same compute profile — just walks any slice rather than a fixed
+/// 32-byte array.
+fn encode_hex_bytes(bytes: &[u8]) -> String {
     const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(64);
+    let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         out.push(HEX_CHARS[(byte >> 4) as usize] as char);
         out.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
@@ -351,4 +372,6 @@ pub enum Tidex6VerifierError {
     PoolFull,
     #[msg("The supplied Merkle root is not in the pool's recent-root ring buffer.")]
     MerkleRootNotRecent,
+    #[msg("Shielded Memo payload length is outside the accepted bounds.")]
+    InvalidMemoPayloadLength,
 }

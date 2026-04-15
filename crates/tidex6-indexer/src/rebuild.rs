@@ -26,11 +26,13 @@ use std::str::FromStr;
 
 use anchor_client::CommitmentConfig;
 use anchor_client::anchor_lang::prelude::Pubkey;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use solana_rpc_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient};
 use solana_rpc_client_api::client_error::Error as RpcError;
 use solana_rpc_client_api::config::RpcTransactionConfig;
+use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
-use solana_transaction_status::{EncodedTransaction, UiMessage, UiTransactionEncoding};
 
 use tidex6_core::merkle::{MerkleError, MerkleTree};
 use tidex6_core::types::{Commitment, MerkleRoot};
@@ -217,22 +219,16 @@ impl PoolIndexer {
             _ => return Ok(None),
         };
 
-        let Some((leaf_index, commitment, root)) = parse_deposit_log(logs) else {
+        let Some(parsed) = parse_deposit_log(logs) else {
             return Ok(None);
         };
 
-        // Scan the transaction's instructions for an SPL Memo
-        // Program instruction carrying the companion Shielded Memo.
-        // Returns the first one found if any — our DepositBuilder
-        // only ever attaches a single memo per deposit.
-        let memo_base64 = extract_memo_instruction(&tx.transaction.transaction);
-
         Ok(Some(DepositRecord {
-            leaf_index,
-            commitment: Commitment::from_bytes(commitment),
-            onchain_root: MerkleRoot::from_bytes(root),
+            leaf_index: parsed.leaf_index,
+            commitment: Commitment::from_bytes(parsed.commitment),
+            onchain_root: MerkleRoot::from_bytes(parsed.root),
             signature: signature.to_string(),
-            memo_base64,
+            memo_base64: parsed.memo_base64,
             block_time,
         }))
     }
@@ -277,71 +273,62 @@ impl PoolIndexer {
     }
 }
 
-/// Parse the `tidex6-deposit:<leaf_index>:<commitment_hex>:<root_hex>`
+/// Parsed result of a single `tidex6-deposit:` log line.
+///
+/// The memo field is an `Option` because older deposits — everything
+/// emitted before the Shielded Memo redeploy of 2026-04-15 — carried
+/// only three colon-separated fields. Those records are still valid
+/// and still contribute to the Merkle tree; they just do not have a
+/// memo the accountant could decrypt.
+struct ParsedDepositLog {
+    leaf_index: u64,
+    commitment: [u8; 32],
+    root: [u8; 32],
+    memo_base64: Option<String>,
+}
+
+/// Parse the `tidex6-deposit:<leaf>:<commitment_hex>:<root_hex>[:<memo_hex>]`
 /// log line out of a transaction's program-log output. Returns
-/// `None` if the log line is not present (e.g., this tx is not a
-/// deposit), `Some((leaf, commitment, root))` on a match.
-fn parse_deposit_log(logs: &[String]) -> Option<(u64, [u8; 32], [u8; 32])> {
+/// `None` if no matching line exists (e.g., this tx is not a
+/// deposit). Accepts both the legacy 3-field and the current
+/// 4-field variant so a single indexer pass can consume pool
+/// histories that straddle the redeploy cut-over.
+fn parse_deposit_log(logs: &[String]) -> Option<ParsedDepositLog> {
     const PREFIX: &str = "Program log: tidex6-deposit:";
 
     for line in logs {
         let Some(payload) = line.strip_prefix(PREFIX) else {
             continue;
         };
-        let mut parts = payload.split(':');
-        let leaf_str = parts.next()?;
-        let commitment_hex = parts.next()?;
-        let root_hex = parts.next()?;
-
-        let leaf_index = leaf_str.trim().parse::<u64>().ok()?;
-        let commitment_bytes = hex::decode(commitment_hex.trim()).ok()?;
-        let commitment: [u8; 32] = commitment_bytes.try_into().ok()?;
-        let root_bytes = hex::decode(root_hex.trim()).ok()?;
-        let root: [u8; 32] = root_bytes.try_into().ok()?;
-
-        return Some((leaf_index, commitment, root));
-    }
-
-    None
-}
-
-/// Base58-encoded SPL Memo Program ID. Compared as a string against
-/// each account key in the parsed JSON transaction rather than
-/// round-tripping through a `Pubkey` type, which would pull in yet
-/// another solana-program version from anchor-client.
-const SPL_MEMO_PROGRAM_ID_BASE58: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
-
-/// Pull the base64 memo payload out of a transaction's instruction
-/// list by locating the first instruction whose program is SPL Memo
-/// and base58-decoding its `data` field.
-///
-/// Returns `None` if the transaction has no memo instruction, is not
-/// encoded as JSON (our indexer requests JSON), or the decoded bytes
-/// are not valid UTF-8 (which would indicate a non-tidex6 memo from
-/// some other program coincidentally touching the pool).
-fn extract_memo_instruction(encoded: &EncodedTransaction) -> Option<String> {
-    let EncodedTransaction::Json(ui_tx) = encoded else {
-        return None;
-    };
-    let UiMessage::Raw(raw_msg) = &ui_tx.message else {
-        return None;
-    };
-
-    for ix in &raw_msg.instructions {
-        let index = ix.program_id_index as usize;
-        let Some(program_id) = raw_msg.account_keys.get(index) else {
-            continue;
-        };
-        if program_id != SPL_MEMO_PROGRAM_ID_BASE58 {
+        let parts: Vec<&str> = payload.split(':').collect();
+        if parts.len() < 3 {
             continue;
         }
 
-        // The memo program stores raw UTF-8 bytes. Solana RPC
-        // returns the instruction data as base58; our base64
-        // payload round-trips through base58 and UTF-8 without loss.
-        let raw = bs58::decode(&ix.data).into_vec().ok()?;
-        let as_string = String::from_utf8(raw).ok()?;
-        return Some(as_string);
+        let leaf_index = parts[0].trim().parse::<u64>().ok()?;
+        let commitment_bytes = hex::decode(parts[1].trim()).ok()?;
+        let commitment: [u8; 32] = commitment_bytes.try_into().ok()?;
+        let root_bytes = hex::decode(parts[2].trim()).ok()?;
+        let root: [u8; 32] = root_bytes.try_into().ok()?;
+
+        // Fourth field — lowercase hex of the Shielded Memo payload.
+        // Present since the 2026-04-15 redeploy; absent from legacy
+        // deposits. When present, we re-emit it as a base64 string
+        // because the accountant module expects the same base64
+        // wire format that `tidex6_core::memo::MemoPayload::to_base64`
+        // produces on the depositor side.
+        let memo_base64 = parts
+            .get(3)
+            .map(|memo_hex| hex::decode(memo_hex.trim()).ok())
+            .and_then(|decoded| decoded)
+            .map(|bytes| BASE64.encode(bytes));
+
+        return Some(ParsedDepositLog {
+            leaf_index,
+            commitment,
+            root,
+            memo_base64,
+        });
     }
 
     None
@@ -352,7 +339,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_deposit_log_happy_path() {
+    fn parse_deposit_log_legacy_three_fields() {
         let logs = vec![
             "Program 77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42 invoke [1]".to_string(),
             "Program log: Instruction: Deposit".to_string(),
@@ -363,10 +350,35 @@ mod tests {
             ),
             "Program 77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42 consumed 42 CU".to_string(),
         ];
-        let (leaf, commitment, root) = parse_deposit_log(&logs).expect("deposit log must parse");
-        assert_eq!(leaf, 7);
-        assert_eq!(commitment, [0xaa; 32]);
-        assert_eq!(root, [0xbb; 32]);
+        let parsed = parse_deposit_log(&logs).expect("legacy deposit log must parse");
+        assert_eq!(parsed.leaf_index, 7);
+        assert_eq!(parsed.commitment, [0xaa; 32]);
+        assert_eq!(parsed.root, [0xbb; 32]);
+        assert!(parsed.memo_base64.is_none());
+    }
+
+    #[test]
+    fn parse_deposit_log_with_memo() {
+        // Memo payload: 60 bytes of 0xcd in the fixed prefix then
+        // two bytes of ciphertext — shaped like a `MemoPayload` but
+        // we are only testing the parser, not the crypto.
+        let memo_bytes: Vec<u8> = std::iter::repeat_n(0xcd, 62).collect();
+        let memo_hex = memo_bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let logs = vec![format!(
+            "Program log: tidex6-deposit:3:{}:{}:{}",
+            "a".repeat(64),
+            "b".repeat(64),
+            memo_hex,
+        )];
+        let parsed = parse_deposit_log(&logs).expect("v2 deposit log must parse");
+        assert_eq!(parsed.leaf_index, 3);
+        let decoded = BASE64
+            .decode(parsed.memo_base64.expect("memo must be present"))
+            .expect("base64 must decode");
+        assert_eq!(decoded, memo_bytes);
     }
 
     #[test]

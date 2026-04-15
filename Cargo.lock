@@ -5121,7 +5121,7 @@ name = "tidex6-indexer"
 version = "0.1.0"
 dependencies = [
  "anchor-client",
- "bs58",
+ "base64 0.22.1",
  "hex",
  "solana-rpc-client",
  "solana-rpc-client-api",

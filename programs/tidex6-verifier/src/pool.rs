@@ -97,13 +97,39 @@ impl PoolState {
 
 /// Emitted by every successful `deposit` so offchain indexers can
 /// rebuild the Merkle tree from chain history.
+///
+/// `memo_payload` carries the Shielded Memo bytes from
+/// `tidex6_core::memo::MemoPayload::to_bytes` — the concatenation of
+/// `ephemeral_pk || iv || tag || ciphertext`. The verifier stores
+/// the bytes verbatim and does not interpret them; the accountant
+/// scanner on the client side is what decides whether any given
+/// payload decrypts under a given auditor secret key.
 #[event]
 pub struct DepositEvent {
     pub denomination: u64,
     pub commitment: [u8; FIELD_ELEMENT_BYTES],
     pub leaf_index: u64,
     pub new_root: [u8; FIELD_ELEMENT_BYTES],
+    /// Raw Shielded Memo bytes — fixed-prefix `ephemeral_pk || iv || tag`
+    /// followed by the AES-GCM ciphertext. The verifier enforces the
+    /// overall length against `MEMO_PAYLOAD_MIN_LEN` / `MEMO_PAYLOAD_MAX_LEN`
+    /// to keep transaction size bounded but does not parse or
+    /// cryptographically validate the contents.
+    pub memo_payload: Vec<u8>,
 }
+
+/// Minimum size, in bytes, of a `memo_payload` accepted by
+/// [`handle_deposit`]. Matches the fixed wire-format prefix of an
+/// empty-ciphertext `MemoPayload`: 32 bytes of ephemeral public
+/// key, 12 bytes of AES-GCM IV, 16 bytes of AES-GCM tag.
+pub const MEMO_PAYLOAD_MIN_LEN: usize = 32 + 12 + 16;
+
+/// Maximum size, in bytes, of a `memo_payload`. Mirrors the
+/// `tidex6_core::memo::MAX_PLAINTEXT_LEN` ceiling: the fixed 60-byte
+/// prefix plus 256 bytes of AES-GCM ciphertext. Enforced on-chain so
+/// a malformed or absurdly large instruction cannot bloat the
+/// transaction beyond what a single deposit ought to cost.
+pub const MEMO_PAYLOAD_MAX_LEN: usize = MEMO_PAYLOAD_MIN_LEN + 256;
 
 /// Initialise a new shielded pool for `denomination` lamports per
 /// deposit. Pre-computes the zero-subtree hashes at every level and
@@ -153,9 +179,22 @@ pub fn handle_init_pool(ctx: Context<InitPool>, denomination: u64) -> Result<()>
 /// lamports from the payer to the pool vault, appends the commitment
 /// at `next_leaf_index`, walks the Merkle tree upward to compute the
 /// new root using the onchain Poseidon syscall, pushes the new root
-/// into the ring buffer, and emits a `DepositEvent` for offchain
-/// indexers.
-pub fn handle_deposit(ctx: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTES]) -> Result<()> {
+/// into the ring buffer, and emits a `DepositEvent` carrying the
+/// commitment and the Shielded Memo payload for offchain indexers.
+///
+/// `memo_payload` is passed through verbatim into the event; the
+/// verifier only checks the byte-length bounds so neither a missing
+/// memo nor an oversized one can corrupt the Merkle update.
+pub fn handle_deposit(
+    ctx: Context<Deposit>,
+    commitment: [u8; FIELD_ELEMENT_BYTES],
+    memo_payload: Vec<u8>,
+) -> Result<()> {
+    require!(
+        memo_payload.len() >= MEMO_PAYLOAD_MIN_LEN
+            && memo_payload.len() <= MEMO_PAYLOAD_MAX_LEN,
+        crate::Tidex6VerifierError::InvalidMemoPayloadLength
+    );
     // Read the denomination and capacity check with a short-lived
     // immutable borrow, then drop it before we initiate the transfer
     // CPI so we do not hold two live borrows into account data at
@@ -218,21 +257,24 @@ pub fn handle_deposit(ctx: Context<Deposit>, commitment: [u8; FIELD_ELEMENT_BYTE
 
     // The log line is parsed offchain by tidex6-indexer to
     // replay the full Merkle tree from chain history. Format:
-    //   tidex6-deposit:<leaf_index>:<commitment_hex>:<new_root_hex>
-    // Adding the commitment hex is what lets the indexer avoid
-    // having to decode the base64 Anchor event data; it is the
-    // same value emitted in DepositEvent below.
+    //   tidex6-deposit:<leaf_index>:<commitment_hex>:<new_root_hex>:<memo_hex>
+    // The memo trailer is lowercase hex of the raw `memo_payload`
+    // bytes — the indexer decodes it back into a `MemoPayload` for
+    // the accountant scanner without having to re-parse the Anchor
+    // event's base64 blob.
     msg!(
-        "tidex6-deposit:{}:{}:{}",
+        "tidex6-deposit:{}:{}:{}:{}",
         leaf_index,
         crate::encode_hex(commitment),
-        crate::encode_hex(current_hash)
+        crate::encode_hex(current_hash),
+        crate::encode_hex_bytes(&memo_payload),
     );
     emit!(DepositEvent {
         denomination: denomination_copy,
         commitment,
         leaf_index,
         new_root: current_hash,
+        memo_payload,
     });
 
     Ok(())

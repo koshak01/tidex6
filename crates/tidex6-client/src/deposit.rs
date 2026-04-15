@@ -6,18 +6,20 @@
 //! called the builder is gone). This is deliberate: a deposit
 //! touches money, so the API is explicit and one-shot.
 //!
-//! Optional Shielded Memo: set both [`DepositBuilder::with_auditor`]
-//! and [`DepositBuilder::with_memo`] to attach an encrypted memo to
-//! the deposit. The memo is encrypted under the auditor's Baby Jubjub
-//! public key and transported through an SPL Memo Program instruction
-//! in the same transaction as the deposit — see `docs/release/adr/`
-//! for ADR-007 (feature design) and ADR-010 (why memo lives outside
-//! the verifier program).
+//! Shielded Memo: set both [`DepositBuilder::with_auditor`] and
+//! [`DepositBuilder::with_memo`] to attach an encrypted memo to the
+//! deposit. The memo is encrypted under the auditor's Baby Jubjub
+//! public key and passed to the onchain verifier program as a
+//! regular instruction argument — the verifier stores the binary
+//! payload in the emitted `DepositEvent` and in the program log
+//! line, so the offchain indexer and accountant scanner can
+//! retrieve it without needing a separate transport channel. See
+//! ADR-007 (feature design) and ADR-010 rev.2 (why memo lives
+//! inside the verifier program) for the rationale.
 
 use std::rc::Rc;
 
 use anchor_client::anchor_lang::prelude::Pubkey;
-use anchor_client::anchor_lang::solana_program::instruction::Instruction;
 use anchor_client::anchor_lang::system_program;
 use anyhow::{Context, Result, anyhow};
 use solana_keypair::Keypair;
@@ -27,7 +29,7 @@ use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
 
 use tidex6_core::elgamal::AuditorPublicKey;
-use tidex6_core::memo;
+use tidex6_core::memo::MemoPayload;
 use tidex6_core::note::DepositNote;
 use tidex6_verifier::accounts as verifier_accounts;
 use tidex6_verifier::instruction as verifier_instruction;
@@ -35,8 +37,8 @@ use tidex6_verifier::instruction as verifier_instruction;
 use crate::pool::PrivatePool;
 
 /// Outcome of a successful deposit. Grouping the fields into a struct
-/// leaves room to add new optional signals (for example, the ciphertext
-/// of an attached memo) without breaking every call site.
+/// leaves room to add new optional signals without breaking every
+/// call site.
 #[derive(Debug, Clone)]
 pub struct DepositOutcome {
     /// Signature of the confirmed deposit transaction.
@@ -45,9 +47,13 @@ pub struct DepositOutcome {
     pub note: DepositNote,
     /// Leaf index assigned by the verifier program.
     pub leaf_index: u64,
-    /// If a Shielded Memo was attached, the base64-encoded payload
-    /// that went into the SPL Memo Program instruction. Useful for
-    /// tests and for the accountant flight harness.
+    /// Base64 encoding of the Shielded Memo payload that was sent
+    /// to the verifier as part of the `deposit` instruction. Useful
+    /// for the flight harness, for debugging, and for rebuilding
+    /// the exact string the indexer will later surface. `None` if
+    /// no memo was configured on the builder (in the MVP flow CLI
+    /// always configures one, but the SDK keeps the field optional
+    /// for integrators who build their own flows).
     pub memo_base64: Option<String>,
 }
 
@@ -193,17 +199,45 @@ impl<'a> DepositBuilder<'a> {
         };
         let commitment = note.commitment();
 
-        // Build the memo instruction up front so its error (too-long
+        // Build the memo payload up front so its error (too-long
         // plaintext, CSPRNG failure) surfaces before the tx is built.
-        let memo_ciphertext = match (&self.auditor_pk, &self.memo_plaintext) {
-            (Some(pk), Some(text)) => Some(
-                memo::encrypt_for_auditor(pk, text.as_bytes())
-                    .context("failed to encrypt the Shielded Memo payload")?,
-            ),
-            _ => None,
+        // The payload is the binary wire format — the verifier
+        // requires the raw bytes, not the base64 transport form.
+        let memo_payload_bytes: Vec<u8> = match (&self.auditor_pk, &self.memo_plaintext) {
+            (Some(pk), Some(text)) => MemoPayload::encrypt(pk, text.as_bytes())
+                .context("failed to encrypt the Shielded Memo payload")?
+                .to_bytes(),
+            (Some(_), None) | (None, Some(_)) => {
+                // `.with_memo` without `.with_auditor` is caught
+                // earlier in `.send()` via an explicit error.
+                // `.with_auditor` without `.with_memo` is a CLI
+                // ergonomics concession — the caller forgot to
+                // pass memo text. We require memo on-chain now, so
+                // fall through to the empty-caller-memo branch to
+                // signal this as a builder misuse.
+                return Err(anyhow!(
+                    "DepositBuilder: configure both .with_auditor() and .with_memo() \
+                     — Shielded Memo is mandatory in the onchain verifier"
+                ));
+            }
+            (None, None) => {
+                // Caller did not configure a memo. The onchain
+                // verifier requires `memo_payload`, so we cannot
+                // silently send an empty `Vec<u8>` — the program
+                // would reject on length bounds. Refuse here with
+                // a clear diagnostic instead of bouncing off the
+                // chain.
+                return Err(anyhow!(
+                    "DepositBuilder: Shielded Memo is mandatory; call \
+                     .with_auditor(auditor_pk).with_memo(text) before .send()"
+                ));
+            }
         };
+        let memo_base64 = MemoPayload::from_bytes(&memo_payload_bytes)
+            .expect("payload we just serialised must re-parse")
+            .to_base64();
 
-        let mut request = program
+        let signature = program
             .request()
             .accounts(verifier_accounts::Deposit {
                 pool: self.pool.pool_pda(),
@@ -213,26 +247,9 @@ impl<'a> DepositBuilder<'a> {
             })
             .args(verifier_instruction::Deposit {
                 commitment: commitment.to_bytes(),
+                memo_payload: memo_payload_bytes,
             })
-            .signer(self.payer);
-
-        if let Some(base64_payload) = memo_ciphertext.as_ref() {
-            // We build the SPL Memo instruction by hand rather than
-            // pulling in the `spl-memo` crate: that crate is pinned
-            // to an older `solana-instruction` major than the one
-            // anchor-client 1.0 re-exports, so a single transaction
-            // could not hold an instruction of each type. The
-            // Instruction itself is trivial — memo program, no
-            // accounts, raw UTF-8 bytes as the data field.
-            let memo_ix = Instruction {
-                program_id: spl_memo_program_id(),
-                accounts: Vec::new(),
-                data: base64_payload.as_bytes().to_vec(),
-            };
-            request = request.instruction(memo_ix);
-        }
-
-        let signature = request
+            .signer(self.payer)
             .send()
             .context("deposit transaction failed to confirm")?;
 
@@ -243,7 +260,7 @@ impl<'a> DepositBuilder<'a> {
             signature,
             note,
             leaf_index,
-            memo_base64: memo_ciphertext,
+            memo_base64: Some(memo_base64),
         })
     }
 }
@@ -292,18 +309,6 @@ fn fetch_leaf_index(
         "no tidex6-deposit log line in transaction:\n{}",
         logs.join("\n")
     ))
-}
-
-/// SPL Memo Program ID.
-///
-/// Declared at runtime because the canonical base58 decoder lives
-/// behind `solana_program::pubkey!` macros whose version we cannot
-/// pin independently of anchor-client. Calling `from_str` on a
-/// well-known constant is cheap and allocates zero heap.
-fn spl_memo_program_id() -> Pubkey {
-    use std::str::FromStr;
-    Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
-        .expect("SPL Memo program id is a well-formed base58 pubkey")
 }
 
 /// Re-exported from anchor for documentation linking.

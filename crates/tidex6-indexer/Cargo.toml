@@ -23,7 +23,7 @@ solana-signature = "3"
 solana-transaction-status = "3"
 
 hex = "0.4"
-bs58 = "0.5"
+base64 = { workspace = true }
 
 [lints]
 workspace = true
