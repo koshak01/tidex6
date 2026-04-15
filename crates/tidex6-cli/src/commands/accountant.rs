@@ -101,13 +101,35 @@ fn run_scan(args: ScanArgs) -> Result<()> {
         ],
     };
 
+    // Progress output so the user sees what is happening while we
+    // hit the RPC for every pool and every transaction. The scan
+    // walks `getSignaturesForAddress` + `getTransaction` per tx — on
+    // a pool with a long history this is the rate-limiting step.
+    eprintln!("tidex6 accountant scan");
+    eprintln!("  rpc      : {}", cluster.url());
+    eprintln!("  identity : {}", identity_path.display());
+    eprintln!("  auditor  : {}", identity.auditor_public_key);
+    eprintln!();
+
     let mut all_entries: Vec<LedgerRow> = Vec::new();
     for denomination in denominations {
         let pool = PrivatePool::connect(cluster.clone(), denomination)
             .with_context(|| format!("connect to {denomination} pool"))?;
+        eprintln!(
+            "  scanning {:<8}  pool {}...",
+            denomination.to_string(),
+            pool.pool_pda()
+        );
         let scanner = AccountantScanner::new(cluster.url(), pool.pool_pda(), &auditor_sk);
+        let start = std::time::Instant::now();
         match scanner.scan() {
             Ok(entries) => {
+                let elapsed = start.elapsed();
+                eprintln!(
+                    "    ↳ {} memo(s) addressed to this auditor ({:.1}s)",
+                    entries.len(),
+                    elapsed.as_secs_f64()
+                );
                 for entry in entries {
                     all_entries.push(LedgerRow::from_entry(entry, denomination));
                 }
@@ -121,6 +143,7 @@ fn run_scan(args: ScanArgs) -> Result<()> {
             }
         }
     }
+    eprintln!();
 
     // Sort by ascending block time so the ledger reads
     // chronologically regardless of which pool the entry came from.

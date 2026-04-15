@@ -34,10 +34,15 @@ pub fn detect_cluster() -> Result<Cluster> {
         .find_map(|line| line.trim().strip_prefix("json_rpc_url:"))
         .map(|value| value.trim().trim_matches('"').to_string());
 
+    // Priority: exact match of the public Solana Foundation endpoints
+    // first, then treat anything else http(s) as a custom RPC. The
+    // custom path is critical for Helius / QuickNode / Triton users —
+    // an earlier version fell through `contains("mainnet")` and quietly
+    // replaced the user's Helius URL with the public rate-limited one.
     match url.as_deref() {
-        Some(u) if u.contains("devnet") => Ok(Cluster::Devnet),
-        Some(u) if u.contains("mainnet") => Ok(Cluster::Mainnet),
-        Some(u) if u.contains("testnet") => Ok(Cluster::Testnet),
+        Some("https://api.devnet.solana.com") => Ok(Cluster::Devnet),
+        Some("https://api.mainnet-beta.solana.com") => Ok(Cluster::Mainnet),
+        Some("https://api.testnet.solana.com") => Ok(Cluster::Testnet),
         Some(u) if u.starts_with("http") => Ok(Cluster::Custom(u.to_string(), u.to_string())),
         _ => Ok(Cluster::Devnet),
     }
