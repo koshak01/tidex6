@@ -29,8 +29,8 @@ use anchor_client::anchor_lang::prelude::Pubkey;
 use solana_rpc_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient};
 use solana_rpc_client_api::client_error::Error as RpcError;
 use solana_rpc_client_api::config::RpcTransactionConfig;
-use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
+use solana_transaction_status::{EncodedTransaction, UiMessage, UiTransactionEncoding};
 
 use tidex6_core::merkle::{MerkleError, MerkleTree};
 use tidex6_core::types::{Commitment, MerkleRoot};
@@ -53,6 +53,16 @@ pub struct DepositRecord {
     /// Transaction signature that carried the deposit. Printed in
     /// CLI output and used for debugging, not load-bearing.
     pub signature: String,
+    /// If this deposit carried a Shielded Memo, the raw base64
+    /// string decoded out of the companion SPL Memo instruction.
+    /// Decryption is the caller's job — the indexer deliberately
+    /// stays crypto-agnostic so it can be reused by tooling that
+    /// only cares about commitments.
+    pub memo_base64: Option<String>,
+    /// Unix timestamp reported by the cluster for this deposit's
+    /// block, in seconds since the epoch. `None` when the RPC has
+    /// not yet caught up with a block-time for the slot (rare).
+    pub block_time: Option<i64>,
 }
 
 /// Errors produced while reconstructing pool history.
@@ -197,6 +207,8 @@ impl PoolIndexer {
             .get_transaction_with_config(signature, config)
             .map_err(|err: RpcError| IndexerError::Rpc(err.to_string()))?;
 
+        let block_time = tx.block_time;
+
         let Some(meta) = tx.transaction.meta.as_ref() else {
             return Ok(None);
         };
@@ -209,11 +221,19 @@ impl PoolIndexer {
             return Ok(None);
         };
 
+        // Scan the transaction's instructions for an SPL Memo
+        // Program instruction carrying the companion Shielded Memo.
+        // Returns the first one found if any — our DepositBuilder
+        // only ever attaches a single memo per deposit.
+        let memo_base64 = extract_memo_instruction(&tx.transaction.transaction);
+
         Ok(Some(DepositRecord {
             leaf_index,
             commitment: Commitment::from_bytes(commitment),
             onchain_root: MerkleRoot::from_bytes(root),
             signature: signature.to_string(),
+            memo_base64,
+            block_time,
         }))
     }
 
@@ -280,6 +300,48 @@ fn parse_deposit_log(logs: &[String]) -> Option<(u64, [u8; 32], [u8; 32])> {
         let root: [u8; 32] = root_bytes.try_into().ok()?;
 
         return Some((leaf_index, commitment, root));
+    }
+
+    None
+}
+
+/// Base58-encoded SPL Memo Program ID. Compared as a string against
+/// each account key in the parsed JSON transaction rather than
+/// round-tripping through a `Pubkey` type, which would pull in yet
+/// another solana-program version from anchor-client.
+const SPL_MEMO_PROGRAM_ID_BASE58: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+
+/// Pull the base64 memo payload out of a transaction's instruction
+/// list by locating the first instruction whose program is SPL Memo
+/// and base58-decoding its `data` field.
+///
+/// Returns `None` if the transaction has no memo instruction, is not
+/// encoded as JSON (our indexer requests JSON), or the decoded bytes
+/// are not valid UTF-8 (which would indicate a non-tidex6 memo from
+/// some other program coincidentally touching the pool).
+fn extract_memo_instruction(encoded: &EncodedTransaction) -> Option<String> {
+    let EncodedTransaction::Json(ui_tx) = encoded else {
+        return None;
+    };
+    let UiMessage::Raw(raw_msg) = &ui_tx.message else {
+        return None;
+    };
+
+    for ix in &raw_msg.instructions {
+        let index = ix.program_id_index as usize;
+        let Some(program_id) = raw_msg.account_keys.get(index) else {
+            continue;
+        };
+        if program_id != SPL_MEMO_PROGRAM_ID_BASE58 {
+            continue;
+        }
+
+        // The memo program stores raw UTF-8 bytes. Solana RPC
+        // returns the instruction data as base58; our base64
+        // payload round-trips through base58 and UTF-8 without loss.
+        let raw = bs58::decode(&ix.data).into_vec().ok()?;
+        let as_string = String::from_utf8(raw).ok()?;
+        return Some(as_string);
     }
 
     None

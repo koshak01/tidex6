@@ -15,10 +15,26 @@ thiserror = { workspace = true }
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
 
-# rand is used by `Secret::random`, `Nullifier::random`, and
-# `SpendingKey::random` — the only ways tidex6 generates fresh
-# cryptographic material offchain. The `sys_rng` feature pulls in
-# `getrandom` so we can reach the OS-level CSPRNG through `OsRng`.
+# Baby Jubjub curve on BN254's scalar field, used for the in-circuit
+# ECDH that derives per-memo symmetric keys. See ADR-004 for the
+# dual-curve rationale and `src/elgamal.rs` for the public API.
+ark-ed-on-bn254 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+
+# Shielded Memo stack (ADR-007, ADR-010). aes-gcm provides AES-256-GCM;
+# sha2 is used inside the KDF; base64 encodes the binary payload into
+# the ASCII form that SPL Memo Program accepts.
+aes-gcm = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+
+# rand is used by `Secret::random`, `Nullifier::random`,
+# `SpendingKey::random`, and `AuditorKeypair::generate` — the only
+# ways tidex6 generates fresh cryptographic material offchain. The
+# `sys_rng` feature pulls in `getrandom` so we can reach the OS-level
+# CSPRNG through `SysRng`.
 rand = { version = "0.10", default-features = false, features = ["std", "std_rng", "sys_rng"] }
 
 [dev-dependencies]

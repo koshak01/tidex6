@@ -24,18 +24,20 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - Auditor scanning tool (CLI)
 - Offchain key sharing (hex format)
 
-### Shielded Memo
-- Encrypted memo up to ~200 bytes attached to each deposit
+### Shielded Memo — shipped 2026-04-15
+- Encrypted memo up to 256 bytes attached to each deposit
 - ECDH key exchange on Baby Jubjub + AES-256-GCM
-- Decryptable by viewing-key holder only
-- Application-layer feature — not part of the ZK circuit
+- Transport: SPL Memo Program instruction in the same transaction as the deposit (see ADR-010)
+- One auditor per deposit, chosen at send time; decryptable by whoever holds the matching `AuditorSecretKey`
+- CLI: `tidex6 accountant scan` for browser-less usage
+- Web: `/accountant/` page on tidex6.com (spec in `docs/release/spec/ACCOUNTANT_WEB_SPEC.md`)
 
 ### Developer SDK
 - `tidex6-core` — primitives (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, ElGamal)
 - `tidex6-circuits` — arkworks R1CS (DepositCircuit, WithdrawCircuit)
 - `tidex6-verifier` — singleton Anchor program
 - `tidex6-client` — builder-pattern API (ProofBuilder, TransactionBuilder, KeyManager, viewing-key import/export)
-- `tidex6-cli` — three commands: `keygen`, `setup`, `scan`
+- `tidex6-cli` — four commands: `keygen`, `deposit`, `withdraw`, `accountant`
 
 ### DepositNote
 - First-class `DepositNote` concept in the SDK

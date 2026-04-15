@@ -24,18 +24,20 @@
 - Auditor scanning tool (CLI)
 - Offchain передача ключей (hex format)
 
-### Shielded Memo
-- Зашифрованное memo до ~200 байт прикреплённое к каждому депозиту
+### Shielded Memo — отгружен 2026-04-15
+- Зашифрованное memo до 256 байт прикреплённое к каждому депозиту
 - ECDH key exchange на Baby Jubjub + AES-256-GCM
-- Расшифровывается только владельцем viewing key
-- Application-layer фича — не часть ZK circuit
+- Транспорт: SPL Memo Program инструкция в той же транзакции что и deposit (см. ADR-010)
+- Один auditor на deposit, выбирается при отправке; расшифровывает тот, у кого есть `AuditorSecretKey`
+- CLI: `tidex6 accountant scan` для использования без браузера
+- Web: страница `/accountant/` на tidex6.com (спецификация в `docs/release/spec/ACCOUNTANT_WEB_SPEC.md`)
 
 ### Developer SDK
 - `tidex6-core` — примитивы (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, ElGamal)
 - `tidex6-circuits` — arkworks R1CS (DepositCircuit, WithdrawCircuit)
 - `tidex6-verifier` — singleton Anchor program
 - `tidex6-client` — builder-pattern API (ProofBuilder, TransactionBuilder, KeyManager, viewing-key import/export)
-- `tidex6-cli` — три команды: `keygen`, `setup`, `scan`
+- `tidex6-cli` — четыре команды: `keygen`, `deposit`, `withdraw`, `accountant`
 
 ### DepositNote
 - First-class `DepositNote` концепт в SDK

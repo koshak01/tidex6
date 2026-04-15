@@ -1,7 +1,8 @@
 # ADR-007: Killer features — Shielded Memo (MVP) + Association Sets (v0.2)
 
-**Status:** Accepted
+**Status:** Accepted — Shielded Memo implemented 2026-04-15
 **Date:** 2026-04-09
+**Last updated:** 2026-04-15 — Shielded Memo moved from "designed" to "shipped". Implementation details are in `crates/tidex6-core/src/{elgamal,memo}.rs`, `crates/tidex6-client/src/{deposit,accountant}.rs`, and the CLI command `tidex6 accountant scan`. The concrete transport mechanism (why we chose SPL Memo Program over a verifier redeploy or a dedicated PDA) is documented separately in ADR-010. Multi-auditor-per-deposit support was considered and deferred per user direction: one auditor per deposit in MVP; the accountant secret key itself can be shared between a team (Kai + his assistant) without any protocol-level change.
 
 ## Context
 

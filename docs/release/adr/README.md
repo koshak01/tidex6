@@ -14,9 +14,10 @@
 | [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal on BN254 — custom dual-curve implementation | Accepted |
 | [ADR-005](ADR-005-non-upgradeable-verifier.md) | Verifier program is non-upgradeable after deploy | Accepted |
 | [ADR-006](ADR-006-no-proc-macros.md) | No proc macros in MVP — builder pattern instead | Accepted |
-| [ADR-007](ADR-007-killer-features.md) | Killer features: Shielded Memo (MVP) + Association Sets (v0.2) | Accepted |
+| [ADR-007](ADR-007-killer-features.md) | Killer features: Shielded Memo (MVP) + Association Sets (v0.2) | Accepted — Memo shipped |
 | [ADR-008](ADR-008-pool-isolation.md) | Per-program pool in MVP, shared pool in v0.3 | Accepted |
 | [ADR-009](ADR-009-proving-time-budget.md) | Proving time budget: Day-8 benchmark, 30s acceptance | Accepted |
+| [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Memo transport via SPL Memo Program (not verifier redeploy) | Accepted |
 
 ## Format
 

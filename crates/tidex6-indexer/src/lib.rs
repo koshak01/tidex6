@@ -20,4 +20,4 @@
 
 pub mod rebuild;
 
-pub use rebuild::{IndexerError, PoolIndexer};
+pub use rebuild::{DepositRecord, IndexerError, PoolIndexer};

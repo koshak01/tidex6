@@ -16,6 +16,7 @@ path = "src/main.rs"
 tidex6-core = { path = "../tidex6-core" }
 tidex6-circuits = { path = "../tidex6-circuits" }
 tidex6-indexer = { path = "../tidex6-indexer" }
+tidex6-client = { path = "../tidex6-client" }
 tidex6-verifier = { path = "../../programs/tidex6-verifier", features = ["no-entrypoint"] }
 tidex6-caller = { path = "../../programs/tidex6-caller", features = ["no-entrypoint"] }
 

@@ -47,3 +47,6 @@ target/deploy/*.json
 # Claude Code session files (local scratch, never published)
 .claude/
 .DS_Store
+
+# Video recordings (local, uploaded separately to YouTube/Loom)
+/timeline/

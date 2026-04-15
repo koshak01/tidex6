@@ -95,6 +95,11 @@ fn run_withdraw(args: WithdrawArgs) -> Result<()> {
     println!("  denomination   : {}", note.denomination());
     println!("  commitment     : {}", note.commitment().to_hex());
     println!("  recipient      : {recipient}");
+    if let Some(memo) = note.memo() {
+        println!();
+        println!("  Message from Lena:");
+        println!("    \"{memo}\"");
+    }
     println!();
     println!("Redeeming note...");
     println!("  → rebuilding Merkle tree from on-chain history");

@@ -40,6 +40,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aes-gcm"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
+dependencies = [
+ "aead",
+ "aes",
+ "cipher",
+ "ctr",
+ "ghash",
+ "subtle",
+]
+
+[[package]]
 name = "aes-gcm-siv"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,6 +516,18 @@ dependencies = [
  "num-traits",
  "rayon",
  "zeroize",
+]
+
+[[package]]
+name = "ark-ed-on-bn254"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "962e24e25cbdcaabe619c281a62bccc885f778b188129d6a02875c2671666219"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
 ]
 
 [[package]]
@@ -1774,6 +1800,16 @@ dependencies = [
  "rand_core 0.10.0",
  "wasip2",
  "wasip3",
+]
+
+[[package]]
+name = "ghash"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
+dependencies = [
+ "opaque-debug",
+ "polyval",
 ]
 
 [[package]]
@@ -5025,10 +5061,17 @@ dependencies = [
 name = "tidex6-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bn254",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "base64 0.22.1",
  "light-poseidon 0.4.0",
  "proptest",
  "rand 0.10.0",
+ "sha2",
  "solana-poseidon",
  "thiserror 2.0.18",
 ]
@@ -5051,6 +5094,7 @@ dependencies = [
  "solana-transaction-status",
  "tidex6-caller",
  "tidex6-circuits",
+ "tidex6-client",
  "tidex6-core",
  "tidex6-indexer",
  "tidex6-verifier",
@@ -5077,6 +5121,7 @@ name = "tidex6-indexer"
 version = "0.1.0"
 dependencies = [
  "anchor-client",
+ "bs58",
  "hex",
  "solana-rpc-client",
  "solana-rpc-client-api",

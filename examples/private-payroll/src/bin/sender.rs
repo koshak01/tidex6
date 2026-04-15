@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::{Keypair, read_keypair_file};
 
 use tidex6_client::PrivatePool;
+use tidex6_core::elgamal::AuditorPublicKey;
 use tidex6_core::note::Denomination;
 
 /// Top-level CLI definition for Lena's side of the demo.
@@ -84,6 +85,14 @@ struct DepositArgs {
     /// `~/.tidex6/payroll_scan.jsonl`.
     #[arg(long)]
     scan_file: Option<PathBuf>,
+
+    /// Optional auditor Baby Jubjub public key (64-char hex).
+    /// When set, the memo is also encrypted under this key and
+    /// attached to the deposit transaction as an SPL Memo payload,
+    /// so Kai the accountant can reconstruct the whole ledger
+    /// with `tidex6 accountant scan` — no scan file required.
+    #[arg(long)]
+    auditor: Option<String>,
 }
 
 /// One entry in Lena's scan file. JSON Lines format — append
@@ -141,8 +150,23 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
     println!("  recipient label : {}", args.recipient_label);
     println!();
 
+    let auditor_pk = match args.auditor.as_deref() {
+        Some(hex) => Some(
+            AuditorPublicKey::from_hex(hex)
+                .with_context(|| format!("invalid --auditor pubkey: {hex}"))?,
+        ),
+        None => None,
+    };
+
     println!("Sending deposit to the shielded pool...");
-    let (signature, note, leaf_index) = pool.deposit(&payer).send()?;
+    let mut builder = pool.deposit(&payer);
+    if let Some(pk) = auditor_pk {
+        builder = builder.with_auditor(pk).with_memo(args.memo.clone());
+    }
+    let outcome = builder.send()?;
+    let signature = outcome.signature;
+    let note = outcome.note;
+    let leaf_index = outcome.leaf_index;
 
     println!("  commitment  : {}", note.commitment().to_hex());
     println!("  signature   : {signature}");

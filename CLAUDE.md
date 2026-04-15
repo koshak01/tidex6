@@ -4,16 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Days 1–18 complete. Full MVP product stack working on Solana devnet.**
+**Days 1–18 complete. Full MVP product stack working on Solana (verifier deployed on mainnet at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised).**
+
+**Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and ADR-010 (transport mechanism). `tidex6-core::{elgamal,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
 
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
 - **Onchain verifier** (programs/tidex6-verifier): deployed at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
 - **Indexer** (tidex6-indexer): `PoolIndexer::rebuild_tree` replays `tidex6-deposit:<leaf>:<commitment>:<root>` program logs into an offchain Merkle tree. Enables withdraws on non-empty pools.
 - **Client SDK** (tidex6-client): `PrivatePool::connect`, `DepositBuilder::send`, `WithdrawBuilder::send` — the builder-pattern API from ADR-006 is real and used by the CLI internally.
-- **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw`, thin wrapper over the SDK.
+- **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw | accountant`, thin wrapper over the SDK. `deposit --auditor <pk> --memo <text>` attaches an encrypted memo; `accountant scan --identity <file>` decrypts every memo addressed to this identity's auditor key.
 - **Flagship example** (examples/private-payroll): three binaries telling Lena's story — sender, receiver, accountant. `scripts/run_demo.sh` runs all three in a tmux session against live devnet.
-- **Live devnet flight harnesses** (tidex6-day1): Day-1 kill gates, Day-5 deposit, Day-11 withdraw, Day-12 negative tests (front-run + double-spend). All PASS on devnet.
+- **Live flight harnesses** (tidex6-day1): Day-1 kill gates, Day-5 deposit, Day-11 withdraw, Day-12 negative tests (front-run + double-spend), **Day-13 accountant** (3 memo-carrying deposits + end-to-end auditor scan).
 - **Brand**: logos in `brand/`, pitch video script in `video/PITCH_VIDEO_SCRIPT.md`.
 - **Website** (separate repo: tidex6-web): production site at **tidex6.com**. 5-microservice architecture (database, notifier, solana, ws_gateway, web_server). Deposit/withdraw via browser with Phantom wallet. Invite system with Telegram bot approval. tidex6-client used natively (not CLI subprocess).
 
@@ -200,6 +202,7 @@ All nine architecture decision records live in `docs/release/adr/`. Each is a sh
 - **ADR-007** — Killer features: Shielded Memo (MVP) + Association Sets (v0.2)
 - **ADR-008** — Per-program pool in MVP, shared pool in v0.3
 - **ADR-009** — Proving time budget: Day-8 benchmark, 30s acceptance
+- **ADR-010** — Memo transport via SPL Memo Program (not verifier redeploy)
 
 When a new architectural decision is made, write a new ADR before writing code that implements it.
 

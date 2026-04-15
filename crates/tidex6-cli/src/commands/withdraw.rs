@@ -72,6 +72,13 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
     println!("  commitment   : {}", note.commitment().to_hex());
     println!("  pool pda     : {}", pool.pool_pda());
     println!("  vault pda    : {}", pool.vault_pda());
+    if let Some(memo) = note.memo() {
+        println!();
+        println!("  ┌──────────────────────────────────────────┐");
+        println!("  │ Memo from the sender:                    │");
+        println!("  │ {memo}");
+        println!("  └──────────────────────────────────────────┘");
+    }
 
     println!();
     println!("Sending withdraw via PrivatePool::withdraw...");

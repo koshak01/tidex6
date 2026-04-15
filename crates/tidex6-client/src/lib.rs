@@ -21,8 +21,9 @@
 //! let pool = PrivatePool::connect(Cluster::Devnet, Denomination::OneSol)?;
 //!
 //! // Depositor side: make a fresh note and push it into the pool.
-//! let (deposit_sig, note, _leaf_index) = pool.deposit(&payer).send()?;
-//! std::fs::write("parents.note", note.to_text())?;
+//! let outcome = pool.deposit(&payer).send()?;
+//! std::fs::write("parents.note", outcome.note.to_text())?;
+//! let note = outcome.note.clone();
 //!
 //! // Recipient side: redeem the note. The pool rebuilds its
 //! // Merkle tree from on-chain history via `tidex6-indexer` and
@@ -32,7 +33,7 @@
 //!     .note(note)
 //!     .to(recipient)
 //!     .send()?;
-//! # drop((deposit_sig, withdraw_sig));
+//! # drop((outcome.signature, withdraw_sig));
 //! # Ok(())
 //! # }
 //! ```
@@ -66,11 +67,13 @@
 //! short context strings rather than re-exporting them, so
 //! integrators see one error type at the top of their call graph.
 
+pub mod accountant;
 pub mod deposit;
 pub mod pool;
 pub mod withdraw;
 
-pub use deposit::DepositBuilder;
+pub use accountant::{AccountantEntry, AccountantScanner};
+pub use deposit::{DepositBuilder, DepositOutcome};
 pub use pool::PrivatePool;
 pub use withdraw::WithdrawBuilder;
 

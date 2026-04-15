@@ -260,6 +260,11 @@ light-poseidon         = "0.4"   # MUST match onchain syscall byte-for-byte
 anchor-client          = "1.0"
 solana-sdk             = "4.0"
 
+# Shielded Memo stack (ADR-007, ADR-010).
+aes-gcm                = "0.10"  # RustCrypto AEAD for memo encryption
+sha2                   = "0.10"  # shared-secret → AES key KDF
+base64                 = "0.22"  # SPL Memo payload encoding
+
 tidex6-core            = { path = "../tidex6-core" }
 tidex6-client          = { path = "../tidex6-client" }
 ```

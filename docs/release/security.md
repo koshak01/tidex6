@@ -198,6 +198,30 @@ Before writing any production code, the following four tests must pass. This is 
 
 ---
 
+## 3A. Shielded Memo threat model
+
+Shielded Memo ships with tidex6 v0.1 as an application-layer feature. Its security properties are deliberately narrower than the core proof system:
+
+**What Shielded Memo guarantees:**
+
+- *Memo confidentiality under honest-majority.* An encrypted memo can be read only by the holder of the Baby Jubjub secret key it was encrypted for. Brute-force would cost ~2^125 operations against a single memo.
+- *Integrity via AES-GCM.* A tampered memo fails the GCM tag check and the auditor scan silently skips it — an attacker cannot tamper a memo into decrypting to a different plaintext.
+- *Atomic binding to its deposit.* The SPL Memo instruction sits in the same transaction as the verifier `deposit` instruction. Either both land on chain or neither does. Replaying a memo without its deposit is indistinguishable from creating a new failed transaction.
+
+**What Shielded Memo does not guarantee:**
+
+- *Not part of the ZK proof.* The memo ciphertext is not an input to the withdraw circuit. A user cannot prove in zero knowledge that a specific memo was attached to a specific deposit. The "evidence" that a deposit has a memo is purely social: anyone reading the transaction sees the SPL Memo instruction, and anyone with the auditor key can decrypt it.
+- *Sender not hidden.* The transaction fee payer is on chain as plaintext, so the memo binds plaintext-identifiable sender ↔ encrypted-recipient. This is intentional — tidex6 hides receivers, not senders.
+- *Key compromise is forward-only unrecoverable.* Losing an auditor secret key reveals every past memo ever encrypted under the matching public key. Rotate keys by issuing a new one and only sharing that with new senders; the protocol has no revocation mechanism.
+- *Not audited.* The ElGamal + AES-GCM composition follows textbook construction, but the implementation in `tidex6-core::{elgamal,memo}` is new code written for this project. Keep it outside the consensus path (ADR-005 / ADR-010) until a professional audit lands in v0.2.
+
+**Known limits:**
+
+- Memo plaintext is capped at 256 bytes by `MAX_PLAINTEXT_LEN`. SPL Memo's ~566-character ceiling forces this — larger memos would need a dedicated PDA-based transport (considered and deferred in ADR-010).
+- Metadata is visible: anyone on chain sees *that* a memo was attached, which auditor public key it was addressed to (through the ephemeral key + GCM tag structure nothing is hidden *about the recipient* per se, but the transaction's payer and the pool itself are public). Reasoning: this reveals no more than the deposit itself already does.
+
+---
+
 ## 4. Post-MVP security roadmap
 
 **v0.2:**

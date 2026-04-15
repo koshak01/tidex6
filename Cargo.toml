@@ -46,7 +46,7 @@ ark-bn254 = "0.5"
 ark-groth16 = "0.5"
 ark-crypto-primitives = { version = "0.5", features = ["r1cs", "crh", "merkle_tree", "sponge"] }
 ark-r1cs-std = "0.5"
-ark-relations = "0.5"
+ark-relations = { version = "0.5", default-features = false }
 ark-ff = "0.5"
 ark-ec = "0.5"
 ark-serialize = "0.5"
@@ -70,6 +70,15 @@ groth16-solana = "0.2"
 # - binary crates use anyhow
 thiserror = "2"
 anyhow = "1"
+
+# Shielded Memo stack (ADR-007, ADR-010).
+# aes-gcm is the RustCrypto AEAD used to encrypt per-deposit memos.
+# sha2 backs the KDF from an ECDH shared secret to the AES key.
+# base64 encodes the binary MemoPayload into the UTF-8 string that
+# SPL Memo Program accepts as its instruction data.
+aes-gcm = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
 
 # Anchor client and ecosystem — used by the Day-1 validation harness and
 # by any future Rust-based integrator code. Version pinned to match the

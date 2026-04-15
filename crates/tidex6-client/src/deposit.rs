@@ -5,10 +5,19 @@
 //! you cannot stage, inspect and then send; once `.send()` is
 //! called the builder is gone). This is deliberate: a deposit
 //! touches money, so the API is explicit and one-shot.
+//!
+//! Optional Shielded Memo: set both [`DepositBuilder::with_auditor`]
+//! and [`DepositBuilder::with_memo`] to attach an encrypted memo to
+//! the deposit. The memo is encrypted under the auditor's Baby Jubjub
+//! public key and transported through an SPL Memo Program instruction
+//! in the same transaction as the deposit — see `docs/release/adr/`
+//! for ADR-007 (feature design) and ADR-010 (why memo lives outside
+//! the verifier program).
 
 use std::rc::Rc;
 
 use anchor_client::anchor_lang::prelude::Pubkey;
+use anchor_client::anchor_lang::solana_program::instruction::Instruction;
 use anchor_client::anchor_lang::system_program;
 use anyhow::{Context, Result, anyhow};
 use solana_keypair::Keypair;
@@ -17,11 +26,30 @@ use solana_signature::Signature;
 use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
 
+use tidex6_core::elgamal::AuditorPublicKey;
+use tidex6_core::memo;
 use tidex6_core::note::DepositNote;
 use tidex6_verifier::accounts as verifier_accounts;
 use tidex6_verifier::instruction as verifier_instruction;
 
 use crate::pool::PrivatePool;
+
+/// Outcome of a successful deposit. Grouping the fields into a struct
+/// leaves room to add new optional signals (for example, the ciphertext
+/// of an attached memo) without breaking every call site.
+#[derive(Debug, Clone)]
+pub struct DepositOutcome {
+    /// Signature of the confirmed deposit transaction.
+    pub signature: Signature,
+    /// The note the depositor must preserve offline to later redeem.
+    pub note: DepositNote,
+    /// Leaf index assigned by the verifier program.
+    pub leaf_index: u64,
+    /// If a Shielded Memo was attached, the base64-encoded payload
+    /// that went into the SPL Memo Program instruction. Useful for
+    /// tests and for the accountant flight harness.
+    pub memo_base64: Option<String>,
+}
 
 /// Consumable builder for a deposit transaction.
 ///
@@ -30,6 +58,8 @@ pub struct DepositBuilder<'a> {
     pool: &'a PrivatePool,
     payer: &'a Keypair,
     note: Option<DepositNote>,
+    auditor_pk: Option<AuditorPublicKey>,
+    memo_plaintext: Option<String>,
 }
 
 impl<'a> DepositBuilder<'a> {
@@ -38,6 +68,8 @@ impl<'a> DepositBuilder<'a> {
             pool,
             payer,
             note: None,
+            auditor_pk: None,
+            memo_plaintext: None,
         }
     }
 
@@ -50,6 +82,29 @@ impl<'a> DepositBuilder<'a> {
         self
     }
 
+    /// Address any memo attached to this deposit to the given auditor.
+    ///
+    /// The auditor's public key is published out of band (Telegram,
+    /// email, QR code — whatever Lena and Kai agreed on). This builder
+    /// does not validate that the auditor will actually have custody
+    /// of the corresponding secret key; that is social.
+    pub fn with_auditor(mut self, auditor_pk: AuditorPublicKey) -> Self {
+        self.auditor_pk = Some(auditor_pk);
+        self
+    }
+
+    /// Attach a human-readable memo to this deposit.
+    ///
+    /// The plaintext must be at most [`tidex6_core::memo::MAX_PLAINTEXT_LEN`]
+    /// bytes and is encrypted under the auditor set via
+    /// [`Self::with_auditor`]. Calling `.with_memo` without
+    /// `.with_auditor` is a usage error and will return an error
+    /// from `.send()` — we do not silently ship an unencrypted memo.
+    pub fn with_memo(mut self, text: impl Into<String>) -> Self {
+        self.memo_plaintext = Some(text.into());
+        self
+    }
+
     /// Send the deposit transaction.
     ///
     /// Behaviour:
@@ -59,17 +114,23 @@ impl<'a> DepositBuilder<'a> {
     ///    the rent for both the `PoolState` PDA and the vault.
     /// 2. Generate a fresh `DepositNote` (unless one was supplied
     ///    via [`DepositBuilder::note`]).
-    /// 3. Send the `deposit` transaction. The pool updates its
-    ///    Merkle tree on-chain via the `sol_poseidon` syscall and
-    ///    logs `tidex6-deposit:<leaf>:<commitment>:<root>` for the
-    ///    indexer.
+    /// 3. Assemble a single transaction containing the `deposit`
+    ///    instruction and, if a memo was configured, an SPL Memo
+    ///    Program instruction carrying the encrypted payload.
     /// 4. Parse the leaf index out of the transaction logs and
-    ///    return it alongside the signature and the note the
-    ///    caller should keep.
+    ///    return it alongside the signature, the note, and the
+    ///    base64 memo (if any).
     ///
-    /// Returns `(signature, note, leaf_index)`. The note must be
-    /// preserved offline for the recipient to later redeem it.
-    pub fn send(self) -> Result<(Signature, DepositNote, u64)> {
+    /// Returns [`DepositOutcome`]. The `note` must be preserved
+    /// offline for the recipient to later redeem it.
+    pub fn send(self) -> Result<DepositOutcome> {
+        if self.memo_plaintext.is_some() && self.auditor_pk.is_none() {
+            return Err(anyhow!(
+                "DepositBuilder::with_memo requires DepositBuilder::with_auditor; \
+                 refusing to send an unencrypted memo"
+            ));
+        }
+
         let program = self.pool.program_handle(self.payer)?;
         let payer_pubkey = {
             use anchor_client::Signer;
@@ -101,15 +162,48 @@ impl<'a> DepositBuilder<'a> {
                 .context("init_pool transaction failed to confirm")?;
         }
 
-        // Generate or use the caller-supplied note.
+        // Generate or use the caller-supplied note. When a memo is
+        // configured we stamp it into the note as well, so whoever
+        // later receives the note file (parents, in the flagship
+        // story) sees the same "Rent March 2026" text Kai sees after
+        // decrypting the onchain SPL Memo.
         let note = match self.note {
-            Some(note) => note,
-            None => DepositNote::random(self.pool.denomination())
-                .context("failed to generate a random deposit note")?,
+            Some(note) => {
+                // Caller supplied an explicit note. If they also set
+                // a memo on the builder, overwrite whatever was on
+                // the note with the fresh one — the builder is the
+                // single source of truth for this send.
+                match self.memo_plaintext.as_deref() {
+                    Some(memo) => note
+                        .with_memo(memo)
+                        .context("memo rejected by DepositNote")?,
+                    None => note,
+                }
+            }
+            None => {
+                let fresh = DepositNote::random(self.pool.denomination())
+                    .context("failed to generate a random deposit note")?;
+                match self.memo_plaintext.as_deref() {
+                    Some(memo) => fresh
+                        .with_memo(memo)
+                        .context("memo rejected by DepositNote")?,
+                    None => fresh,
+                }
+            }
         };
         let commitment = note.commitment();
 
-        let signature = program
+        // Build the memo instruction up front so its error (too-long
+        // plaintext, CSPRNG failure) surfaces before the tx is built.
+        let memo_ciphertext = match (&self.auditor_pk, &self.memo_plaintext) {
+            (Some(pk), Some(text)) => Some(
+                memo::encrypt_for_auditor(pk, text.as_bytes())
+                    .context("failed to encrypt the Shielded Memo payload")?,
+            ),
+            _ => None,
+        };
+
+        let mut request = program
             .request()
             .accounts(verifier_accounts::Deposit {
                 pool: self.pool.pool_pda(),
@@ -120,14 +214,37 @@ impl<'a> DepositBuilder<'a> {
             .args(verifier_instruction::Deposit {
                 commitment: commitment.to_bytes(),
             })
-            .signer(self.payer)
+            .signer(self.payer);
+
+        if let Some(base64_payload) = memo_ciphertext.as_ref() {
+            // We build the SPL Memo instruction by hand rather than
+            // pulling in the `spl-memo` crate: that crate is pinned
+            // to an older `solana-instruction` major than the one
+            // anchor-client 1.0 re-exports, so a single transaction
+            // could not hold an instruction of each type. The
+            // Instruction itself is trivial — memo program, no
+            // accounts, raw UTF-8 bytes as the data field.
+            let memo_ix = Instruction {
+                program_id: spl_memo_program_id(),
+                accounts: Vec::new(),
+                data: base64_payload.as_bytes().to_vec(),
+            };
+            request = request.instruction(memo_ix);
+        }
+
+        let signature = request
             .send()
             .context("deposit transaction failed to confirm")?;
 
         // Pull the leaf index out of the transaction logs.
         let leaf_index = fetch_leaf_index(&program, &signature)?;
 
-        Ok((signature, note, leaf_index))
+        Ok(DepositOutcome {
+            signature,
+            note,
+            leaf_index,
+            memo_base64: memo_ciphertext,
+        })
     }
 }
 
@@ -177,8 +294,18 @@ fn fetch_leaf_index(
     ))
 }
 
-// Anchor client re-exports Pubkey under `anchor_lang::prelude`, so
-// the `Pubkey` import above is the canonical one even though we do
-// not use it directly — several doctests reference it for clarity.
+/// SPL Memo Program ID.
+///
+/// Declared at runtime because the canonical base58 decoder lives
+/// behind `solana_program::pubkey!` macros whose version we cannot
+/// pin independently of anchor-client. Calling `from_str` on a
+/// well-known constant is cheap and allocates zero heap.
+fn spl_memo_program_id() -> Pubkey {
+    use std::str::FromStr;
+    Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
+        .expect("SPL Memo program id is a well-formed base58 pubkey")
+}
+
+/// Re-exported from anchor for documentation linking.
 #[allow(dead_code)]
 type _PubkeyAlias = Pubkey;

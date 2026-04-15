@@ -6,8 +6,12 @@
 //!
 //! ```text
 //! tidex6 keygen [--out <file>] [--force]
-//! tidex6 deposit --amount <0.1|1|10> [--note-out <file>]
+//! tidex6 keygen print-auditor-pk [--identity <file>]
+//! tidex6 deposit --amount <0.1|0.5|1|10> [--auditor <pk>] [--memo <text>]
+//!                [--note-out <file>]
 //! tidex6 withdraw --note <file> --to <pubkey> [--leaf-index <n>]
+//! tidex6 accountant scan [--identity <file>] [--amount <d>]
+//!                        [--format table|json|csv] [--output <file>]
 //! ```
 //!
 //! The commands operate on whichever Solana cluster is configured
@@ -47,6 +51,10 @@ enum Command {
     /// Redeem a previously-generated `DepositNote` by proving
     /// knowledge of its preimage in zero knowledge.
     Withdraw(commands::withdraw::WithdrawArgs),
+
+    /// Read every Shielded Memo addressed to this identity's
+    /// auditor secret key and render the result as a ledger.
+    Accountant(commands::accountant::AccountantArgs),
 }
 
 fn main() -> Result<()> {
@@ -55,5 +63,6 @@ fn main() -> Result<()> {
         Command::Keygen(args) => commands::keygen::run(args),
         Command::Deposit(args) => commands::deposit::run(args),
         Command::Withdraw(args) => commands::withdraw::run(args),
+        Command::Accountant(args) => commands::accountant::run(args),
     }
 }
