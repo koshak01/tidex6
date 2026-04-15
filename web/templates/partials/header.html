@@ -1,0 +1,36 @@
+<header class="header">
+    <div class="header-inner">
+        <a href="/" class="header-logo">
+            <img src="/static/images/logo-mono.png" alt="tidex6">
+            <span>tidex6</span>
+        </a>
+
+        <nav class="header-nav">
+            <a href="/#home">Home</a>
+            <a href="/#how-it-works">How it Works</a>
+            <a href="/#use-cases">Use Cases</a>
+            <a href="/#developers">Developers</a>
+            <a href="/#roadmap">Roadmap</a>
+        </nav>
+
+        <div class="header-right">
+            <button class="btn-wallet" id="wallet-btn" onclick="connectWallet()">
+                Connect Wallet
+            </button>
+        </div>
+
+        <div class="header-hamburger" id="hamburger" onclick="toggleMobileMenu()">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>
+</header>
+
+<nav class="mobile-nav" id="mobile-nav">
+    <a href="/#home" onclick="closeMobileMenu()">Home</a>
+    <a href="/#how-it-works" onclick="closeMobileMenu()">How it Works</a>
+    <a href="/#use-cases" onclick="closeMobileMenu()">Use Cases</a>
+    <a href="/#developers" onclick="closeMobileMenu()">Developers</a>
+    <a href="/#roadmap" onclick="closeMobileMenu()">Roadmap</a>
+</nav>

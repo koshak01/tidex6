@@ -1,0 +1,6 @@
+target/
+.git/
+.claude/
+logs/
+*.log
+.DS_Store
