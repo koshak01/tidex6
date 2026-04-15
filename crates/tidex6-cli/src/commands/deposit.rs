@@ -16,7 +16,7 @@ use tidex6_core::elgamal::AuditorPublicKey;
 use tidex6_core::note::Denomination;
 
 use crate::commands::keygen::{IdentityFile, resolve_output_path};
-use crate::common::{detect_cluster, devnet_explorer_url, load_default_keypair};
+use crate::common::{detect_cluster, explorer_url, load_default_keypair};
 
 /// Arguments for `tidex6 deposit`.
 #[derive(Args, Debug)]
@@ -123,27 +123,48 @@ pub fn run(args: DepositArgs) -> Result<()> {
 
     println!("  commitment   : {}", note.commitment().to_hex());
     println!("  signature    : {signature}");
-    println!("  explorer     : {}", devnet_explorer_url(&signature));
+    println!("  explorer     : {}", explorer_url(&signature, &cluster));
     println!("  leaf index   : {leaf_index}");
     if let Some(memo_b64) = outcome.memo_base64.as_ref() {
         println!(
-            "  memo payload : {} base64 chars in SPL Memo instruction",
+            "  memo payload : {} base64 chars in the deposit instruction",
             memo_b64.len()
         );
     }
 
     // Persist the note so the recipient can redeem it later.
+    // Default location is `~/.tidex6/notes/<commitment_prefix>.note`
+    // so the CLI never depends on the current working directory being
+    // writable — a common failure mode on Linux when `target/release`
+    // is served from a read-only mount or a system-managed location.
     let note_text = note.to_text();
-    let note_path = args
-        .note_out
-        .unwrap_or_else(|| PathBuf::from(format!("./{}.note", &note.commitment().to_hex()[..12])));
+    let note_path = match args.note_out {
+        Some(path) => path,
+        None => default_note_path(&note.commitment().to_hex())?,
+    };
+    if let Some(parent) = note_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create notes directory {}", parent.display()))?;
+    }
     fs::write(&note_path, &note_text)
         .with_context(|| format!("write note file to {}", note_path.display()))?;
     println!();
-    println!("Note written to: {}", note_path.display());
-    println!("Share this file with the recipient to let them withdraw.");
+    println!("Note saved to: {}", note_path.display());
+    println!();
+    println!("┌──────────────────────────────────────────────────────────────┐");
+    println!("│ Give this line to the recipient — they need it to withdraw: │");
+    println!("└──────────────────────────────────────────────────────────────┘");
+    println!("{note_text}");
 
     Ok(())
+}
+
+/// `~/.tidex6/notes/<commitment_prefix>.note` — always writable for
+/// the current user, never depends on the working directory.
+fn default_note_path(commitment_hex: &str) -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("HOME environment variable is not set")?;
+    let prefix = &commitment_hex[..commitment_hex.len().min(12)];
+    Ok(PathBuf::from(format!("{home}/.tidex6/notes/{prefix}.note")))
 }
 
 /// Resolve the auditor public key for this deposit.

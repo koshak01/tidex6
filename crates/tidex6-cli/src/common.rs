@@ -43,8 +43,16 @@ pub fn detect_cluster() -> Result<Cluster> {
     }
 }
 
-/// Format a Solana devnet explorer URL for a transaction signature.
-/// Printed by the CLI so the user can click through to verify.
-pub fn devnet_explorer_url(signature: &solana_signature::Signature) -> String {
-    format!("https://explorer.solana.com/tx/{signature}?cluster=devnet")
+/// Format a Solana explorer URL for a transaction signature,
+/// picking the correct `?cluster=` suffix based on where the CLI
+/// is currently pointed. Mainnet uses no suffix (the explorer
+/// defaults to mainnet-beta); devnet/testnet use the explicit
+/// suffix. Custom-RPC users get a mainnet-beta-shaped URL because
+/// that is by far the most common case for integrator-local RPCs.
+pub fn explorer_url(signature: &solana_signature::Signature, cluster: &Cluster) -> String {
+    match cluster {
+        Cluster::Devnet => format!("https://explorer.solana.com/tx/{signature}?cluster=devnet"),
+        Cluster::Testnet => format!("https://explorer.solana.com/tx/{signature}?cluster=testnet"),
+        _ => format!("https://explorer.solana.com/tx/{signature}"),
+    }
 }

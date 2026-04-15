@@ -17,7 +17,7 @@ use clap::Args;
 use tidex6_client::PrivatePool;
 use tidex6_core::note::DepositNote;
 
-use crate::common::{detect_cluster, devnet_explorer_url, load_default_keypair};
+use crate::common::{detect_cluster, explorer_url, load_default_keypair};
 
 /// Arguments for `tidex6 withdraw`.
 #[derive(Args, Debug)]
@@ -87,7 +87,7 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
     let signature = pool.withdraw(&payer).note(note).to(recipient).send()?;
 
     println!("  signature    : {signature}");
-    println!("  explorer     : {}", devnet_explorer_url(&signature));
+    println!("  explorer     : {}", explorer_url(&signature, &cluster));
     println!();
     println!(
         "Recipient {recipient} received {} lamports.",
