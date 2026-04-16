@@ -1,0 +1,27 @@
+[package]
+name = "tidex6-confidential-amounts"
+description = "Sandbox Anchor program — Pedersen-commitment confidential amounts. Not part of tidex6 MVP, not audited, not a product. A place to see how amount-hiding actually behaves on Solana."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "tidex6_confidential_amounts"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "1.0.0"
+# Gives us the `sol_alt_bn128_*` syscalls directly. tidex6-verifier
+# pulls the same crate for Groth16; we only need the G1 add here.
+solana-bn254 = "2"

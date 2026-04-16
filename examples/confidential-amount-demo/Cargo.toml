@@ -1,0 +1,37 @@
+[package]
+name = "tidex6-confidential-amount-demo"
+description = "Toy example — Pedersen-commitment confidential amounts on BN254. Not integrated with tidex6-verifier; a sandbox to see what amount-hiding looks like."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tidex6-core = { path = "../../crates/tidex6-core" }
+tidex6-confidential-amounts = { path = "../../programs/tidex6-confidential-amounts", features = ["no-entrypoint"] }
+
+ark-bn254 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+
+anchor-client = { workspace = true }
+anchor-lang = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+rand = { version = "0.10", default-features = false, features = ["std", "std_rng", "sys_rng"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+solana-keypair = "3"
+
+[[bin]]
+name = "cd-demo"
+path = "src/main.rs"
+
+[[bin]]
+name = "cd-onchain"
+path = "src/bin/onchain.rs"
+
+[lints]
+workspace = true
