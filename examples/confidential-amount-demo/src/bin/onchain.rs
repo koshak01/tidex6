@@ -100,6 +100,18 @@ enum Command {
         #[arg(long)]
         pubkey: String,
     },
+
+    /// Применить входящий confidential transfer к local-state.
+    /// Получатель запускает это на своей машине, передавая
+    /// `transfer-blinding` который ему прислал sender out of band.
+    ApplyIncoming {
+        #[arg(long)]
+        keypair: PathBuf,
+        #[arg(long)]
+        amount_sol: f64,
+        #[arg(long)]
+        transfer_blinding: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -122,7 +134,45 @@ fn main() -> Result<()> {
         }
         Command::Close { keypair } => run_close(&rpc_url, &keypair),
         Command::Show { pubkey } => run_show(&rpc_url, &pubkey),
+        Command::ApplyIncoming {
+            keypair,
+            amount_sol,
+            transfer_blinding,
+        } => run_apply_incoming(&keypair, amount_sol, &transfer_blinding),
     }
+}
+
+fn run_apply_incoming(
+    keypair_path: &std::path::Path,
+    amount_sol: f64,
+    transfer_blinding_hex: &str,
+) -> Result<()> {
+    let owner = load_keypair(keypair_path)?;
+    let amount_lamports = sol_to_lamports(amount_sol)?;
+    let transfer_blinding = state_fr_from_hex(transfer_blinding_hex)?;
+
+    let mut local = LocalState::load(&owner.pubkey())?;
+    if local.sum_blinding_hex.is_empty() {
+        return Err(anyhow!(
+            "no local state for {} — run init-account on this machine first",
+            owner.pubkey()
+        ));
+    }
+    let old_blinding = state_fr_from_hex(&local.sum_blinding_hex)?;
+    let new_blinding = old_blinding + transfer_blinding;
+    local.balance_lamports += amount_lamports;
+    local.sum_blinding_hex = state_fr_to_hex(&new_blinding);
+    local.save(&owner.pubkey())?;
+
+    println!(
+        "Applied incoming confidential transfer of {amount_sol} SOL to {}",
+        owner.pubkey()
+    );
+    println!(
+        "  new local balance: {} SOL",
+        lamports_to_sol_str(local.balance_lamports)
+    );
+    Ok(())
 }
 
 // ─── Subcommand handlers ──────────────────────────────────────
@@ -294,19 +344,30 @@ fn run_transfer(
     local_from.save(&sender.pubkey())?;
 
     // Receiver local state — если мы владельцы и его тоже.
-    if let Ok(mut local_to) = LocalState::load(&to_pubkey) {
-        let old_to_blinding = state_fr_from_hex(&local_to.sum_blinding_hex)?;
-        let new_to_blinding = old_to_blinding + transfer_blinding;
-        local_to.balance_lamports += amount_lamports;
-        local_to.sum_blinding_hex = state_fr_to_hex(&new_to_blinding);
-        local_to.save(&to_pubkey)?;
-        println!(
-            "  updated receiver local state: balance now {}",
-            lamports_to_sol_str(local_to.balance_lamports)
-        );
-    } else {
-        println!("  (receiver's local state not found — receiver must apply transfer_blinding manually)");
-        println!("    transfer_blinding (hex): {}", state_fr_to_hex(&transfer_blinding));
+    // Пустой sum_blinding_hex значит файла нет локально (мы на
+    // другой машине от получателя). Это нормальный кейс: получатель
+    // сам применит transfer_blinding у себя командой ниже.
+    match LocalState::load(&to_pubkey) {
+        Ok(mut local_to) if !local_to.sum_blinding_hex.is_empty() => {
+            let old_to_blinding = state_fr_from_hex(&local_to.sum_blinding_hex)?;
+            let new_to_blinding = old_to_blinding + transfer_blinding;
+            local_to.balance_lamports += amount_lamports;
+            local_to.sum_blinding_hex = state_fr_to_hex(&new_to_blinding);
+            local_to.save(&to_pubkey)?;
+            println!(
+                "  updated receiver local state: balance now {}",
+                lamports_to_sol_str(local_to.balance_lamports)
+            );
+        }
+        _ => {
+            println!();
+            println!("  Receiver's local state not on this machine.");
+            println!("  On the recipient machine run:");
+            println!(
+                "    cd-onchain apply-incoming --keypair <recipient.json> \\\n      --amount-sol {amount_sol} --transfer-blinding {}",
+                state_fr_to_hex(&transfer_blinding)
+            );
+        }
     }
 
     println!("  signature       : {signature}");
