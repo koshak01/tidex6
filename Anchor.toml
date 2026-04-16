@@ -8,13 +8,16 @@ skip-lint = false
 [programs.localnet]
 tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
 tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
+tidex6_confidential_amounts = "6r8JfoXYtNKw36ZiFjWLdSJHGMpgTQUwDnqyWskKbqdP"
 
 [programs.devnet]
 tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
 tidex6_caller = "FnNv9i3uPNcRg7XuQ6Bd7w7j3MBNprXhbffnnJQMjmb7"
+tidex6_confidential_amounts = "6r8JfoXYtNKw36ZiFjWLdSJHGMpgTQUwDnqyWskKbqdP"
 
 [programs.mainnet]
 tidex6_verifier = "2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C"
+tidex6_confidential_amounts = "6r8JfoXYtNKw36ZiFjWLdSJHGMpgTQUwDnqyWskKbqdP"
 
 [registry]
 url = "https://api.apr.dev"
@@ -27,4 +30,8 @@ wallet = "~/.config/solana/id.json"
 test = "echo 'Tests are written as Rust integration tests in crates/tidex6-verifier/tests/'"
 
 [workspace]
-members = ["programs/tidex6-verifier", "programs/tidex6-caller"]
+members = [
+    "programs/tidex6-verifier",
+    "programs/tidex6-caller",
+    "programs/tidex6-confidential-amounts",
+]

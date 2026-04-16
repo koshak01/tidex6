@@ -22,8 +22,10 @@ members = [
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "crates/tidex6-indexer",
+    "examples/confidential-amount-demo",
     "examples/private-payroll",
     "programs/tidex6-caller",
+    "programs/tidex6-confidential-amounts",
     "programs/tidex6-verifier",
 ]
 
