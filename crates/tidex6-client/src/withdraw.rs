@@ -45,14 +45,15 @@ use crate::pool::PrivatePool;
 
 /// ADR-011 reference constants for the tidex6-hosted relayer.
 ///
-/// `DEFAULT_RELAYER_URL` points at the service that will be brought
-/// up in Day 12. `DEFAULT_RELAYER_PUBKEY` is `None` until the Day 12
-/// deploy generates the hot wallet keypair; once the pubkey is
-/// known, replace this with `Some("<base58>")` and any client that
-/// calls `WithdrawBuilder::via_default_relayer` picks it up with no
-/// further configuration.
+/// The hot-wallet pubkey was generated 2026-04-24 as part of the
+/// Day 12 deploy. Fund at this address before the relayer starts
+/// processing real withdraws — the on-chain check rejects any tx
+/// whose `relayer` account does not match this pubkey, and the
+/// service's own policy rejects any request whose `relayer_base58`
+/// does not match the keypair it actually holds.
 pub const DEFAULT_RELAYER_URL: &str = "https://relayer.tidex6.com";
-pub const DEFAULT_RELAYER_PUBKEY_BASE58: Option<&str> = None;
+pub const DEFAULT_RELAYER_PUBKEY_BASE58: Option<&str> =
+    Some("ED1HHGK6evjLyFCF9jWw8iXjAXfi2Xz4zaTHMcBNzaK9");
 
 /// Submission mode for a withdraw. `Direct` preserves the legacy
 /// behavior (user pays fee, recipient linked on-chain). `ViaRelayer`
@@ -365,7 +366,7 @@ impl<'a> WithdrawBuilder<'a> {
                     relayer_fee: 0,
                 };
 
-                let endpoint = format!("{}/withdraw", url.trim_end_matches('/'));
+                let endpoint = format!("{}/withdraw/", url.trim_end_matches('/'));
                 let client = reqwest::blocking::Client::builder()
                     .timeout(std::time::Duration::from_secs(60))
                     .build()
