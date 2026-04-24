@@ -36,6 +36,26 @@ pub struct WithdrawArgs {
     /// `~/.config/solana/id.json`.
     #[arg(long)]
     pub keypair: Option<PathBuf>,
+
+    /// Submit via a relayer service instead of signing locally
+    /// (ADR-011). Accepts the relayer's HTTPS URL. Pair with
+    /// `--relayer-pubkey` so the Groth16 proof binds to the
+    /// specific relayer. Default behavior (flag absent) is the
+    /// legacy direct path where the user signs the withdraw.
+    #[arg(long)]
+    pub relayer: Option<String>,
+
+    /// Relayer pubkey to commit to when `--relayer` is set. Must
+    /// match the pubkey the relayer service itself uses; otherwise
+    /// the on-chain verifier rejects the proof.
+    #[arg(long)]
+    pub relayer_pubkey: Option<String>,
+
+    /// Explicitly force the legacy direct path. Equivalent to
+    /// omitting `--relayer`, but makes the choice visible in
+    /// scripts and logs.
+    #[arg(long, conflicts_with = "relayer")]
+    pub direct: bool,
 }
 
 /// Run `tidex6 withdraw`.
@@ -81,10 +101,26 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
     }
 
     println!();
-    println!("Sending withdraw via PrivatePool::withdraw...");
+    match &args.relayer {
+        Some(url) => println!("Sending withdraw via relayer at {url} ..."),
+        None if args.direct => println!("Sending withdraw via direct path (user-signed) ..."),
+        None => println!("Sending withdraw via direct path (default) ..."),
+    }
     println!("(Indexer rebuild + proof generation may take 10-30 seconds.)");
 
-    let signature = pool.withdraw(&payer).note(note).to(recipient).send()?;
+    let mut builder = pool.withdraw(&payer).note(note).to(recipient);
+    if let Some(url) = &args.relayer {
+        let relayer_pubkey_str = args.relayer_pubkey.as_ref().ok_or_else(|| {
+            anyhow!("--relayer requires --relayer-pubkey; pass the relayer's public key")
+        })?;
+        let relayer_pubkey = Pubkey::from_str(relayer_pubkey_str)
+            .with_context(|| format!("parse relayer pubkey {relayer_pubkey_str}"))?;
+        builder = builder.via_relayer(url.clone(), relayer_pubkey);
+    } else if args.direct {
+        builder = builder.direct();
+    }
+
+    let signature = builder.send()?;
 
     println!("  signature    : {signature}");
     println!("  explorer     : {}", explorer_url(&signature, &cluster));

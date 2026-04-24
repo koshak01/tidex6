@@ -18,7 +18,10 @@ use clap::{Parser, Subcommand};
 use tidex6_confidential_amount_demo::state::DemoState;
 
 #[derive(Parser, Debug)]
-#[command(name = "cd-demo", about = "Confidential amount demo — Pedersen commitments playground")]
+#[command(
+    name = "cd-demo",
+    about = "Confidential amount demo — Pedersen commitments playground"
+)]
 struct Cli {
     /// Где хранить JSON-состояние. По умолчанию `./cd-demo-state.json`
     /// в текущей директории.

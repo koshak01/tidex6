@@ -16,14 +16,29 @@
 //!
 //! # Public inputs
 //!
-//! - `merkle_root` — a recent root from the onchain ring buffer.
-//! - `nullifier_hash` — the value the caller will write to a
-//!   per-nullifier PDA to prevent double-spend.
-//! - `recipient` — the account that receives the withdrawn SOL.
-//!   Bound to the proof via a degenerate `recipient * recipient`
-//!   constraint (Tornado-style), so a front-runner cannot swap the
-//!   recipient field in a submitted transaction without invalidating
-//!   the proof.
+//! The circuit has **five** public inputs, committed in this exact
+//! order (offchain prover and onchain verifier must agree byte-for-byte):
+//!
+//! 1. `merkle_root` — a recent root from the onchain ring buffer.
+//! 2. `nullifier_hash` — the value the caller will write to a
+//!    per-nullifier PDA to prevent double-spend.
+//! 3. `recipient` — the account that receives the withdrawn SOL,
+//!    less any relayer fee.
+//! 4. `relayer_address` — the account that receives the relayer fee
+//!    and is the fee-payer of the on-chain transaction. Added in
+//!    ADR-011 so the proof binds the specific relayer, preventing a
+//!    front-runner from rewriting this field in mempool.
+//! 5. `relayer_fee` — the SOL amount (as a raw `u64` reduced into an
+//!    `Fr`) the verifier transfers to `relayer_address`. The reference
+//!    `tidex6-relayer` service hardcodes this to zero; the circuit is
+//!    agnostic so any integrator can choose non-zero.
+//!
+//! Every public input is bound via a degenerate `x * x` constraint
+//! (Tornado-style). The constraint has no semantic meaning inside the
+//! circuit but prevents arkworks from optimizing an unused public
+//! input away, and it forces the prover to commit to the specific
+//! value — a front-runner who rewrites any of these fields in the
+//! submitted transaction invalidates the proof.
 //!
 //! # Private witnesses
 //!
@@ -80,6 +95,22 @@ pub struct WithdrawCircuit<const DEPTH: usize> {
     /// pubkey is reduced to an `Fr` by the caller (see
     /// `recipient_fr_from_bytes`).
     pub recipient: Option<Fr>,
+    /// Relayer account that receives the relayer fee and is the
+    /// on-chain fee-payer of the withdraw transaction. Reduced to an
+    /// `Fr` by the caller the same way `recipient` is.
+    ///
+    /// Added in ADR-011. Binding this in the circuit prevents a
+    /// front-runner from rewriting the `relayer` field in a submitted
+    /// transaction to redirect the fee to themselves.
+    pub relayer_address: Option<Fr>,
+    /// SOL amount — as a raw `u64`, embedded into the low 64 bits of
+    /// an `Fr` via `relayer_fee_fr_from_u64` — that the verifier
+    /// transfers from the pool vault to `relayer_address` as part of
+    /// the `withdraw` instruction. The reference `tidex6-relayer`
+    /// service always sets this to zero; the circuit treats any
+    /// `u64` as valid so non-zero-fee relayers are supported without
+    /// a circuit change.
+    pub relayer_fee: Option<Fr>,
 }
 
 impl<const DEPTH: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<DEPTH> {
@@ -124,6 +155,21 @@ impl<const DEPTH: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<DEPTH> {
             self.recipient.ok_or(SynthesisError::AssignmentMissing)
         })?;
 
+        // New in ADR-011: two additional public inputs. Order matters
+        // — both the offchain prover and the onchain verifier pack
+        // their public-input arrays as
+        // [merkle_root, nullifier_hash, recipient, relayer_address, relayer_fee]
+        // so any rearrangement here requires a matching change to
+        // `prove_withdraw`, `verify_withdraw_proof`, and `pool.rs`.
+        let relayer_address_var = FpVar::<Fr>::new_input(cs.clone(), || {
+            self.relayer_address
+                .ok_or(SynthesisError::AssignmentMissing)
+        })?;
+
+        let relayer_fee_var = FpVar::<Fr>::new_input(cs.clone(), || {
+            self.relayer_fee.ok_or(SynthesisError::AssignmentMissing)
+        })?;
+
         // ── Constraint 1: commitment = Poseidon(secret, nullifier) ─
         let commitment_var = poseidon_hash_pair_var(cs.clone(), &secret_var, &nullifier_var)?;
 
@@ -163,6 +209,23 @@ impl<const DEPTH: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<DEPTH> {
         // non-trivial constraint that involves the public input.
         let _recipient_squared = &recipient_var * &recipient_var;
 
+        // ── Constraint 5 (ADR-011): bind the relayer address ─────
+        //
+        // Same Tornado-style trick as constraint 4. Without this the
+        // prover could commit to a proof that verifies regardless of
+        // which relayer account the tx is submitted with, and a
+        // front-runner would rewrite the `relayer` field to steal the
+        // relayer fee.
+        let _relayer_address_squared = &relayer_address_var * &relayer_address_var;
+
+        // ── Constraint 6 (ADR-011): bind the relayer fee ─────────
+        //
+        // Same pattern. Binds the specific fee amount so a
+        // front-runner cannot rewrite it (e.g. inflate it to drain the
+        // vault to themselves or zero it to avoid paying a relayer
+        // that expects a fee).
+        let _relayer_fee_squared = &relayer_fee_var * &relayer_fee_var;
+
         Ok(())
     }
 }
@@ -178,6 +241,12 @@ pub enum WithdrawCircuitError {
 /// Witness data the prover must supply. Expressed in 32-byte
 /// big-endian form so the caller can pass values straight from
 /// `tidex6_core` newtypes without knowing the underlying field.
+///
+/// The public-input byte arrays must already be in the canonical
+/// BN254 scalar encoding that the onchain verifier will receive — the
+/// circuit reduces them via `Fr::from_be_bytes_mod_order` but the
+/// onchain verifier expects values that are already less than the
+/// BN254 modulus. See `tidex6_verifier::pool::reduce_mod_bn254`.
 #[derive(Clone, Debug)]
 pub struct WithdrawWitness<'a, const DEPTH: usize> {
     pub secret: &'a [u8; 32],
@@ -189,6 +258,13 @@ pub struct WithdrawWitness<'a, const DEPTH: usize> {
     pub merkle_root: &'a [u8; 32],
     pub nullifier_hash: &'a [u8; 32],
     pub recipient: &'a [u8; 32],
+    /// Relayer account — pubkey bytes already reduced modulo the
+    /// BN254 scalar field. Added in ADR-011.
+    pub relayer_address: &'a [u8; 32],
+    /// Relayer fee expressed as a 32-byte big-endian field-element
+    /// encoding of a `u64` SOL amount. Use
+    /// [`relayer_fee_bytes_from_u64`] to build this from a raw `u64`.
+    pub relayer_fee: &'a [u8; 32],
 }
 
 /// Run a local, single-contributor Groth16 setup for the withdraw
@@ -206,24 +282,33 @@ pub fn setup_withdraw_circuit<const DEPTH: usize, R: RngCore + CryptoRng>(
         merkle_root: None,
         nullifier_hash: None,
         recipient: None,
+        relayer_address: None,
+        relayer_fee: None,
     };
     let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(shape, rng)?;
     Ok((pk, vk))
 }
 
-/// Generate a withdraw proof. Returns the proof plus the three
+/// Generate a withdraw proof. Returns the proof plus the five
 /// public-input field elements the caller must forward to the
-/// verifier in the same order: `[merkle_root, nullifier_hash, recipient]`.
+/// verifier in this exact order:
+/// `[merkle_root, nullifier_hash, recipient, relayer_address, relayer_fee]`.
+///
+/// The order is load-bearing. `programs/tidex6-verifier/src/pool.rs::handle_withdraw`
+/// packs its `public_inputs` array in the same sequence; a mismatch
+/// here silently rejects every proof.
 pub fn prove_withdraw<const DEPTH: usize, R: RngCore + CryptoRng>(
     pk: &ProvingKey<Bn254>,
     witness: WithdrawWitness<'_, DEPTH>,
     rng: &mut R,
-) -> Result<(Proof<Bn254>, [Fr; 3]), WithdrawCircuitError> {
+) -> Result<(Proof<Bn254>, [Fr; 5]), WithdrawCircuitError> {
     let secret = Fr::from_be_bytes_mod_order(witness.secret);
     let nullifier = Fr::from_be_bytes_mod_order(witness.nullifier);
     let merkle_root = Fr::from_be_bytes_mod_order(witness.merkle_root);
     let nullifier_hash = Fr::from_be_bytes_mod_order(witness.nullifier_hash);
     let recipient = Fr::from_be_bytes_mod_order(witness.recipient);
+    let relayer_address = Fr::from_be_bytes_mod_order(witness.relayer_address);
+    let relayer_fee = Fr::from_be_bytes_mod_order(witness.relayer_fee);
 
     let mut siblings = [Fr::from(0u64); DEPTH];
     for (slot, bytes) in siblings.iter_mut().zip(witness.path_siblings.iter()) {
@@ -238,19 +323,30 @@ pub fn prove_withdraw<const DEPTH: usize, R: RngCore + CryptoRng>(
         merkle_root: Some(merkle_root),
         nullifier_hash: Some(nullifier_hash),
         recipient: Some(recipient),
+        relayer_address: Some(relayer_address),
+        relayer_fee: Some(relayer_fee),
     };
 
     let proof = Groth16::<Bn254>::prove(pk, circuit, rng)?;
-    Ok((proof, [merkle_root, nullifier_hash, recipient]))
+    Ok((
+        proof,
+        [
+            merkle_root,
+            nullifier_hash,
+            recipient,
+            relayer_address,
+            relayer_fee,
+        ],
+    ))
 }
 
 /// Verify a withdraw proof against a prepared verifying key. The
-/// caller supplies the three public inputs in the same order the
+/// caller supplies the five public inputs in the same order the
 /// prover used.
 pub fn verify_withdraw_proof(
     prepared_vk: &PreparedVerifyingKey<Bn254>,
     proof: &Proof<Bn254>,
-    public_inputs: &[Fr; 3],
+    public_inputs: &[Fr; 5],
 ) -> Result<bool, WithdrawCircuitError> {
     let ok = Groth16::<Bn254>::verify_with_processed_vk(prepared_vk, public_inputs, proof)?;
     Ok(ok)
@@ -266,4 +362,29 @@ pub fn prepare_verifying_key(vk: &VerifyingKey<Bn254>) -> PreparedVerifyingKey<B
 /// compute the `recipient` public input.
 pub fn recipient_fr_from_bytes(bytes: &[u8; 32]) -> Fr {
     Fr::from_be_bytes_mod_order(bytes)
+}
+
+/// Reduce an arbitrary 32-byte identifier (e.g. the relayer's
+/// Solana pubkey) into a BN254 scalar field element. Alias of
+/// [`recipient_fr_from_bytes`], named separately for call-site
+/// readability in ADR-011 code paths.
+pub fn relayer_address_fr_from_bytes(bytes: &[u8; 32]) -> Fr {
+    Fr::from_be_bytes_mod_order(bytes)
+}
+
+/// Encode a `u64` relayer fee (in lamports) as a 32-byte big-endian
+/// field-element representation suitable for
+/// [`WithdrawWitness::relayer_fee`].
+///
+/// The output is the canonical BN254 encoding of the scalar whose
+/// low 64 bits equal `fee` — the top 192 bits are zero. The onchain
+/// verifier builds the same encoding by zero-extending the
+/// little-endian bytes of its `relayer_fee` instruction argument and
+/// byte-reversing them to big-endian, then feeding the result into
+/// `reduce_mod_bn254` (a no-op for values below the modulus, which
+/// includes every `u64`).
+pub fn relayer_fee_bytes_from_u64(fee: u64) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[24..].copy_from_slice(&fee.to_be_bytes());
+    out
 }

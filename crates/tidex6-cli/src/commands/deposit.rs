@@ -183,8 +183,8 @@ fn resolve_auditor_pk(
             .with_context(|| format!("invalid --auditor value: {hex}"));
     }
 
-    let path = resolve_output_path(identity_path)
-        .context("could not locate default identity path")?;
+    let path =
+        resolve_output_path(identity_path).context("could not locate default identity path")?;
     let identity = IdentityFile::load(&path).with_context(|| {
         format!(
             "no --auditor given and no identity file at {}. \

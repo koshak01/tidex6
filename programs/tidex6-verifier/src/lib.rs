@@ -35,6 +35,10 @@ pub use pool::{
     DepositEvent, FIELD_ELEMENT_BYTES, NullifierRecord, PoolState, ROOT_RING_SIZE, TREE_DEPTH,
     WithdrawEvent,
 };
+// Re-export the withdraw VK so offchain crates (notably
+// `tidex6-relayer`) can verify Groth16 proofs against exactly the
+// same verifying key the on-chain program uses.
+pub use withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
 
 declare_id!("2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C");
 
@@ -132,15 +136,31 @@ pub mod tidex6_verifier {
     }
 
     /// Withdraw a previously-deposited note. The caller supplies a
-    /// Groth16 `WithdrawCircuit<20>` proof plus the three public
-    /// inputs: `merkle_root` (one of the recent roots), the
-    /// `nullifier_hash` (goes into a fresh per-nullifier PDA), and
-    /// — implicitly — the `recipient` account that receives the
-    /// vault payout. The recipient pubkey is reduced onchain to a
-    /// BN254 scalar field element and passed as the third public
-    /// input; the circuit binds the proof to it, so a front-runner
-    /// who rewrites the recipient field in the submitted
-    /// transaction invalidates the proof.
+    /// Groth16 `WithdrawCircuit<20>` proof plus the five public
+    /// inputs committed to at proving time:
+    ///
+    /// 1. `merkle_root` — one of the recent roots from the pool's
+    ///    ring buffer.
+    /// 2. `nullifier_hash` — goes into a fresh per-nullifier PDA
+    ///    that prevents double-spend.
+    /// 3. `recipient` — the account that receives the withdrawn SOL
+    ///    minus the relayer fee. Passed implicitly via
+    ///    `ctx.accounts.recipient`; reduced onchain to a BN254
+    ///    scalar before verification.
+    /// 4. `relayer_address` — the account that receives the relayer
+    ///    fee and is the fee-payer of this transaction. Passed
+    ///    implicitly via `ctx.accounts.relayer`; reduced onchain to a
+    ///    BN254 scalar. Added in ADR-011 so a front-runner cannot
+    ///    swap the relayer in mempool to steal the fee.
+    /// 5. `relayer_fee` — the SOL amount the verifier transfers from
+    ///    the vault to `relayer_address`. Passed explicitly as the
+    ///    `relayer_fee` instruction argument; the circuit binds the
+    ///    specific value.
+    ///
+    /// The reference `tidex6-relayer` service always sets
+    /// `relayer_fee = 0` and uses a single hardcoded pubkey for
+    /// `relayer_address`; any third-party relayer may pick their
+    /// own values.
     pub fn withdraw(
         context: Context<Withdraw>,
         proof_a: [u8; 64],
@@ -148,6 +168,7 @@ pub mod tidex6_verifier {
         proof_c: [u8; 64],
         merkle_root: [u8; FIELD_ELEMENT_BYTES],
         nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+        relayer_fee: u64,
     ) -> Result<()> {
         pool::handle_withdraw(
             context,
@@ -156,6 +177,7 @@ pub mod tidex6_verifier {
             proof_c,
             merkle_root,
             nullifier_hash,
+            relayer_fee,
         )
     }
 
@@ -296,16 +318,18 @@ pub struct VerifyTestProof<'info> {
 /// Accounts for `withdraw`. The caller must pass the pool and its
 /// companion vault, the nullifier PDA (created fresh — a second
 /// attempt to use the same nullifier_hash fails the `init`), the
-/// recipient account that will receive the payout, and the payer
-/// that funds the nullifier PDA rent.
+/// recipient account that will receive the main payout, the
+/// `relayer` account that will receive the relayer fee (`relayer_fee`
+/// lamports) and is the fee-payer of this transaction, and the
+/// payer that funds the nullifier PDA rent.
 ///
 /// `#[instruction(...)]` pulls in the same raw arguments the
 /// handler receives so the nullifier PDA seed can reference
-/// `nullifier_hash`. `proof_a`, `proof_b`, `proof_c`, and
-/// `merkle_root` are unused at the account-constraint level — they
-/// are only referenced inside the handler — but Anchor requires
-/// every instruction argument ahead of `nullifier_hash` to appear
-/// in the `#[instruction(...)]` list.
+/// `nullifier_hash`. `proof_a`, `proof_b`, `proof_c`, `merkle_root`
+/// and `relayer_fee` are unused at the account-constraint level —
+/// they are only referenced inside the handler — but Anchor
+/// requires every instruction argument ahead of `nullifier_hash` to
+/// appear in the `#[instruction(...)]` list.
 #[derive(Accounts)]
 #[instruction(
     proof_a: [u8; 64],
@@ -350,6 +374,15 @@ pub struct Withdraw<'info> {
     #[account(mut)]
     pub recipient: UncheckedAccount<'info>,
 
+    /// CHECK: the relayer account is any system account — typically
+    /// the hot wallet of `relayer.tidex6.com` or a third-party
+    /// relayer service. Its pubkey is reduced modulo the BN254
+    /// scalar field and bound to the proof as the fourth public
+    /// input (ADR-011), so a front-runner who swaps this field
+    /// invalidates the proof.
+    #[account(mut)]
+    pub relayer: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -374,4 +407,6 @@ pub enum Tidex6VerifierError {
     MerkleRootNotRecent,
     #[msg("Shielded Memo payload length is outside the accepted bounds.")]
     InvalidMemoPayloadLength,
+    #[msg("Relayer fee must not exceed the pool denomination.")]
+    InvalidRelayerFee,
 }

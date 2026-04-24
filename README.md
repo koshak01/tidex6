@@ -40,6 +40,13 @@ cargo run --release -p tidex6-cli -- deposit \
 # the offchain Merkle tree from on-chain history via the
 # indexer, generates a Groth16 withdraw proof, and submits it
 # to the verifier program.
+#
+# Default is the direct path — the user signs their own tx.
+# For full unlinkability (ADR-011) add `--relayer` to delegate
+# the tx to a relayer service that signs and pays on the user's
+# behalf:
+#   --relayer https://relayer.tidex6.com \
+#   --relayer-pubkey <relayer_hot_wallet_pubkey>
 cargo run --release -p tidex6-cli -- withdraw \
     --note parents.note --to <recipient_pubkey>
 ```
@@ -65,11 +72,23 @@ let (deposit_sig, note, _leaf_index) = pool.deposit(payer).send()?;
 std::fs::write("parents.note", note.to_text())?;
 
 // Withdraw side: rebuild the tree, prove, submit.
+// Default direct path — user signs the tx themselves.
 let withdraw_sig = pool
     .withdraw(payer)
     .note(note)
     .to(recipient)
     .send()?;
+
+// Full unlinkability via the reference relayer (ADR-011): the
+// user's keypair never signs the withdraw tx, the relayer pays
+// fees and becomes the on-chain payer. Circuit binds the specific
+// relayer so a front-runner cannot swap them in mempool.
+// let withdraw_sig = pool
+//     .withdraw(payer)
+//     .note(note)
+//     .to(recipient)
+//     .via_relayer("https://relayer.tidex6.com", relayer_hot_wallet_pubkey)
+//     .send()?;
 # drop((deposit_sig, withdraw_sig));
 # Ok(())
 # }
@@ -102,6 +121,7 @@ withdraw → report — in under a minute.
 - **Per-deposit selective disclosure** via ElGamal auditor tags — users choose who sees what, per transaction.
 - **Shielded memos** — encrypted notes up to ~200 bytes attached to each deposit, readable only by the viewing-key holder.
 - **Non-upgradeable verifier** — the core proof verifier is locked after deployment, so users do not have to trust the deployer forever.
+- **Relayer unlinkability** — ADR-011: a reference HTTPS service at `relayer.tidex6.com` signs and submits withdraw transactions so the user's wallet never appears on-chain as the payer. The proof commits to the specific relayer (public input) so front-runners cannot redirect the fee. Fee policy for the reference service is zero — we pay tx fees for users as a public good; anyone may run their own relayer with any fee.
 - **Built with Anchor 1.0.**
 
 Full technical detail: [docs/release/PROJECT_BRIEF.md](docs/release/PROJECT_BRIEF.md).
@@ -154,7 +174,8 @@ tidex6/
 │   ├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit<20>
 │   ├── tidex6-indexer/    — offchain Merkle tree rebuild from on-chain DepositEvent logs
 │   ├── tidex6-client/     — Rust SDK with builder pattern API (PrivatePool, DepositBuilder, WithdrawBuilder)
-│   ├── tidex6-cli/        — developer CLI: `tidex6 keygen | deposit | withdraw`
+│   ├── tidex6-cli/        — developer CLI: `tidex6 keygen | deposit | withdraw | accountant`
+│   ├── tidex6-relayer/    — reference Axum HTTPS service (ADR-011): POST /withdraw, offchain VK verify, replay cache
 │   └── tidex6-day1/       — Day-1..12 devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
 ├── programs/
 │   ├── tidex6-verifier/   — singleton non-upgradeable Anchor verifier program
@@ -165,9 +186,9 @@ tidex6/
 └── video/                  — pitch and demo video scripts
 
 Planned for v0.2, not yet in the workspace:
-  - tidex6-relayer  — minimal HTTP relayer for fee abstraction
-  - ElGamal viewing-key machinery (Baby Jubjub) for the accountant flow
-  - Shielded memos (encrypted on-chain)
+  - Proof of Innocence circuit + Association Set Provider (ADR-007 v2)
+  - Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery
+  - Ergonomic proc macros (`#[private_withdraw]` etc.) layered over the builder API (ADR-006)
 ```
 
 ---

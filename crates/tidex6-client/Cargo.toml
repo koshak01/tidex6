@@ -27,5 +27,14 @@ solana-rpc-client-api = "3"
 solana-signature = "3"
 solana-transaction-status = "3"
 
+# ADR-011: via_relayer path posts the proof to an HTTP endpoint
+# instead of signing the tx locally. reqwest::blocking keeps the
+# synchronous API of WithdrawBuilder consistent — no runtime plumbing
+# leaks into callers. rustls-tls avoids pulling in OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
 [lints]
 workspace = true

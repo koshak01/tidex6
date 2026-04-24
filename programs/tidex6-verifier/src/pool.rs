@@ -191,8 +191,7 @@ pub fn handle_deposit(
     memo_payload: Vec<u8>,
 ) -> Result<()> {
     require!(
-        memo_payload.len() >= MEMO_PAYLOAD_MIN_LEN
-            && memo_payload.len() <= MEMO_PAYLOAD_MAX_LEN,
+        memo_payload.len() >= MEMO_PAYLOAD_MIN_LEN && memo_payload.len() <= MEMO_PAYLOAD_MAX_LEN,
         crate::Tidex6VerifierError::InvalidMemoPayloadLength
     );
     // Read the denomination and capacity check with a short-lived
@@ -282,11 +281,19 @@ pub fn handle_deposit(
 
 /// Handle a withdraw request. Verifies a Groth16 proof of
 /// `WithdrawCircuit<20>` against the hardcoded `WITHDRAW_VERIFYING_KEY`
-/// and, on success, transfers `denomination` lamports from the pool
-/// vault to the recipient account. The nullifier PDA is created
+/// and, on success, transfers `(denomination - relayer_fee)` lamports
+/// from the pool vault to the recipient account and `relayer_fee`
+/// lamports to the relayer account. The nullifier PDA is created
 /// during the instruction via Anchor's `init` constraint, so a
 /// double-spend fails at the account-initialisation step before any
 /// Groth16 work happens.
+///
+/// `relayer_fee` was added in ADR-011. The reference `tidex6-relayer`
+/// service passes zero; any third-party relayer may pass a non-zero
+/// value bounded by the pool denomination. The circuit binds the
+/// specific `(recipient, relayer_address, relayer_fee)` tuple, so a
+/// front-runner rewriting any of those fields in the submitted
+/// transaction invalidates the proof.
 pub fn handle_withdraw(
     ctx: Context<Withdraw>,
     proof_a: [u8; 64],
@@ -294,6 +301,7 @@ pub fn handle_withdraw(
     proof_c: [u8; 64],
     merkle_root: [u8; FIELD_ELEMENT_BYTES],
     nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
+    relayer_fee: u64,
 ) -> Result<()> {
     // 1. Sanity-check that the claimed Merkle root is present in
     //    the pool's recent-root ring buffer.
@@ -310,19 +318,45 @@ pub fn handle_withdraw(
     };
     require!(root_accepted, Tidex6VerifierError::MerkleRootNotRecent);
 
-    // 2. The nullifier PDA was initialised via the `init` attribute
+    // 2. ADR-011: the relayer fee must not exceed the pool
+    //    denomination. If it did, the handler would underflow when
+    //    computing the recipient amount; rejecting here keeps the
+    //    arithmetic obviously safe.
+    require!(
+        relayer_fee <= denomination,
+        Tidex6VerifierError::InvalidRelayerFee
+    );
+
+    // 3. The nullifier PDA was initialised via the `init` attribute
     //    in the account constraints, so if we reach this point the
     //    nullifier_hash seed has never been used before. Record the
     //    hash inside it for offchain observability.
     ctx.accounts.nullifier.nullifier_hash = nullifier_hash;
 
-    // 3. Reduce the recipient pubkey to a BN254 scalar. The prover
-    //    used the same reduction offchain when building the witness.
+    // 4. Reduce the recipient and relayer pubkeys to BN254 scalars.
+    //    The prover used the same reduction offchain when building
+    //    the witness. `relayer_fee` is encoded as a 32-byte
+    //    big-endian field element via `fr_bytes_from_u64`; since
+    //    every u64 is below the BN254 modulus no explicit reduction
+    //    is needed.
     let recipient_raw = ctx.accounts.recipient.key().to_bytes();
     let recipient_fr = reduce_mod_bn254(&recipient_raw);
 
-    // 4. Run the Groth16 verifier against the hardcoded VK.
-    let public_inputs: [[u8; 32]; 3] = [merkle_root, nullifier_hash, recipient_fr];
+    let relayer_raw = ctx.accounts.relayer.key().to_bytes();
+    let relayer_fr = reduce_mod_bn254(&relayer_raw);
+
+    let relayer_fee_fr = fr_bytes_from_u64(relayer_fee);
+
+    // 5. Run the Groth16 verifier against the hardcoded VK.
+    //    Public-input order, fixed by ADR-011, matches the order
+    //    committed to in `tidex6_circuits::withdraw::prove_withdraw`.
+    let public_inputs: [[u8; 32]; 5] = [
+        merkle_root,
+        nullifier_hash,
+        recipient_fr,
+        relayer_fr,
+        relayer_fee_fr,
+    ];
 
     let mut verifier = Groth16Verifier::<{ WITHDRAW_NR_PUBLIC_INPUTS }>::new(
         &proof_a,
@@ -337,9 +371,12 @@ pub fn handle_withdraw(
         .verify()
         .map_err(|_| Tidex6VerifierError::Groth16VerificationFailed)?;
 
-    // 5. Transfer `denomination` lamports from the vault PDA to
-    //    the recipient via a system-program CPI with a seeded
-    //    signer (the vault is a system-owned PDA).
+    // 6. Transfer `(denomination - relayer_fee)` lamports from the
+    //    vault PDA to the recipient and `relayer_fee` to the relayer
+    //    via two system-program CPIs with the same seeded signer
+    //    (the vault is a system-owned PDA). Zero-value transfers are
+    //    skipped to save compute units and to avoid any system-program
+    //    edge case around zero-lamport moves.
     let denomination_bytes: [u8; 8] = denomination.to_le_bytes();
     let vault_signer_seeds: &[&[u8]] = &[
         PoolState::VAULT_SEED_PREFIX,
@@ -348,31 +385,72 @@ pub fn handle_withdraw(
     ];
     let signer_seeds = &[vault_signer_seeds];
 
-    transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.system_program.key(),
-            Transfer {
-                from: ctx.accounts.vault.to_account_info(),
-                to: ctx.accounts.recipient.to_account_info(),
-            },
-            signer_seeds,
-        ),
-        denomination,
-    )?;
+    let recipient_amount = denomination
+        .checked_sub(relayer_fee)
+        .ok_or(Tidex6VerifierError::InvalidRelayerFee)?;
 
+    if recipient_amount > 0 {
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.key(),
+                Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.recipient.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            recipient_amount,
+        )?;
+    }
+
+    if relayer_fee > 0 {
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.key(),
+                Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.relayer.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            relayer_fee,
+        )?;
+    }
+
+    // 7. Log line, indexer-parseable. ADR-011 widens the prior
+    //    3-field format to a 5-field one:
+    //      tidex6-withdraw:<denomination>:<nullifier_hex>:<relayer_base58>:<relayer_fee>
+    //    The offchain log parser accepts both the legacy 2-trailer
+    //    format and this 4-trailer one; see indexer rebuild logic.
     msg!(
-        "tidex6-withdraw:{}:{}",
+        "tidex6-withdraw:{}:{}:{}:{}",
         denomination,
-        crate::encode_hex(nullifier_hash)
+        crate::encode_hex(nullifier_hash),
+        ctx.accounts.relayer.key(),
+        relayer_fee
     );
     emit!(WithdrawEvent {
         denomination,
         nullifier_hash,
         merkle_root,
         recipient: ctx.accounts.recipient.key(),
+        relayer: ctx.accounts.relayer.key(),
+        relayer_fee,
     });
 
     Ok(())
+}
+
+/// Encode a `u64` as a 32-byte big-endian canonical BN254 scalar
+/// representation, matching the encoding used offchain by
+/// `tidex6_circuits::withdraw::relayer_fee_bytes_from_u64`. The top
+/// 192 bits are zero; the low 64 bits carry `value` in big-endian
+/// order. Since every `u64` is smaller than the BN254 modulus the
+/// result is already canonical — no explicit reduction required.
+fn fr_bytes_from_u64(value: u64) -> [u8; FIELD_ELEMENT_BYTES] {
+    let mut out = [0u8; FIELD_ELEMENT_BYTES];
+    out[24..].copy_from_slice(&value.to_be_bytes());
+    out
 }
 
 /// Reduce an arbitrary 32-byte big-endian value into the canonical
@@ -438,10 +516,22 @@ impl NullifierRecord {
 
 /// Emitted by every successful `withdraw`. Offchain indexers use
 /// it to track SOL outflow from the pool.
+///
+/// `relayer` and `relayer_fee` were added in ADR-011. The indexer
+/// reads them to show which relayer processed a given withdraw and
+/// how the payout was split between the recipient and the relayer.
 #[event]
 pub struct WithdrawEvent {
     pub denomination: u64,
     pub nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
     pub merkle_root: [u8; FIELD_ELEMENT_BYTES],
     pub recipient: Pubkey,
+    /// The account that submitted the transaction and received the
+    /// relayer fee (ADR-011).
+    pub relayer: Pubkey,
+    /// Lamports transferred from the pool vault to `relayer` as the
+    /// relayer's compensation. Zero when the user self-submitted the
+    /// withdraw or when the reference `relayer.tidex6.com` service
+    /// processed it (policy: no fee).
+    pub relayer_fee: u64,
 }

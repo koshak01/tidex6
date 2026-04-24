@@ -18,6 +18,7 @@
 | [ADR-008](ADR-008-pool-isolation.md) | Per-program pool в MVP, shared pool в v0.3 | Accepted |
 | [ADR-009](ADR-009-proving-time-budget.md) | Proving time budget: Day-8 benchmark, 30 секунд acceptance | Accepted |
 | [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Транспорт memo через SPL Memo Program (без редеплоя верификатора) | Accepted |
+| [ADR-011](ADR-011-relayer-architecture.md) | Архитектура релаера — fee внутри circuit + reference-сервис | Accepted |
 
 ## Формат
 

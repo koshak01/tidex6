@@ -36,7 +36,9 @@ use solana_transaction_status::{UiTransactionEncoding, option_serializer::Option
 
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_circuits::square::fr_to_be_bytes;
-use tidex6_circuits::withdraw::{WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw};
+use tidex6_circuits::withdraw::{
+    WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw, relayer_fee_bytes_from_u64,
+};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::note::{Denomination, DepositNote};
 use tidex6_core::types::Commitment;
@@ -205,6 +207,13 @@ fn main() -> Result<()> {
         *bit_slot = (leaf_index >> i) & 1 == 1;
     }
 
+    // ADR-011: direct-path harness commits to `relayer_address = recipient`
+    // and `relayer_fee = 0`. The on-chain verifier (after ADR-011 redeploy)
+    // reduces the same placeholder values when the `relayer` account slot
+    // is bound to the recipient pubkey.
+    let relayer_address_bytes = recipient_pubkey_bytes;
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(0);
+
     let witness = WithdrawWitness::<WITHDRAW_TREE_DEPTH> {
         secret: note.secret().as_bytes(),
         nullifier: note.nullifier().as_bytes(),
@@ -213,6 +222,8 @@ fn main() -> Result<()> {
         merkle_root: &onchain_root,
         nullifier_hash: nullifier_hash.as_bytes(),
         recipient: &recipient_pubkey_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
     };
 
     // Deterministic RNG so a repeated run against the same fresh
@@ -254,6 +265,8 @@ fn main() -> Result<()> {
     let pre_balance = program.rpc().get_balance(&recipient.pubkey()).unwrap_or(0);
     println!("recipient pre : {pre_balance} lamports");
 
+    // ADR-011 direct-path harness: bind relayer slot to recipient,
+    // fee = 0 — matches what `build_proof` committed to offchain.
     let withdraw_signature = program
         .request()
         .accounts(verifier_accounts::Withdraw {
@@ -261,6 +274,7 @@ fn main() -> Result<()> {
             vault: vault_pda,
             nullifier: nullifier_pda,
             recipient: recipient.pubkey(),
+            relayer: recipient.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::system_program::ID,
         })
@@ -270,6 +284,7 @@ fn main() -> Result<()> {
             proof_c: *proof_c,
             merkle_root: onchain_root,
             nullifier_hash: *nullifier_hash.as_bytes(),
+            relayer_fee: 0,
         })
         .signer(&payer)
         .send()

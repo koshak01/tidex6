@@ -99,10 +99,7 @@ impl Commitment {
     /// Просто hex первых 8 байт — чтобы коротко и узнаваемо.
     pub fn short(&self) -> String {
         let bytes = self.to_bytes();
-        let hex: String = bytes[..8]
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hex: String = bytes[..8].iter().map(|b| format!("{b:02x}")).collect();
         format!("0x{hex}…")
     }
 

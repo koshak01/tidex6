@@ -38,7 +38,10 @@ use tidex6_confidential_amounts::{
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 #[derive(Parser, Debug)]
-#[command(name = "cd-onchain", about = "Confidential amount demo — onchain driver")]
+#[command(
+    name = "cd-onchain",
+    about = "Confidential amount demo — onchain driver"
+)]
 struct Cli {
     /// Solana RPC URL. По умолчанию — Helius mainnet из Solana CLI
     /// config; переопределяется переменной окружения SOLANA_RPC или
@@ -121,17 +124,19 @@ fn main() -> Result<()> {
     match cli.command {
         Command::InitVault { payer } => run_init_vault(&rpc_url, &payer),
         Command::InitAccount { keypair } => run_init_account(&rpc_url, &keypair),
-        Command::Deposit { keypair, amount_sol } => {
-            run_deposit(&rpc_url, &keypair, amount_sol)
-        }
+        Command::Deposit {
+            keypair,
+            amount_sol,
+        } => run_deposit(&rpc_url, &keypair, amount_sol),
         Command::Transfer {
             from,
             to_pubkey,
             amount_sol,
         } => run_transfer(&rpc_url, &from, &to_pubkey, amount_sol),
-        Command::Withdraw { keypair, amount_sol } => {
-            run_withdraw(&rpc_url, &keypair, amount_sol)
-        }
+        Command::Withdraw {
+            keypair,
+            amount_sol,
+        } => run_withdraw(&rpc_url, &keypair, amount_sol),
         Command::Close { keypair } => run_close(&rpc_url, &keypair),
         Command::Show { pubkey } => run_show(&rpc_url, &pubkey),
         Command::ApplyIncoming {
@@ -234,7 +239,10 @@ fn run_init_account(rpc_url: &str, keypair_path: &std::path::Path) -> Result<()>
     local.save(&owner.pubkey())?;
 
     println!("  signature      : {signature}");
-    println!("  local state    : ~/.tidex6-conf-amounts/{}.json", owner.pubkey());
+    println!(
+        "  local state    : ~/.tidex6-conf-amounts/{}.json",
+        owner.pubkey()
+    );
     Ok(())
 }
 
@@ -487,10 +495,7 @@ fn run_show(rpc_url: &str, pubkey_str: &str) -> Result<()> {
 
 // ─── Helpers ──────────────────────────────────────────────────
 
-fn program_handle(
-    rpc_url: &str,
-    payer: &Keypair,
-) -> Result<anchor_client::Program<Rc<Keypair>>> {
+fn program_handle(rpc_url: &str, payer: &Keypair) -> Result<anchor_client::Program<Rc<Keypair>>> {
     let cluster = Cluster::Custom(rpc_url.to_string(), rpc_url.to_string());
     let payer_rc = Rc::new(clone_keypair(payer));
     let client = Client::new_with_options(
@@ -642,4 +647,3 @@ fn nibble(byte: u8) -> Result<u8> {
         _ => Err(anyhow!("invalid hex char")),
     }
 }
-

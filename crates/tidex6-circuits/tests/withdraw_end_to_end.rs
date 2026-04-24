@@ -20,7 +20,8 @@ use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes}
 use tidex6_circuits::square::fr_to_be_bytes;
 use tidex6_circuits::withdraw::{
     WithdrawWitness, prepare_verifying_key, prove_withdraw, recipient_fr_from_bytes,
-    setup_withdraw_circuit, verify_withdraw_proof,
+    relayer_address_fr_from_bytes, relayer_fee_bytes_from_u64, setup_withdraw_circuit,
+    verify_withdraw_proof,
 };
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::{Commitment, Nullifier, Secret};
@@ -107,6 +108,13 @@ fn end_to_end_withdraw_pipeline() {
         &sibling_bytes[3],
     ];
 
+    // Relayer fields (ADR-011): ADR-011 added two public inputs.
+    // For the happy-path test we use a zero-fee policy matching the
+    // reference `tidex6-relayer` service, and an arbitrary 32-byte
+    // relayer pubkey.
+    let relayer_address_bytes: [u8; 32] = [0x42u8; 32];
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(0);
+
     let witness = WithdrawWitness::<TEST_DEPTH> {
         secret: secret.as_bytes(),
         nullifier: nullifier.as_bytes(),
@@ -115,6 +123,8 @@ fn end_to_end_withdraw_pipeline() {
         merkle_root: merkle_root.as_bytes(),
         nullifier_hash: nullifier_hash.as_bytes(),
         recipient: &recipient_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
     };
 
     let (proof, public_inputs) = prove_withdraw(&pk, witness, &mut rng).expect("prove");
@@ -147,14 +157,16 @@ fn end_to_end_withdraw_pipeline() {
         vk_ic: &vk_ic_slices,
     };
 
-    let solana_public_inputs: [[u8; 32]; 3] = [
+    let solana_public_inputs: [[u8; 32]; 5] = [
         fr_to_be_bytes(public_inputs[0]),
         fr_to_be_bytes(public_inputs[1]),
         fr_to_be_bytes(public_inputs[2]),
+        fr_to_be_bytes(public_inputs[3]),
+        fr_to_be_bytes(public_inputs[4]),
     ];
 
     let mut verifier =
-        Groth16Verifier::<3>::new(proof_a, proof_b, proof_c, &solana_public_inputs, &groth_vk)
+        Groth16Verifier::<5>::new(proof_a, proof_b, proof_c, &solana_public_inputs, &groth_vk)
             .expect("Groth16Verifier::new");
 
     verifier
@@ -190,6 +202,9 @@ fn withdraw_proof_rejects_tampered_public_inputs() {
         &sibling_bytes[3],
     ];
 
+    let relayer_address_bytes: [u8; 32] = [0xaau8; 32];
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(0);
+
     let witness = WithdrawWitness::<TEST_DEPTH> {
         secret: secret.as_bytes(),
         nullifier: nullifier.as_bytes(),
@@ -198,6 +213,8 @@ fn withdraw_proof_rejects_tampered_public_inputs() {
         merkle_root: merkle_root.as_bytes(),
         nullifier_hash: nullifier_hash.as_bytes(),
         recipient: &recipient_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
     };
 
     let (proof, correct_public_inputs) = prove_withdraw(&pk, witness, &mut rng).expect("prove");
@@ -215,6 +232,8 @@ fn withdraw_proof_rejects_tampered_public_inputs() {
         correct_public_inputs[0] + Fr::from(1u64),
         correct_public_inputs[1],
         correct_public_inputs[2],
+        correct_public_inputs[3],
+        correct_public_inputs[4],
     ];
     assert!(
         !verify_withdraw_proof(&prepared, &proof, &bad_root).expect("verify"),
@@ -226,6 +245,8 @@ fn withdraw_proof_rejects_tampered_public_inputs() {
         correct_public_inputs[0],
         correct_public_inputs[1] + Fr::from(1u64),
         correct_public_inputs[2],
+        correct_public_inputs[3],
+        correct_public_inputs[4],
     ];
     assert!(
         !verify_withdraw_proof(&prepared, &proof, &bad_nullifier_hash).expect("verify"),
@@ -237,10 +258,42 @@ fn withdraw_proof_rejects_tampered_public_inputs() {
         correct_public_inputs[0],
         correct_public_inputs[1],
         recipient_fr_from_bytes(&[0x22u8; 32]),
+        correct_public_inputs[3],
+        correct_public_inputs[4],
     ];
     assert!(
         !verify_withdraw_proof(&prepared, &proof, &bad_recipient).expect("verify"),
         "must reject wrong recipient"
+    );
+
+    // ADR-011 negative case: tamper with the relayer address.
+    // A front-runner who rewrites the relayer field in the submitted
+    // transaction must invalidate the proof.
+    let bad_relayer_address = [
+        correct_public_inputs[0],
+        correct_public_inputs[1],
+        correct_public_inputs[2],
+        relayer_address_fr_from_bytes(&[0xbbu8; 32]),
+        correct_public_inputs[4],
+    ];
+    assert!(
+        !verify_withdraw_proof(&prepared, &proof, &bad_relayer_address).expect("verify"),
+        "must reject wrong relayer_address (ADR-011)"
+    );
+
+    // ADR-011 negative case: tamper with the relayer fee.
+    // A front-runner who inflates the fee to drain the vault or zeros
+    // it to skip paying an expecting relayer must invalidate the proof.
+    let bad_relayer_fee = [
+        correct_public_inputs[0],
+        correct_public_inputs[1],
+        correct_public_inputs[2],
+        correct_public_inputs[3],
+        correct_public_inputs[4] + Fr::from(1u64),
+    ];
+    assert!(
+        !verify_withdraw_proof(&prepared, &proof, &bad_relayer_fee).expect("verify"),
+        "must reject wrong relayer_fee (ADR-011)"
     );
 }
 
@@ -274,6 +327,9 @@ fn withdraw_proof_rejects_wrong_leaf_index() {
         &sibling_bytes[3],
     ];
 
+    let relayer_address_bytes: [u8; 32] = [0x55u8; 32];
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(0);
+
     // Correct leaf index is 3 (bits [1, 1, 0, 0]); feed [0, 0, 0, 0]
     // instead — the circuit cannot be satisfied.
     let witness = WithdrawWitness::<TEST_DEPTH> {
@@ -284,6 +340,8 @@ fn withdraw_proof_rejects_wrong_leaf_index() {
         merkle_root: merkle_root.as_bytes(),
         nullifier_hash: nullifier_hash.as_bytes(),
         recipient: &recipient_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
     };
 
     // arkworks panics inside `prove` when the constraint system is
@@ -302,6 +360,78 @@ fn withdraw_proof_rejects_wrong_leaf_index() {
         Ok(Err(_err)) => {}
         Ok(Ok(_)) => panic!("prover must refuse inconsistent merkle path"),
     }
+}
+
+#[test]
+fn withdraw_proof_binds_nonzero_relayer_fee() {
+    // ADR-011 happy path with `relayer_fee > 0`. The circuit must
+    // treat a non-zero fee exactly like zero — the constraint is
+    // binding, not semantic. We generate a proof with
+    // `fee = 1_000_000 lamports` and verify that it accepts the
+    // matching public inputs and rejects a proof repurposed with a
+    // different fee.
+    let (tree, secret, nullifier, commitment) = build_tree_with_target(3, 0);
+    let merkle_proof = tree.proof(0).expect("merkle proof");
+    let nullifier_hash = nullifier.derive_hash().expect("nullifier hash");
+    let merkle_root = tree.root();
+    assert!(
+        tidex6_core::merkle::verify_proof(commitment, &merkle_proof, merkle_root, TEST_DEPTH)
+            .expect("offchain"),
+        "sanity"
+    );
+
+    let mut rng = deterministic_test_rng();
+    let (pk, vk) = setup_withdraw_circuit::<TEST_DEPTH, _>(&mut rng).expect("setup");
+
+    let recipient_bytes = [0x77u8; 32];
+    let relayer_address_bytes = [0x88u8; 32];
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(1_000_000);
+
+    let sibling_bytes: Vec<[u8; 32]> = merkle_proof
+        .siblings
+        .iter()
+        .map(|c| *c.as_bytes())
+        .collect();
+    let siblings_refs: [&[u8; 32]; TEST_DEPTH] = [
+        &sibling_bytes[0],
+        &sibling_bytes[1],
+        &sibling_bytes[2],
+        &sibling_bytes[3],
+    ];
+
+    let witness = WithdrawWitness::<TEST_DEPTH> {
+        secret: secret.as_bytes(),
+        nullifier: nullifier.as_bytes(),
+        path_siblings: siblings_refs,
+        path_indices: leaf_index_bits(merkle_proof.leaf_index),
+        merkle_root: merkle_root.as_bytes(),
+        nullifier_hash: nullifier_hash.as_bytes(),
+        recipient: &recipient_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
+    };
+
+    let (proof, public_inputs) = prove_withdraw(&pk, witness, &mut rng).expect("prove");
+    let prepared = prepare_verifying_key(&vk);
+
+    assert!(
+        verify_withdraw_proof(&prepared, &proof, &public_inputs).expect("verify"),
+        "non-zero fee proof must verify when public inputs match"
+    );
+
+    // Swap fee 1_000_000 → 2_000_000 in the public-input vector:
+    // proof must reject because it committed to a specific value.
+    let tampered = [
+        public_inputs[0],
+        public_inputs[1],
+        public_inputs[2],
+        public_inputs[3],
+        Fr::from(2_000_000u64),
+    ];
+    assert!(
+        !verify_withdraw_proof(&prepared, &proof, &tampered).expect("verify"),
+        "must reject proof with fee swapped from 1_000_000 to 2_000_000"
+    );
 }
 
 #[test]

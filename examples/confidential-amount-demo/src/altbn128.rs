@@ -54,13 +54,19 @@ mod tests {
         let g: G1Projective = G1Projective::generator();
         let encoded = g1_to_alt_bn128(&g);
         assert_eq!(encoded.len(), 64);
-        assert!(encoded[..32].iter().any(|&b| b != 0), "X should be non-zero");
-        assert!(encoded[32..].iter().any(|&b| b != 0), "Y should be non-zero");
+        assert!(
+            encoded[..32].iter().any(|&b| b != 0),
+            "X should be non-zero"
+        );
+        assert!(
+            encoded[32..].iter().any(|&b| b != 0),
+            "Y should be non-zero"
+        );
     }
 
     #[test]
     fn sum_of_two_commitments_encodes_to_valid_point() {
-        use crate::pedersen::{fresh_blinding, Commitment};
+        use crate::pedersen::{Commitment, fresh_blinding};
         let r1 = fresh_blinding().unwrap();
         let r2 = fresh_blinding().unwrap();
         let c_sum = Commitment::create(10, r1).add(&Commitment::create(20, r2));

@@ -190,7 +190,8 @@ impl DemoState {
             .ok_or_else(|| anyhow::anyhow!("unknown account `{name}`"))?;
         let blinding = fr_from_hex(&entry.private_blinding_hex)?;
         let expected = Commitment::create(entry.private_balance, blinding);
-        let actual = Commitment::from_bytes(&hex_decode::<POINT_LEN>(&entry.public_commitment_hex)?)?;
+        let actual =
+            Commitment::from_bytes(&hex_decode::<POINT_LEN>(&entry.public_commitment_hex)?)?;
         Ok(expected == actual)
     }
 }

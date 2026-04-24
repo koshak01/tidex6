@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Days 1–18 complete. Full MVP product stack working on Solana (verifier deployed on mainnet at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised).**
+**Days 1–23 complete. Relayer stack shipped in code 2026-04-24 per ADR-011 — unlinkability via third-party fee-payer now operational offchain. Mainnet redeploy pending (Day 5 of ADR-011 rollout). Verifier deployed on mainnet at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised.**
 
 **Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and ADR-010 (transport mechanism). `tidex6-core::{elgamal,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
+
+**Relayer + fee-in-circuit shipped 2026-04-24** — see ADR-011. `WithdrawCircuit<20>` now has five public inputs (`relayer_address` and `relayer_fee` added, binding rewrites of either field via the same Tornado-style constraint that already bound `recipient`). Verifier program gains a `relayer` account in the `Withdraw` context and a `relayer_fee` instruction argument; two SOL-transfer CPIs split the payout. Reference service crate `tidex6-relayer` (Axum HTTPS) accepts proofs, offchain-verifies them against the exact on-chain VK, and submits with its own keypair as fee-payer. SDK gets `WithdrawBuilder::via_relayer(url, pubkey)` and `direct()`; CLI gets `--relayer <url> --relayer-pubkey <pk>` / `--direct` flags.
 
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
@@ -15,12 +17,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Client SDK** (tidex6-client): `PrivatePool::connect`, `DepositBuilder::send`, `WithdrawBuilder::send` — the builder-pattern API from ADR-006 is real and used by the CLI internally.
 - **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw | accountant`, thin wrapper over the SDK. `deposit --auditor <pk> --memo <text>` attaches an encrypted memo; `accountant scan --identity <file>` decrypts every memo addressed to this identity's auditor key.
 - **Flagship example** (examples/private-payroll): three binaries telling Lena's story — sender, receiver, accountant. `scripts/run_demo.sh` runs all three in a tmux session against live devnet.
+- **Reference relayer** (tidex6-relayer): Axum HTTPS service, `POST /withdraw` accepts the Groth16 proof and submits with its own keypair; `GET /health`, `GET /stats` for monitoring/transparency. In-memory nullifier replay cache, offchain VK equivalence test (`tests/verify_roundtrip.rs`). Domain `relayer.tidex6.com`, Unix-socket behind nginx on the production deploy.
 - **Live flight harnesses** (tidex6-day1): Day-1 kill gates, Day-5 deposit, Day-11 withdraw, Day-12 negative tests (front-run + double-spend), **Day-13 accountant** (3 memo-carrying deposits + end-to-end auditor scan).
 - **Brand**: logos in `brand/`, pitch video script in `video/PITCH_VIDEO_SCRIPT.md`.
 - **Website** (separate repo: tidex6-web): production site at **tidex6.com**. 5-microservice architecture (database, notifier, solana, ws_gateway, web_server). Deposit/withdraw via browser with Phantom wallet. Invite system with Telegram bot approval. tidex6-client used natively (not CLI subprocess).
 
 **Remaining to ship:**
+- Mainnet redeploy of `tidex6-verifier` with the ADR-011 circuit change and new VK (Day 5 of ADR-011 rollout). Existing Day-13 test deposits must be withdrawn under the old circuit first to clean the pool.
+- Provision `relayer.tidex6.com` subdomain + nginx + systemd unit + hot wallet fund (Day 12 of ADR-011 rollout — user-side).
+- Frontend replace of local signing with HTTPS POST to the relayer, in the separate `tidex6-web` repo (Day 11 of ADR-011 rollout).
 - Record pitch video (2 min) and demo video (3 min) per scripts in `video/`.
+- `solana program set-upgrade-authority --final` on the verifier (point of no return, executed last).
 - Final Colosseum submission.
 
 MVP deadline: Colosseum Frontier hackathon, **2026-05-11**.
@@ -93,8 +100,9 @@ tidex6/
 │   ├── tidex6-core/       — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, DepositNote
 │   ├── tidex6-circuits/   — arkworks R1CS: Poseidon gadget, DepositCircuit, WithdrawCircuit<20>, solana_bytes
 │   ├── tidex6-indexer/    — PoolIndexer: replays on-chain DepositEvent logs into a fresh MerkleTree
-│   ├── tidex6-client/     — Rust SDK with builder pattern (PrivatePool, DepositBuilder, WithdrawBuilder)
-│   ├── tidex6-cli/        — three commands: keygen, deposit, withdraw (thin wrapper over the SDK)
+│   ├── tidex6-client/     — Rust SDK with builder pattern (PrivatePool, DepositBuilder, WithdrawBuilder::{direct,via_relayer})
+│   ├── tidex6-cli/        — keygen, deposit, withdraw, accountant (thin wrapper over the SDK)
+│   ├── tidex6-relayer/    — ADR-011 reference HTTPS relayer: offchain Groth16 verify, tx signing, replay cache
 │   └── tidex6-day1/       — live devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
 ├── programs/
 │   ├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via alt_bn128 syscalls
@@ -105,9 +113,9 @@ tidex6/
 └── video/                  — PITCH_VIDEO_SCRIPT.md, DEMO_VIDEO_SCRIPT.md
 
 Planned for v0.2 (not yet in the workspace):
-  - tidex6-relayer — minimal HTTP relayer for fee abstraction
-  - ElGamal + Baby Jubjub viewing-key machinery (ADR-004, ADR-007)
-  - On-chain encrypted memos (Shielded Memo killer feature)
+  - ElGamal + Baby Jubjub viewing-key machinery extensions (ADR-004, ADR-007)
+  - Proof of Innocence circuit and Association Set Provider (ADR-007 v2)
+  - Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery, non-zero fee policies
 ```
 
 ## Running the demo
@@ -203,6 +211,7 @@ All nine architecture decision records live in `docs/release/adr/`. Each is a sh
 - **ADR-008** — Per-program pool in MVP, shared pool in v0.3
 - **ADR-009** — Proving time budget: Day-8 benchmark, 30s acceptance
 - **ADR-010** — Memo transport via SPL Memo Program (not verifier redeploy)
+- **ADR-011** — Relayer architecture: fee-in-circuit + reference service at relayer.tidex6.com
 
 When a new architectural decision is made, write a new ADR before writing code that implements it.
 

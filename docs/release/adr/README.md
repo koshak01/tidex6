@@ -18,6 +18,7 @@
 | [ADR-008](ADR-008-pool-isolation.md) | Per-program pool in MVP, shared pool in v0.3 | Accepted |
 | [ADR-009](ADR-009-proving-time-budget.md) | Proving time budget: Day-8 benchmark, 30s acceptance | Accepted |
 | [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Memo transport via SPL Memo Program (not verifier redeploy) | Accepted |
+| [ADR-011](ADR-011-relayer-architecture.md) | Relayer architecture — fee-in-circuit with reference service | Accepted |
 
 ## Format
 

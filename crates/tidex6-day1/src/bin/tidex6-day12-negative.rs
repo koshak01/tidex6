@@ -40,7 +40,9 @@ use solana_rpc_client_api::config::RpcTransactionConfig;
 use solana_transaction_status::{UiTransactionEncoding, option_serializer::OptionSerializer};
 
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
-use tidex6_circuits::withdraw::{WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw};
+use tidex6_circuits::withdraw::{
+    WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw, relayer_fee_bytes_from_u64,
+};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::note::{Denomination, DepositNote};
 use tidex6_core::types::Commitment;
@@ -184,6 +186,10 @@ fn main() -> Result<()> {
         *bit_slot = (leaf_index >> i) & 1 == 1;
     }
 
+    // ADR-011: direct-path harness, relayer_address = recipient, fee = 0.
+    let relayer_address_bytes = payer_pubkey_bytes;
+    let relayer_fee_bytes = relayer_fee_bytes_from_u64(0);
+
     let witness = WithdrawWitness::<WITHDRAW_TREE_DEPTH> {
         secret: note.secret().as_bytes(),
         nullifier: note.nullifier().as_bytes(),
@@ -192,6 +198,8 @@ fn main() -> Result<()> {
         merkle_root: &onchain_root,
         nullifier_hash: nullifier_hash.as_bytes(),
         recipient: &payer_pubkey_bytes,
+        relayer_address: &relayer_address_bytes,
+        relayer_fee: &relayer_fee_bytes,
     };
 
     let mut rng = StdRng::seed_from_u64(0xd12_7e57);
@@ -225,6 +233,11 @@ fn main() -> Result<()> {
     let attacker = Keypair::new();
     println!("attacker      : {}", attacker.pubkey());
 
+    // ADR-011 direct-path: proof was built with relayer=payer and
+    // fee=0. Keeping `relayer = payer.pubkey()` here isolates the
+    // failure to the mutated `recipient` field — if we also broke
+    // the relayer binding, we could not tell which public-input
+    // mismatch caused the rejection.
     let front_run_result = program
         .request()
         .accounts(verifier_accounts::Withdraw {
@@ -232,6 +245,7 @@ fn main() -> Result<()> {
             vault: vault_pda,
             nullifier: nullifier_pda,
             recipient: attacker.pubkey(), // WRONG — not what the proof was bound to
+            relayer: payer.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::system_program::ID,
         })
@@ -241,6 +255,7 @@ fn main() -> Result<()> {
             proof_c: *proof_c,
             merkle_root: onchain_root,
             nullifier_hash: *nullifier_hash.as_bytes(),
+            relayer_fee: 0,
         })
         .signer(&payer)
         .send();
@@ -311,6 +326,7 @@ fn main() -> Result<()> {
             vault: vault_pda,
             nullifier: nullifier_pda,
             recipient: payer.pubkey(), // CORRECT — matches the proof
+            relayer: payer.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::system_program::ID,
         })
@@ -320,6 +336,7 @@ fn main() -> Result<()> {
             proof_c: *proof_c,
             merkle_root: onchain_root,
             nullifier_hash: *nullifier_hash.as_bytes(),
+            relayer_fee: 0,
         })
         .signer(&payer)
         .send()
@@ -358,6 +375,7 @@ fn main() -> Result<()> {
             vault: vault_pda,
             nullifier: nullifier_pda,
             recipient: payer.pubkey(),
+            relayer: payer.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::system_program::ID,
         })
@@ -367,6 +385,7 @@ fn main() -> Result<()> {
             proof_c: *proof_c,
             merkle_root: onchain_root,
             nullifier_hash: *nullifier_hash.as_bytes(),
+            relayer_fee: 0,
         })
         .signer(&payer)
         .send();

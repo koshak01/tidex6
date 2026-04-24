@@ -198,7 +198,11 @@ pub mod tidex6_confidential_amounts {
         // Vault owned нашей программой → можем дёргать лампорты
         // напрямую без system_program::transfer.
         **vault_info.try_borrow_mut_lamports()? -= amount_lamports;
-        **ctx.accounts.owner.to_account_info().try_borrow_mut_lamports()? += amount_lamports;
+        **ctx
+            .accounts
+            .owner
+            .to_account_info()
+            .try_borrow_mut_lamports()? += amount_lamports;
 
         let account = &mut ctx.accounts.account;
         account.commitment = new_commitment;
@@ -393,8 +397,8 @@ fn g1_add(
     input[..G1_UNCOMPRESSED_LEN].copy_from_slice(a);
     input[G1_UNCOMPRESSED_LEN..].copy_from_slice(b);
 
-    let result = alt_bn128_addition(&input)
-        .map_err(|_| error!(ConfidentialError::Bn128AddFailed))?;
+    let result =
+        alt_bn128_addition(&input).map_err(|_| error!(ConfidentialError::Bn128AddFailed))?;
 
     result
         .as_slice()
@@ -403,9 +407,7 @@ fn g1_add(
 }
 
 /// Negate G1 point: `(x, y) → (x, p - y)` где p — BN254 base field.
-fn g1_negate(
-    point: &[u8; G1_UNCOMPRESSED_LEN],
-) -> Result<[u8; G1_UNCOMPRESSED_LEN]> {
+fn g1_negate(point: &[u8; G1_UNCOMPRESSED_LEN]) -> Result<[u8; G1_UNCOMPRESSED_LEN]> {
     const BN254_BASE_FIELD_MODULUS_BE: [u8; 32] = [
         0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58,
         0x5d, 0x97, 0x81, 0x6a, 0x91, 0x68, 0x71, 0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c,
