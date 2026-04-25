@@ -33,11 +33,15 @@
     --color-text-muted: #444444;
     --color-text-link: #9945FF;
 
-    /* COLORS - BRAND / SOLANA GRADIENT */
-    --color-primary: #9945FF;
+    /* COLORS - BRAND / SOLANA GRADIENT
+       Canonical Solana Foundation palette (BRANDBOOK §2.1). */
+    --color-primary: #9945FF;             /* solana-purple — base brand */
     --color-primary-hover: #B066FF;
     --color-primary-muted: rgba(153, 69, 255, 0.15);
-    --color-secondary: #14F195;
+    --color-secondary: #14F195;           /* solana-green  — accent */
+    --solana-purple: #9945FF;             /* brandbook alias */
+    --solana-green:  #14F195;             /* brandbook alias */
+    --solana-bridge: #19B4D4;             /* optional middle stop in 3-stop gradient */
     --color-secondary-muted: rgba(20, 241, 149, 0.15);
     --color-magenta: #DC1FFF;
     --color-gradient: linear-gradient(90deg, #9945FF, #DC1FFF, #14F195);

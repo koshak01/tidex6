@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 374">
+  <defs>
+    <linearGradient id="solana" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#9945FF"/>
+      <stop offset="100%" stop-color="#14F195"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#solana)">
+    <path fill-rule="evenodd" d="M 0 291 a 312 82 0 0 1 624 0 a 312 82 0 0 1 -624 0 Z M 38 265 a 274 59 0 0 0 548 0 a 274 59 0 0 0 -548 0 Z"/>
+    <path d="M 96 200 a 216 200 0 0 1 432 0 L 528 271 a 300 84 0 0 1 -432 0 Z"/>
+  </g>
+</svg>

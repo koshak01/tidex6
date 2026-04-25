@@ -32,7 +32,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STD;
 
 use tidex6_core::elgamal::AuditorPublicKey;
-use tidex6_core::memo::{MemoEnvelope, placeholder_envelope_for_anonymous};
+use tidex6_core::memo::{MemoEnvelope, placeholder_envelope_for_anonymous, validate_memo_charset};
 use tidex6_core::note::DepositNote;
 use tidex6_verifier::accounts as verifier_accounts;
 use tidex6_verifier::instruction as verifier_instruction;
@@ -180,6 +180,18 @@ impl<'a> DepositBuilder<'a> {
                 "DepositBuilder::without_memo is mutually exclusive with \
                  .with_auditor() / .with_memo(); pick one path"
             ));
+        }
+
+        // ADR-012 v2.5.9: charset whitelist (Latin + Cyrillic). Reject
+        // emoji and CJK at the SDK boundary so the user gets a clear
+        // error before we burn a transaction. The padded-plaintext
+        // budget is fixed at MAX_PLAINTEXT_LEN bytes; multi-byte
+        // emoji would otherwise eat the slot 4-bytes-per-glyph and
+        // surprise users when their 60-char emoji message gets
+        // refused for "PlaintextTooLong" deeper in the encrypt path.
+        if let Some(ref text) = self.memo_plaintext {
+            validate_memo_charset(text)
+                .with_context(|| "memo contains an unsupported character (Latin + Cyrillic only)")?;
         }
 
         let program = self.pool.program_handle(self.payer)?;

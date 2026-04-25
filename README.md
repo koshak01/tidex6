@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="brand/logo-mono.png">
-    <img alt="tidex6" src="brand/logo-mono.png" width="180">
-  </picture>
+  <img alt="tidex6" src="brand/logo/hat-solana.svg" width="220">
 </p>
 
 <h1 align="center">tidex6</h1>
