@@ -4995,7 +4995,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-caller"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -5003,7 +5003,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -5022,7 +5022,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-cli"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5039,7 +5039,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-client"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "anyhow",
@@ -5047,6 +5047,7 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
+ "base64 0.22.1",
  "hex",
  "reqwest",
  "serde",
@@ -5063,7 +5064,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amount-demo"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5083,7 +5084,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amounts"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
@@ -5091,7 +5092,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",
@@ -5100,6 +5101,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
  "base64 0.22.1",
+ "hex",
  "light-poseidon 0.4.0",
  "proptest",
  "rand 0.10.0",
@@ -5110,7 +5112,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-day1"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5134,7 +5136,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-example-private-payroll"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5150,7 +5152,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-indexer"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-client",
  "base64 0.22.1",
@@ -5165,7 +5167,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-verifier"
-version = "0.1.0"
+version = "2.5.6"
 dependencies = [
  "anchor-lang",
  "bytemuck",

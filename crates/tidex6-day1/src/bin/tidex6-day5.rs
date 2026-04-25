@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         })
         .args(verifier_instruction::Deposit {
             commitment: note.commitment().to_bytes(),
-            memo_payload: tidex6_core::memo::placeholder_payload_for_harness(),
+            memo_payload: tidex6_core::memo::placeholder_envelope_for_anonymous().expect("placeholder envelope"),
         })
         .signer(&payer)
         .send()

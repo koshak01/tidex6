@@ -38,8 +38,10 @@
 
 use anchor_client::anchor_lang::prelude::Pubkey;
 use anyhow::{Context, Result};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STD;
 use tidex6_core::elgamal::AuditorSecretKey;
-use tidex6_core::memo;
+use tidex6_core::memo::MemoEnvelope;
 use tidex6_indexer::{DepositRecord, PoolIndexer};
 
 /// One entry in the reconstructed ledger returned by
@@ -120,7 +122,16 @@ impl<'a> AccountantScanner<'a> {
             let Some(memo_b64) = record.memo_base64.as_deref() else {
                 continue;
             };
-            match memo::try_decrypt_for_auditor(self.auditor_sk, memo_b64) {
+            // ADR-012: on-chain bytes are a MemoEnvelope. The auditor
+            // slot is optional; envelopes without it (anonymous
+            // deposits or recipient-only memos) silently skip here.
+            let Ok(bytes) = BASE64_STD.decode(memo_b64) else {
+                continue;
+            };
+            let Ok(envelope) = MemoEnvelope::from_bytes(&bytes) else {
+                continue;
+            };
+            match envelope.decrypt_with_auditor(self.auditor_sk) {
                 Ok(Some(plaintext)) => {
                     out.push(AccountantEntry {
                         leaf_index: record.leaf_index,
@@ -130,14 +141,12 @@ impl<'a> AccountantScanner<'a> {
                         plaintext,
                     });
                 }
-                // Ok(None) → memo parsed but was not addressed to
-                // this auditor. That is the dominant case and is the
-                // "filter for free" trick — we skip silently.
+                // No auditor slot, or slot not addressed to this key
+                // — the dominant case. Skip silently (the "filter for
+                // free" trick).
                 Ok(None) => {}
-                // A malformed payload is a bug somewhere (another
-                // program's memo, or a tidex6 version bump). Skip
-                // rather than failing the whole scan so a stray bad
-                // entry does not hide the valid ones.
+                // Malformed inputs: skip rather than fail the whole
+                // scan so a stray bad entry does not hide valid ones.
                 Err(_) => {}
             }
         }

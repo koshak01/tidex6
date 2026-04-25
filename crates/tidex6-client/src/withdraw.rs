@@ -32,12 +32,17 @@ use ark_std::rand::rngs::StdRng;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STD;
+
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_circuits::withdraw::{
     WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw, relayer_fee_bytes_from_u64,
 };
+use tidex6_core::memo::MemoEnvelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::types::Commitment;
+use tidex6_indexer::DepositRecord;
 use tidex6_verifier::accounts as verifier_accounts;
 use tidex6_verifier::instruction as verifier_instruction;
 
@@ -63,6 +68,20 @@ pub const DEFAULT_RELAYER_PUBKEY_BASE58: Option<&str> =
 enum SubmitMode {
     Direct,
     ViaRelayer { url: String, relayer_pubkey: Pubkey },
+}
+
+/// Outcome of a successful withdraw. Returned from
+/// [`WithdrawBuilder::send`] so the caller has access to the
+/// decrypted memo (if any) alongside the tx signature.
+#[derive(Debug, Clone)]
+pub struct WithdrawOutcome {
+    /// Signature of the confirmed withdraw transaction.
+    pub signature: Signature,
+    /// Plaintext memo decrypted from the on-chain envelope under the
+    /// note's seal key (per ADR-012). `None` when the deposit did not
+    /// carry a real memo (placeholder envelope) or when the envelope
+    /// was unrecoverable (e.g., corrupt bytes).
+    pub memo_plaintext: Option<String>,
 }
 
 /// Consumable builder for a withdraw transaction.
@@ -157,8 +176,10 @@ impl<'a> WithdrawBuilder<'a> {
         self
     }
 
-    /// Send the withdraw transaction. Returns the tx signature.
-    pub fn send(self) -> Result<Signature> {
+    /// Send the withdraw transaction. Returns a [`WithdrawOutcome`]
+    /// containing the tx signature and, when the deposit carried a
+    /// memo, its decrypted plaintext (ADR-012).
+    pub fn send(self) -> Result<WithdrawOutcome> {
         let note = self
             .note
             .ok_or_else(|| anyhow!("withdraw requires a note; call .note(note) first"))?;
@@ -191,17 +212,20 @@ impl<'a> WithdrawBuilder<'a> {
             .rebuild_tree(WITHDRAW_TREE_DEPTH)
             .context("rebuild offchain Merkle tree from program logs")?;
 
-        // Find the leaf index for our commitment.
+        // Find the full deposit record for our commitment. We need
+        // both the leaf index (for the circuit) and the on-chain
+        // memo bytes (to decrypt after the tx confirms).
         let commitment = Commitment::from_bytes(note.commitment().to_bytes());
-        let leaf_index = indexer
-            .find_leaf_index(&commitment)
-            .context("find leaf index for commitment")?
+        let deposit_record: DepositRecord = indexer
+            .find_deposit_record(&commitment)
+            .context("find deposit record for commitment")?
             .ok_or_else(|| {
                 anyhow!(
                     "commitment {} not found in pool history — note not yet on-chain",
                     commitment.to_hex()
                 )
             })?;
+        let leaf_index = deposit_record.leaf_index;
 
         let merkle_proof = tree
             .proof(leaf_index)
@@ -310,7 +334,7 @@ impl<'a> WithdrawBuilder<'a> {
             &self.pool.program_id(),
         );
 
-        match &self.mode {
+        let signature = match &self.mode {
             SubmitMode::Direct => {
                 let program = self.pool.program_handle(self.payer)?;
                 let payer_pubkey = {
@@ -322,7 +346,7 @@ impl<'a> WithdrawBuilder<'a> {
                 // relayer slot is bound to the recipient pubkey so
                 // the circuit's relayer_address public input matches
                 // what the onchain verifier reduces. fee = 0.
-                let signature = program
+                program
                     .request()
                     .accounts(verifier_accounts::Withdraw {
                         pool: self.pool.pool_pda(),
@@ -343,9 +367,7 @@ impl<'a> WithdrawBuilder<'a> {
                     })
                     .signer(self.payer)
                     .send()
-                    .context("withdraw transaction failed to confirm")?;
-
-                Ok(signature)
+                    .context("withdraw transaction failed to confirm")?
             }
             SubmitMode::ViaRelayer { url, .. } => {
                 // Hit the relayer's POST /withdraw endpoint. The
@@ -390,9 +412,24 @@ impl<'a> WithdrawBuilder<'a> {
                         "relayer returned an invalid signature: {}",
                         parsed.signature
                     )
-                })
+                })?
             }
-        }
+        };
+
+        // ADR-012: after the withdraw confirms, decrypt the on-chain
+        // memo envelope under the note's seal key. The record was
+        // fetched above so this is pure in-memory work — no extra
+        // RPC round-trip.
+        let memo_plaintext = decrypt_memo_for_recipient(
+            &deposit_record,
+            note.secret().as_bytes(),
+            note.nullifier().as_bytes(),
+        );
+
+        Ok(WithdrawOutcome {
+            signature,
+            memo_plaintext,
+        })
     }
 }
 
@@ -418,6 +455,28 @@ struct RelayerWithdrawResponse {
     #[serde(default)]
     #[allow(dead_code)]
     relayer_fee: u64,
+}
+
+/// Recover the plaintext memo associated with a deposit.
+///
+/// The indexer stores the on-chain envelope bytes in base64 form on
+/// [`DepositRecord::memo_base64`]. This helper decodes them, parses
+/// the envelope, and tries to unwrap the recipient slot using the
+/// note's seal key (`secret || nullifier`). Returns `None` when
+/// there is no memo field, when the envelope is malformed, or when
+/// the plaintext does not decode as UTF-8 — intentionally lossy, so
+/// a placeholder envelope silently produces no output instead of
+/// surfacing a cryptic error to the caller.
+fn decrypt_memo_for_recipient(
+    record: &DepositRecord,
+    secret: &[u8; 32],
+    nullifier: &[u8; 32],
+) -> Option<String> {
+    let memo_b64 = record.memo_base64.as_deref()?;
+    let bytes = BASE64_STD.decode(memo_b64).ok()?;
+    let envelope = MemoEnvelope::from_bytes(&bytes).ok()?;
+    let plaintext = envelope.decrypt_with_note(secret, nullifier).ok()?;
+    String::from_utf8(plaintext).ok()
 }
 
 /// Compute the default location for the cached `WithdrawCircuit<20>`

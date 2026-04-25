@@ -95,11 +95,8 @@ fn run_withdraw(args: WithdrawArgs) -> Result<()> {
     println!("  denomination   : {}", note.denomination());
     println!("  commitment     : {}", note.commitment().to_hex());
     println!("  recipient      : {recipient}");
-    if let Some(memo) = note.memo() {
-        println!();
-        println!("  Message from Lena:");
-        println!("    \"{memo}\"");
-    }
+    // ADR-012: memo plaintext no longer lives in the note — it is
+    // fetched from the on-chain envelope after withdraw confirms.
     println!();
     println!("Redeeming note...");
     println!("  → rebuilding Merkle tree from on-chain history");
@@ -107,12 +104,20 @@ fn run_withdraw(args: WithdrawArgs) -> Result<()> {
     println!("  → submitting to verifier program");
     println!();
 
-    let signature = pool.withdraw(&payer).note(note).to(recipient).send()?;
+    let outcome = pool.withdraw(&payer).note(note).to(recipient).send()?;
+    let signature = outcome.signature;
 
     println!("Signature: {signature}");
     println!("Explorer : https://explorer.solana.com/tx/{signature}?cluster=devnet");
     println!();
     println!("Recipient {recipient} received the funds. Done.");
+
+    // ADR-012: memo envelope unwrapped with the note's seal key.
+    if let Some(memo) = outcome.memo_plaintext {
+        println!();
+        println!("Message from Lena:");
+        println!("  \"{memo}\"");
+    }
 
     Ok(())
 }

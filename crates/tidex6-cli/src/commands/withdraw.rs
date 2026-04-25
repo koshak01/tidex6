@@ -92,13 +92,9 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
     println!("  commitment   : {}", note.commitment().to_hex());
     println!("  pool pda     : {}", pool.pool_pda());
     println!("  vault pda    : {}", pool.vault_pda());
-    if let Some(memo) = note.memo() {
-        println!();
-        println!("  ┌──────────────────────────────────────────┐");
-        println!("  │ Memo from the sender:                    │");
-        println!("  │ {memo}");
-        println!("  └──────────────────────────────────────────┘");
-    }
+    // ADR-012: memo plaintext no longer lives in the note — it will
+    // be fetched from the on-chain envelope after the withdraw
+    // transaction confirms and displayed by the WithdrawBuilder.
 
     println!();
     match &args.relayer {
@@ -120,7 +116,8 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
         builder = builder.direct();
     }
 
-    let signature = builder.send()?;
+    let outcome = builder.send()?;
+    let signature = outcome.signature;
 
     println!("  signature    : {signature}");
     println!("  explorer     : {}", explorer_url(&signature, &cluster));
@@ -129,6 +126,17 @@ pub fn run(args: WithdrawArgs) -> Result<()> {
         "Recipient {recipient} received {} lamports.",
         pool.denomination().lamports()
     );
+
+    // ADR-012: surface the decrypted memo now that the withdraw
+    // succeeded. The note's seal key unwrapped the recipient slot of
+    // the on-chain envelope.
+    if let Some(memo) = outcome.memo_plaintext {
+        println!();
+        println!("  ┌──────────────────────────────────────────┐");
+        println!("  │ Memo from the sender:                    │");
+        println!("  │ {memo}");
+        println!("  └──────────────────────────────────────────┘");
+    }
 
     Ok(())
 }

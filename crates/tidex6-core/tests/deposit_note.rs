@@ -1,29 +1,37 @@
-//! Integration tests for `tidex6_core::note::DepositNote`.
+//! Integration tests for `tidex6_core::note::DepositNote` (v3 hex
+//! opaque format, ADR-012).
 
 use std::str::FromStr;
 
-use tidex6_core::note::{Denomination, DepositNote, NoteError};
+use tidex6_core::note::{Denomination, DepositNote, NoteError, NOTE_TEXT_LEN};
 use tidex6_core::types::{Commitment, Nullifier, Secret};
 
-/// The three denominations have the expected lamport values and
-/// tags, and the tag round-trips through `from_tag`.
+/// The four denominations have the expected lamport values, tags,
+/// and round-trip through their 1-byte binary tag.
 #[test]
 fn denomination_values_and_tags() {
     assert_eq!(Denomination::OneTenthSol.lamports(), 100_000_000);
+    assert_eq!(Denomination::HalfSol.lamports(), 500_000_000);
     assert_eq!(Denomination::OneSol.lamports(), 1_000_000_000);
     assert_eq!(Denomination::TenSol.lamports(), 10_000_000_000);
 
     assert_eq!(Denomination::OneTenthSol.tag(), "0.1");
+    assert_eq!(Denomination::HalfSol.tag(), "0.5");
     assert_eq!(Denomination::OneSol.tag(), "1");
     assert_eq!(Denomination::TenSol.tag(), "10");
 
-    assert_eq!(
-        Denomination::from_tag("0.1").unwrap(),
-        Denomination::OneTenthSol
-    );
-    assert_eq!(Denomination::from_tag("1").unwrap(), Denomination::OneSol);
-    assert_eq!(Denomination::from_tag("10").unwrap(), Denomination::TenSol);
-    assert!(Denomination::from_tag("42").is_err());
+    for denom in [
+        Denomination::OneTenthSol,
+        Denomination::HalfSol,
+        Denomination::OneSol,
+        Denomination::TenSol,
+    ] {
+        let tag = denom.binary_tag();
+        let parsed = Denomination::from_binary_tag(tag).unwrap();
+        assert_eq!(parsed, denom);
+    }
+
+    assert!(Denomination::from_binary_tag(0xFF).is_err());
 }
 
 /// A freshly constructed note exposes the inputs and a derived
@@ -55,15 +63,11 @@ fn random_note_is_fresh_and_consistent() {
     assert_ne!(note_a.nullifier(), note_b.nullifier());
     assert_ne!(note_a.commitment(), note_b.commitment());
 
-    // Commitment still matches the primitive.
     let expected_a = Commitment::derive(note_a.secret(), note_a.nullifier()).expect("derive");
     assert_eq!(note_a.commitment(), expected_a);
 }
 
-/// Text encoding has the exact documented format and a round-trip
-/// reconstructs the original note. Uses byte values with high
-/// nibble < 0x30 so the inputs remain valid BN254 scalar field
-/// elements, which is a precondition for `Commitment::derive`.
+/// Hex-format round-trip reconstructs the original note.
 #[test]
 fn text_round_trip() {
     let secret = Secret::from_bytes([0x0au8; 32]);
@@ -71,48 +75,49 @@ fn text_round_trip() {
     let note = DepositNote::new(Denomination::OneSol, secret, nullifier).expect("new");
 
     let text = note.to_text();
-
-    assert!(text.starts_with("tidex6-note-v1:1:"));
-    // prefix(14) + ":"(1) + "1"(1) + ":"(1) + 64 hex + ":"(1) + 64 hex = 146 chars
-    assert_eq!(text.len(), 146);
+    assert_eq!(text.len(), NOTE_TEXT_LEN);
+    assert!(!text.contains("tidex6"));
+    assert!(!text.contains(":"));
 
     let parsed = DepositNote::from_text(&text).expect("parse");
     assert_eq!(parsed, note);
 
-    // Display / FromStr match the text form.
     assert_eq!(format!("{note}"), text);
     assert_eq!(DepositNote::from_str(&text).expect("from_str"), note);
 }
 
-/// Text parsing rejects the common mistake classes with precise
-/// errors.
+/// Garbage input is rejected with a clear error.
 #[test]
 fn text_parse_rejects_malformed_input() {
-    // Wrong prefix.
-    let wrong_prefix = format!("wrong-prefix:1:{}:{}", "00".repeat(32), "00".repeat(32));
+    // Random non-hex.
     assert!(matches!(
-        DepositNote::from_text(&wrong_prefix),
-        Err(NoteError::MissingPrefix)
+        DepositNote::from_text("hello world"),
+        Err(NoteError::InvalidHex)
     ));
 
-    // Too few fields.
+    // Hex but wrong length.
     assert!(matches!(
-        DepositNote::from_text("tidex6-note-v1:1"),
-        Err(NoteError::MalformedStructure { .. })
+        DepositNote::from_text("aabbccdd"),
+        Err(NoteError::LenMismatch { .. })
     ));
 
-    // Unknown denomination tag.
-    let bad_denom = format!("tidex6-note-v1:42:{}:{}", "00".repeat(32), "00".repeat(32));
+    // Right length but wrong version byte.
+    let mut blob = vec![0u8; 66];
+    blob[0] = 0xFF;
+    let bad_version = hex::encode(blob);
+    assert!(matches!(
+        DepositNote::from_text(&bad_version),
+        Err(NoteError::UnknownVersion(_))
+    ));
+
+    // Right length, right version, unknown denomination.
+    let mut blob = vec![0u8; 66];
+    blob[0] = 0x02;
+    blob[1] = 0xAA;
+    let bad_denom = hex::encode(blob);
     assert!(matches!(
         DepositNote::from_text(&bad_denom),
-        Err(NoteError::UnknownDenomination(_))
-    ));
-
-    // Bad hex in the secret field.
-    let bad_hex = format!("tidex6-note-v1:1:{}:{}", "zz".repeat(32), "00".repeat(32));
-    assert!(matches!(
-        DepositNote::from_text(&bad_hex),
-        Err(NoteError::InvalidHex(_))
+        Err(NoteError::UnknownDenominationByte(_))
     ));
 }
 
@@ -144,8 +149,6 @@ fn debug_format_is_redacted() {
     assert!(debug.contains("REDACTED"));
     assert!(!debug.contains("1212121212"));
     assert!(!debug.contains("1313131313"));
-
-    // The public commitment IS allowed to appear.
     assert!(debug.contains("DepositNote"));
 }
 

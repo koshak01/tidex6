@@ -119,17 +119,22 @@ pub struct DepositEvent {
 }
 
 /// Minimum size, in bytes, of a `memo_payload` accepted by
-/// [`handle_deposit`]. Matches the fixed wire-format prefix of an
-/// empty-ciphertext `MemoPayload`: 32 bytes of ephemeral public
-/// key, 12 bytes of AES-GCM IV, 16 bytes of AES-GCM tag.
-pub const MEMO_PAYLOAD_MIN_LEN: usize = 32 + 12 + 16;
+/// [`handle_deposit`]. ADR-012 envelope format: 4-byte header
+/// (version + flags + u16 ciphertext length) + minimum 28-byte
+/// ciphertext block (12-byte nonce + 16-byte tag, empty plaintext)
+/// + 60-byte recipient wrap-K slot = 92 bytes. We round up to 152
+/// to leave room for small plaintext content; a fully empty
+/// envelope is still legal because it is hard to forge bytes that
+/// round-trip through `MemoEnvelope::from_bytes`.
+pub const MEMO_PAYLOAD_MIN_LEN: usize = 152;
 
-/// Maximum size, in bytes, of a `memo_payload`. Mirrors the
-/// `tidex6_core::memo::MAX_PLAINTEXT_LEN` ceiling: the fixed 60-byte
-/// prefix plus 256 bytes of AES-GCM ciphertext. Enforced on-chain so
-/// a malformed or absurdly large instruction cannot bloat the
-/// transaction beyond what a single deposit ought to cost.
-pub const MEMO_PAYLOAD_MAX_LEN: usize = MEMO_PAYLOAD_MIN_LEN + 256;
+/// Maximum size, in bytes, of a `memo_payload`. ADR-012 ceiling:
+/// header (4) + ciphertext (up to 28 + 256 plaintext = 284) +
+/// recipient wrap (60) + optional auditor wrap (92) = 440 bytes.
+/// Rounded up to 512 for headroom; enforced on-chain so a malformed
+/// or absurdly large instruction cannot bloat the transaction
+/// beyond what a single deposit ought to cost.
+pub const MEMO_PAYLOAD_MAX_LEN: usize = 512;
 
 /// Initialise a new shielded pool for `denomination` lamports per
 /// deposit. Pre-computes the zero-subtree hashes at every level and

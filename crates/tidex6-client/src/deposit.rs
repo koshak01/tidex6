@@ -28,8 +28,11 @@ use solana_signature::Signature;
 use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STD;
+
 use tidex6_core::elgamal::AuditorPublicKey;
-use tidex6_core::memo::MemoPayload;
+use tidex6_core::memo::{MemoEnvelope, placeholder_envelope_for_anonymous};
 use tidex6_core::note::DepositNote;
 use tidex6_verifier::accounts as verifier_accounts;
 use tidex6_verifier::instruction as verifier_instruction;
@@ -69,8 +72,8 @@ pub struct DepositBuilder<'a> {
     /// Explicit opt-out: caller does not have an auditor and just
     /// wants to deposit without selective disclosure. The on-chain
     /// verifier still requires *some* memo bytes (length-bounded by
-    /// ADR-010), so we attach a placeholder payload that nobody can
-    /// decrypt — generated via `tidex6_core::memo::placeholder_payload_for_harness`.
+    /// ADR-012), so we attach a placeholder envelope that nobody can
+    /// decrypt — generated via `tidex6_core::memo::placeholder_envelope_for_anonymous`.
     skip_memo: bool,
 }
 
@@ -154,10 +157,22 @@ impl<'a> DepositBuilder<'a> {
     /// Returns [`DepositOutcome`]. The `note` must be preserved
     /// offline for the recipient to later redeem it.
     pub fn send(self) -> Result<DepositOutcome> {
-        if self.memo_plaintext.is_some() && self.auditor_pk.is_none() {
+        // Memo and auditor are independent fields. Three valid modes:
+        //   1. (memo, auditor) — memo plaintext goes into the note for
+        //      the recipient AND is encrypted onchain for the auditor.
+        //   2. (memo only)     — memo plaintext goes into the note for
+        //      the recipient. Onchain we ship a placeholder payload
+        //      because there is no auditor key to encrypt for. The
+        //      recipient still reads the memo from the note file.
+        //   3. (neither)       — anonymous deposit. Placeholder onchain,
+        //      no memo in the note.
+        //
+        // The fourth combination — auditor without memo — is a usage
+        // error: nothing to encrypt for them.
+        if self.auditor_pk.is_some() && self.memo_plaintext.is_none() {
             return Err(anyhow!(
-                "DepositBuilder::with_memo requires DepositBuilder::with_auditor; \
-                 refusing to send an unencrypted memo"
+                "DepositBuilder::with_auditor without .with_memo() — there \
+                 is no plaintext to encrypt for the auditor"
             ));
         }
         if self.skip_memo && (self.auditor_pk.is_some() || self.memo_plaintext.is_some()) {
@@ -198,78 +213,60 @@ impl<'a> DepositBuilder<'a> {
                 .context("init_pool transaction failed to confirm")?;
         }
 
-        // Generate or use the caller-supplied note. When a memo is
-        // configured we stamp it into the note as well, so whoever
-        // later receives the note file (parents, in the flagship
-        // story) sees the same "Rent March 2026" text Kai sees after
-        // decrypting the onchain SPL Memo.
+        // Generate or use the caller-supplied note. Per ADR-012 the
+        // note is opaque and never carries a memo — the plaintext
+        // lives only in the on-chain envelope, encrypted under a key
+        // derived from the note's own secret material.
         let note = match self.note {
-            Some(note) => {
-                // Caller supplied an explicit note. If they also set
-                // a memo on the builder, overwrite whatever was on
-                // the note with the fresh one — the builder is the
-                // single source of truth for this send.
-                match self.memo_plaintext.as_deref() {
-                    Some(memo) => note
-                        .with_memo(memo)
-                        .context("memo rejected by DepositNote")?,
-                    None => note,
-                }
-            }
-            None => {
-                let fresh = DepositNote::random(self.pool.denomination())
-                    .context("failed to generate a random deposit note")?;
-                match self.memo_plaintext.as_deref() {
-                    Some(memo) => fresh
-                        .with_memo(memo)
-                        .context("memo rejected by DepositNote")?,
-                    None => fresh,
-                }
-            }
+            Some(note) => note,
+            None => DepositNote::random(self.pool.denomination())
+                .context("failed to generate a random deposit note")?,
         };
         let commitment = note.commitment();
 
-        // Build the memo payload up front so its error (too-long
-        // plaintext, CSPRNG failure) surfaces before the tx is built.
-        // The payload is the binary wire format — the verifier
-        // requires the raw bytes, not the base64 transport form.
+        // ADR-012: build an envelope-encrypted memo. Key derivation
+        // is deterministic from the note's own material so the
+        // recipient can always decrypt, and the auditor slot is
+        // populated only when an auditor key is configured.
+        let note_secret_bytes: &[u8; 32] = note.secret().as_bytes();
+        let note_nullifier_bytes: &[u8; 32] = note.nullifier().as_bytes();
         let memo_payload_bytes: Vec<u8> = match (&self.auditor_pk, &self.memo_plaintext) {
-            (Some(pk), Some(text)) => MemoPayload::encrypt(pk, text.as_bytes())
-                .context("failed to encrypt the Shielded Memo payload")?
-                .to_bytes(),
-            (Some(_), None) | (None, Some(_)) => {
-                // `.with_memo` without `.with_auditor` is caught
-                // earlier in `.send()` via an explicit error. The
-                // mirror case (`.with_auditor` without `.with_memo`)
-                // is a builder misuse — auditor without something
-                // to disclose makes no sense.
-                return Err(anyhow!(
-                    "DepositBuilder: configure both .with_auditor() and .with_memo(), \
-                     or call .without_memo() to opt out entirely"
-                ));
-            }
+            // (memo + auditor) — envelope with both wrap-K slots.
+            (Some(pk), Some(text)) => MemoEnvelope::encrypt_for_recipient_and_auditor(
+                text.as_bytes(),
+                note_secret_bytes,
+                note_nullifier_bytes,
+                pk,
+            )
+            .context("failed to build recipient+auditor memo envelope")?
+            .to_bytes(),
+            // (memo only) — envelope readable only by the note holder.
+            (None, Some(text)) => MemoEnvelope::encrypt_for_recipient_only(
+                text.as_bytes(),
+                note_secret_bytes,
+                note_nullifier_bytes,
+            )
+            .context("failed to build recipient-only memo envelope")?
+            .to_bytes(),
+            // (auditor only) — caught earlier as an error.
+            (Some(_), None) => unreachable!("validated at the top of send()"),
+            // (neither) — anonymous deposit. Ship a random placeholder
+            // envelope so the on-chain bytes are indistinguishable in
+            // shape from real memos.
             (None, None) => {
-                // No auditor + no memo. Two cases:
-                //
-                // * Caller explicitly opted out via `.without_memo()` —
-                //   ship a placeholder so the on-chain length bounds
-                //   are satisfied.
-                // * Caller forgot to configure anything — this is a
-                //   misuse, return a clear error.
                 if self.skip_memo {
-                    tidex6_core::memo::placeholder_payload_for_harness()
+                    placeholder_envelope_for_anonymous()
+                        .context("failed to build placeholder envelope")?
                 } else {
                     return Err(anyhow!(
-                        "DepositBuilder: Shielded Memo is mandatory; call \
-                         .with_auditor(auditor_pk).with_memo(text) — or \
-                         .without_memo() to opt out — before .send()"
+                        "DepositBuilder: configure .with_memo(text) for a \
+                         memo-to-recipient deposit, or .without_memo() for \
+                         an anonymous deposit"
                     ));
                 }
             }
         };
-        let memo_base64 = MemoPayload::from_bytes(&memo_payload_bytes)
-            .expect("payload we just serialised must re-parse")
-            .to_base64();
+        let memo_base64 = BASE64_STD.encode(&memo_payload_bytes);
 
         let signature = program
             .request()

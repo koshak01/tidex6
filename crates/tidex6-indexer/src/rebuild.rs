@@ -265,11 +265,21 @@ impl PoolIndexer {
     /// has never been seen — meaning either the note is fake or
     /// the indexer is behind and needs another pass.
     pub fn find_leaf_index(&self, commitment: &Commitment) -> Result<Option<u64>, IndexerError> {
+        Ok(self.find_deposit_record(commitment)?.map(|r| r.leaf_index))
+    }
+
+    /// Find the full [`DepositRecord`] for a commitment — same scan
+    /// as [`Self::find_leaf_index`] but preserves all the surrounding
+    /// metadata (memo payload, signature, block time) so the caller
+    /// can decrypt the on-chain envelope without a second RPC pass.
+    pub fn find_deposit_record(
+        &self,
+        commitment: &Commitment,
+    ) -> Result<Option<DepositRecord>, IndexerError> {
         let history = self.fetch_deposit_history()?;
         Ok(history
             .into_iter()
-            .find(|record| record.commitment == *commitment)
-            .map(|record| record.leaf_index))
+            .find(|record| record.commitment == *commitment))
     }
 }
 

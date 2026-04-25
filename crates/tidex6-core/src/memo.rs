@@ -141,6 +141,26 @@ pub enum MemoError {
     /// The OS random number generator failed.
     #[error("OS random number generator failed: {0}")]
     Rand(String),
+
+    /// Envelope version byte unknown.
+    #[error("unknown envelope version: 0x{0:02x}")]
+    UnknownEnvelopeVersion(u8),
+
+    /// Envelope flags byte set bits we do not understand.
+    #[error("unknown envelope flag bits: 0x{0:02x}")]
+    UnknownEnvelopeFlags(u8),
+
+    /// Envelope binary blob shorter than the minimum legal size.
+    #[error("envelope is too short: {got} bytes, need at least {needed}")]
+    EnvelopeTooShort { got: usize, needed: usize },
+
+    /// Envelope length-prefix points past the buffer end.
+    #[error("envelope ciphertext_len ({claimed}) exceeds buffer ({available})")]
+    EnvelopeCiphertextLenOutOfRange { claimed: usize, available: usize },
+
+    /// Envelope ciphertext_len smaller than nonce + tag.
+    #[error("envelope ciphertext_len ({got}) is below the nonce+tag minimum ({minimum})")]
+    EnvelopeCiphertextLenTooSmall { got: usize, minimum: usize },
 }
 
 /// A single encrypted memo ready to travel through the SPL Memo
@@ -306,6 +326,447 @@ pub fn derive_aes_key(shared: &SharedSecret) -> [u8; AES_KEY_LEN] {
     let mut out = [0u8; AES_KEY_LEN];
     out.copy_from_slice(&digest);
     out
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ADR-012 — MemoEnvelope (v0.2 wire format)
+// ════════════════════════════════════════════════════════════════════
+//
+// Single memo plaintext, encrypted ONCE under a per-deposit random
+// AES key K. K is then "wrapped" (re-encrypted) for each authorised
+// reader: always for the note holder (key derived from the note's
+// secret + nullifier), optionally also for an auditor (ECDH on Baby
+// Jubjub). Both paths recover the same K and decrypt the same memo.
+//
+// Wire format:
+//
+//   version    : u8       0x01
+//   flags      : u8       bit 0 = auditor present
+//   cipher_len : u16 BE   length of the AES-GCM ciphertext block
+//                         (= 12 nonce + 16 tag + N data bytes)
+//   ciphertext : variable AES-GCM(K, plaintext)
+//   wrap_recipient : 60   nonce(12) || tag(16) || ENC(seal_key, K)(32)
+//   wrap_auditor   : 92   ephemeral_pk(32) || nonce(12) || tag(16) || ENC(K)(32)
+//                         (only when flags & 0x01)
+//
+// `seal_key` is derived from the note's secret + nullifier via
+// SHA-256(secret || nullifier || ENVELOPE_SEAL_DOMAIN_V1).
+
+/// Envelope wire-format version we currently emit.
+pub const ENVELOPE_VERSION_V1: u8 = 0x01;
+
+/// Bit 0 of the flags byte: auditor wrap-K slot is present.
+pub const ENVELOPE_FLAG_AUDITOR: u8 = 0x01;
+
+/// Domain separator for the recipient seal key. Bumping the suffix
+/// invalidates every previously written envelope under the old key.
+const ENVELOPE_SEAL_DOMAIN_V1: &[u8] = b"tidex6-memo-seal-v1";
+
+/// AES-GCM ciphertext block overhead = nonce + tag.
+const ENVELOPE_AEAD_OVERHEAD: usize = IV_LEN + TAG_LEN;
+
+/// Length of the recipient wrap-K slot: nonce + tag + 32-byte wrapped key.
+pub const ENVELOPE_WRAP_RECIPIENT_LEN: usize = IV_LEN + TAG_LEN + AES_KEY_LEN;
+
+/// Length of the auditor wrap-K slot: ephemeral_pk + nonce + tag + 32-byte wrapped key.
+pub const ENVELOPE_WRAP_AUDITOR_LEN: usize = POINT_LEN + IV_LEN + TAG_LEN + AES_KEY_LEN;
+
+/// Header size: version (1) + flags (1) + cipher_len (2).
+pub const ENVELOPE_HEADER_LEN: usize = 1 + 1 + 2;
+
+/// Minimum legal envelope: header + empty ciphertext block + recipient wrap.
+pub const ENVELOPE_MIN_LEN: usize =
+    ENVELOPE_HEADER_LEN + ENVELOPE_AEAD_OVERHEAD + ENVELOPE_WRAP_RECIPIENT_LEN;
+
+/// Maximum legal envelope: header + max ciphertext + both wraps.
+pub const ENVELOPE_MAX_LEN: usize = ENVELOPE_HEADER_LEN
+    + ENVELOPE_AEAD_OVERHEAD
+    + MAX_PLAINTEXT_LEN
+    + ENVELOPE_WRAP_RECIPIENT_LEN
+    + ENVELOPE_WRAP_AUDITOR_LEN;
+
+/// Symmetric "seal key" derived from a note's secret material.
+/// Anyone holding the note can reproduce it; nobody else.
+pub struct NoteSealKey([u8; AES_KEY_LEN]);
+
+impl NoteSealKey {
+    /// Derive from `secret` and `nullifier` using SHA-256 with a
+    /// fixed domain tag. Same algorithmic shape as `derive_aes_key`,
+    /// just with different inputs and a different domain so the two
+    /// keys never collide.
+    pub fn from_note_material(secret: &[u8; 32], nullifier: &[u8; 32]) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(secret);
+        hasher.update(nullifier);
+        hasher.update(ENVELOPE_SEAL_DOMAIN_V1);
+        let digest = hasher.finalize();
+        let mut out = [0u8; AES_KEY_LEN];
+        out.copy_from_slice(&digest);
+        Self(out)
+    }
+
+    fn as_bytes(&self) -> &[u8; AES_KEY_LEN] {
+        &self.0
+    }
+}
+
+/// A single memo envelope addressed to one or two readers.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MemoEnvelope {
+    flags: u8,
+    /// AES-GCM ciphertext block: nonce (12) || tag (16) || data (N).
+    /// Includes empty data for placeholder envelopes.
+    ciphertext_block: Vec<u8>,
+    /// Recipient wrap: nonce (12) || tag (16) || wrapped K (32).
+    wrap_recipient: [u8; ENVELOPE_WRAP_RECIPIENT_LEN],
+    /// Auditor wrap: present when `flags & ENVELOPE_FLAG_AUDITOR`.
+    wrap_auditor: Option<[u8; ENVELOPE_WRAP_AUDITOR_LEN]>,
+}
+
+impl MemoEnvelope {
+    /// Encrypt `plaintext` so only the note holder can decrypt.
+    pub fn encrypt_for_recipient_only(
+        plaintext: &[u8],
+        secret: &[u8; 32],
+        nullifier: &[u8; 32],
+    ) -> Result<Self, MemoError> {
+        if plaintext.len() > MAX_PLAINTEXT_LEN {
+            return Err(MemoError::PlaintextTooLong {
+                got: plaintext.len(),
+            });
+        }
+        let memo_key = generate_random_key()?;
+        let ciphertext_block = aead_seal(&memo_key, plaintext)?;
+        let seal_key = NoteSealKey::from_note_material(secret, nullifier);
+        let wrap_recipient = wrap_key_with_aes(seal_key.as_bytes(), &memo_key)?;
+        Ok(Self {
+            flags: 0,
+            ciphertext_block,
+            wrap_recipient,
+            wrap_auditor: None,
+        })
+    }
+
+    /// Encrypt `plaintext` so both the note holder and the named
+    /// auditor can decrypt. Same plaintext, two wrap-K slots.
+    pub fn encrypt_for_recipient_and_auditor(
+        plaintext: &[u8],
+        secret: &[u8; 32],
+        nullifier: &[u8; 32],
+        auditor_pk: &AuditorPublicKey,
+    ) -> Result<Self, MemoError> {
+        if plaintext.len() > MAX_PLAINTEXT_LEN {
+            return Err(MemoError::PlaintextTooLong {
+                got: plaintext.len(),
+            });
+        }
+        let memo_key = generate_random_key()?;
+        let ciphertext_block = aead_seal(&memo_key, plaintext)?;
+
+        let seal_key = NoteSealKey::from_note_material(secret, nullifier);
+        let wrap_recipient = wrap_key_with_aes(seal_key.as_bytes(), &memo_key)?;
+        let wrap_auditor = wrap_key_with_auditor(auditor_pk, &memo_key)?;
+
+        Ok(Self {
+            flags: ENVELOPE_FLAG_AUDITOR,
+            ciphertext_block,
+            wrap_recipient,
+            wrap_auditor: Some(wrap_auditor),
+        })
+    }
+
+    /// Decrypt under the note's seal key.
+    pub fn decrypt_with_note(
+        &self,
+        secret: &[u8; 32],
+        nullifier: &[u8; 32],
+    ) -> Result<Vec<u8>, MemoError> {
+        let seal_key = NoteSealKey::from_note_material(secret, nullifier);
+        let memo_key = unwrap_key_with_aes(seal_key.as_bytes(), &self.wrap_recipient)?;
+        aead_open(&memo_key, &self.ciphertext_block)
+    }
+
+    /// Try to decrypt under an auditor secret key.
+    /// Returns `Ok(Some(_))` on success, `Ok(None)` if there is no
+    /// auditor slot or the slot is not addressed to this key,
+    /// `Err(_)` on malformed inputs.
+    pub fn decrypt_with_auditor(
+        &self,
+        auditor_sk: &AuditorSecretKey,
+    ) -> Result<Option<Vec<u8>>, MemoError> {
+        let Some(wrap) = self.wrap_auditor else {
+            return Ok(None);
+        };
+        let memo_key = match unwrap_key_with_auditor(auditor_sk, &wrap) {
+            Ok(key) => key,
+            Err(MemoError::DecryptionFailed) => return Ok(None),
+            Err(other) => return Err(other),
+        };
+        let pt = aead_open(&memo_key, &self.ciphertext_block)?;
+        Ok(Some(pt))
+    }
+
+    /// Whether this envelope carries an auditor wrap-K slot.
+    pub fn has_auditor(&self) -> bool {
+        self.wrap_auditor.is_some()
+    }
+
+    /// Serialise to the binary wire format.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let cipher_len: u16 = self.ciphertext_block.len() as u16;
+        let mut out = Vec::with_capacity(self.byte_len());
+        out.push(ENVELOPE_VERSION_V1);
+        out.push(self.flags);
+        out.extend_from_slice(&cipher_len.to_be_bytes());
+        out.extend_from_slice(&self.ciphertext_block);
+        out.extend_from_slice(&self.wrap_recipient);
+        if let Some(ref wa) = self.wrap_auditor {
+            out.extend_from_slice(wa);
+        }
+        out
+    }
+
+    /// Parse the wire format produced by `to_bytes`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, MemoError> {
+        if bytes.len() < ENVELOPE_MIN_LEN {
+            return Err(MemoError::EnvelopeTooShort {
+                got: bytes.len(),
+                needed: ENVELOPE_MIN_LEN,
+            });
+        }
+        let version = bytes[0];
+        if version != ENVELOPE_VERSION_V1 {
+            return Err(MemoError::UnknownEnvelopeVersion(version));
+        }
+        let flags = bytes[1];
+        if flags & !ENVELOPE_FLAG_AUDITOR != 0 {
+            return Err(MemoError::UnknownEnvelopeFlags(flags));
+        }
+        let cipher_len = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
+        if cipher_len < ENVELOPE_AEAD_OVERHEAD {
+            return Err(MemoError::EnvelopeCiphertextLenTooSmall {
+                got: cipher_len,
+                minimum: ENVELOPE_AEAD_OVERHEAD,
+            });
+        }
+        let cipher_end = ENVELOPE_HEADER_LEN + cipher_len;
+        let wrap_recipient_end = cipher_end + ENVELOPE_WRAP_RECIPIENT_LEN;
+        let auditor_present = (flags & ENVELOPE_FLAG_AUDITOR) != 0;
+        let total_expected = if auditor_present {
+            wrap_recipient_end + ENVELOPE_WRAP_AUDITOR_LEN
+        } else {
+            wrap_recipient_end
+        };
+        if total_expected > bytes.len() {
+            return Err(MemoError::EnvelopeCiphertextLenOutOfRange {
+                claimed: total_expected,
+                available: bytes.len(),
+            });
+        }
+
+        let ciphertext_block = bytes[ENVELOPE_HEADER_LEN..cipher_end].to_vec();
+
+        let mut wrap_recipient = [0u8; ENVELOPE_WRAP_RECIPIENT_LEN];
+        wrap_recipient.copy_from_slice(&bytes[cipher_end..wrap_recipient_end]);
+
+        let wrap_auditor = if auditor_present {
+            let mut wa = [0u8; ENVELOPE_WRAP_AUDITOR_LEN];
+            wa.copy_from_slice(&bytes[wrap_recipient_end..wrap_recipient_end + ENVELOPE_WRAP_AUDITOR_LEN]);
+            Some(wa)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            flags,
+            ciphertext_block,
+            wrap_recipient,
+            wrap_auditor,
+        })
+    }
+
+    fn byte_len(&self) -> usize {
+        ENVELOPE_HEADER_LEN
+            + self.ciphertext_block.len()
+            + ENVELOPE_WRAP_RECIPIENT_LEN
+            + if self.wrap_auditor.is_some() {
+                ENVELOPE_WRAP_AUDITOR_LEN
+            } else {
+                0
+            }
+    }
+}
+
+impl std::fmt::Debug for MemoEnvelope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoEnvelope")
+            .field("flags", &format_args!("0x{:02x}", self.flags))
+            .field("ciphertext_len", &self.ciphertext_block.len())
+            .field("has_auditor", &self.has_auditor())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Build an envelope that nobody can decrypt — for fully anonymous
+/// deposits where the sender does not want to attach a memo at all.
+/// The on-chain bytes are syntactically a real envelope so an
+/// observer cannot bucket users by "this one always skips memo".
+///
+/// Generates random ephemeral key material and tosses it. The note
+/// holder cannot recover anything because the wrap-K slot was sealed
+/// with a key derived from random scratch material instead of their
+/// own secret/nullifier.
+pub fn placeholder_envelope_for_anonymous() -> Result<Vec<u8>, MemoError> {
+    // Random "secret" and "nullifier" — they never match anything
+    // the actual note holder has, so the wrap-K slot is unrecoverable.
+    let mut fake_secret = [0u8; 32];
+    let mut fake_nullifier = [0u8; 32];
+    SysRng
+        .try_fill_bytes(&mut fake_secret)
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+    SysRng
+        .try_fill_bytes(&mut fake_nullifier)
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+
+    // Encrypt a small random-length plaintext so size patterns do not
+    // give the placeholder away.
+    let mut len_byte = [0u8; 1];
+    SysRng
+        .try_fill_bytes(&mut len_byte)
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+    let pad_len = (len_byte[0] as usize) % 64; // 0..63 bytes
+    let mut padding = vec![0u8; pad_len];
+    if pad_len > 0 {
+        SysRng
+            .try_fill_bytes(&mut padding)
+            .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+    }
+
+    Ok(MemoEnvelope::encrypt_for_recipient_only(&padding, &fake_secret, &fake_nullifier)?
+        .to_bytes())
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Internal AEAD helpers used by the envelope code.
+// ════════════════════════════════════════════════════════════════════
+
+fn generate_random_key() -> Result<[u8; AES_KEY_LEN], MemoError> {
+    let mut k = [0u8; AES_KEY_LEN];
+    SysRng
+        .try_fill_bytes(&mut k)
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+    Ok(k)
+}
+
+/// AES-256-GCM seal that returns nonce || tag || data as a single
+/// Vec, matching the layout `MemoEnvelope::ciphertext_block` expects.
+fn aead_seal(key: &[u8; AES_KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>, MemoError> {
+    let mut iv = [0u8; IV_LEN];
+    SysRng
+        .try_fill_bytes(&mut iv)
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let nonce = Nonce::from_slice(&iv);
+    let ct_with_tag = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|_| MemoError::EncryptionFailed)?;
+    // aes-gcm appends tag after ciphertext. We want nonce || tag ||
+    // data so split and re-concat.
+    let split = ct_with_tag
+        .len()
+        .checked_sub(TAG_LEN)
+        .ok_or(MemoError::EncryptionFailed)?;
+    let mut out = Vec::with_capacity(IV_LEN + TAG_LEN + split);
+    out.extend_from_slice(&iv);
+    out.extend_from_slice(&ct_with_tag[split..]);
+    out.extend_from_slice(&ct_with_tag[..split]);
+    Ok(out)
+}
+
+/// Inverse of `aead_seal`. Expects nonce(12) || tag(16) || data(N).
+fn aead_open(key: &[u8; AES_KEY_LEN], block: &[u8]) -> Result<Vec<u8>, MemoError> {
+    if block.len() < ENVELOPE_AEAD_OVERHEAD {
+        return Err(MemoError::EnvelopeCiphertextLenTooSmall {
+            got: block.len(),
+            minimum: ENVELOPE_AEAD_OVERHEAD,
+        });
+    }
+    let iv = &block[..IV_LEN];
+    let tag = &block[IV_LEN..IV_LEN + TAG_LEN];
+    let data = &block[IV_LEN + TAG_LEN..];
+
+    // aes-gcm wants ct || tag, we have tag separated.
+    let mut ct_with_tag = Vec::with_capacity(data.len() + TAG_LEN);
+    ct_with_tag.extend_from_slice(data);
+    ct_with_tag.extend_from_slice(tag);
+
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let nonce = Nonce::from_slice(iv);
+    cipher
+        .decrypt(nonce, ct_with_tag.as_ref())
+        .map_err(|_| MemoError::DecryptionFailed)
+}
+
+/// Wrap a 32-byte memo key under a symmetric seal_key. Output layout:
+/// nonce(12) || tag(16) || wrapped_K(32).
+fn wrap_key_with_aes(
+    seal_key: &[u8; AES_KEY_LEN],
+    memo_key: &[u8; AES_KEY_LEN],
+) -> Result<[u8; ENVELOPE_WRAP_RECIPIENT_LEN], MemoError> {
+    let block = aead_seal(seal_key, memo_key)?;
+    if block.len() != ENVELOPE_WRAP_RECIPIENT_LEN {
+        return Err(MemoError::EncryptionFailed);
+    }
+    let mut out = [0u8; ENVELOPE_WRAP_RECIPIENT_LEN];
+    out.copy_from_slice(&block);
+    Ok(out)
+}
+
+fn unwrap_key_with_aes(
+    seal_key: &[u8; AES_KEY_LEN],
+    wrap: &[u8; ENVELOPE_WRAP_RECIPIENT_LEN],
+) -> Result<[u8; AES_KEY_LEN], MemoError> {
+    let pt = aead_open(seal_key, wrap)?;
+    if pt.len() != AES_KEY_LEN {
+        return Err(MemoError::DecryptionFailed);
+    }
+    let mut out = [0u8; AES_KEY_LEN];
+    out.copy_from_slice(&pt);
+    Ok(out)
+}
+
+/// Wrap a 32-byte memo key for an auditor via Baby Jubjub ECDH.
+/// Output: ephemeral_pk(32) || nonce(12) || tag(16) || wrapped_K(32).
+fn wrap_key_with_auditor(
+    auditor_pk: &AuditorPublicKey,
+    memo_key: &[u8; AES_KEY_LEN],
+) -> Result<[u8; ENVELOPE_WRAP_AUDITOR_LEN], MemoError> {
+    let (ephemeral_pk, shared) = elgamal::ecdh_send(auditor_pk)?;
+    let aes_key = derive_aes_key(&shared);
+    let block = aead_seal(&aes_key, memo_key)?;
+    if block.len() != ENVELOPE_WRAP_RECIPIENT_LEN {
+        return Err(MemoError::EncryptionFailed);
+    }
+    let mut out = [0u8; ENVELOPE_WRAP_AUDITOR_LEN];
+    out[..POINT_LEN].copy_from_slice(ephemeral_pk.as_bytes());
+    out[POINT_LEN..].copy_from_slice(&block);
+    Ok(out)
+}
+
+fn unwrap_key_with_auditor(
+    auditor_sk: &AuditorSecretKey,
+    wrap: &[u8; ENVELOPE_WRAP_AUDITOR_LEN],
+) -> Result<[u8; AES_KEY_LEN], MemoError> {
+    let mut ephemeral_bytes = [0u8; POINT_LEN];
+    ephemeral_bytes.copy_from_slice(&wrap[..POINT_LEN]);
+    let ephemeral_pk = EphemeralPublicKey::from_bytes(ephemeral_bytes)?;
+    let shared = elgamal::ecdh_recv(auditor_sk, &ephemeral_pk)?;
+    let aes_key = derive_aes_key(&shared);
+
+    let mut block = [0u8; ENVELOPE_WRAP_RECIPIENT_LEN];
+    block.copy_from_slice(&wrap[POINT_LEN..]);
+    unwrap_key_with_aes(&aes_key, &block)
 }
 
 /// Build a minimal valid `MemoPayload` for tests and live-flight
@@ -486,5 +947,200 @@ mod tests {
     #[test]
     fn payload_prefix_layout_is_stable() {
         assert_eq!(PAYLOAD_PREFIX_LEN, POINT_LEN + IV_LEN + TAG_LEN);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // ADR-012 — MemoEnvelope tests
+    // ════════════════════════════════════════════════════════════════
+
+    use super::{
+        ENVELOPE_HEADER_LEN, ENVELOPE_MAX_LEN, ENVELOPE_MIN_LEN, ENVELOPE_VERSION_V1,
+        ENVELOPE_WRAP_AUDITOR_LEN, ENVELOPE_WRAP_RECIPIENT_LEN, MemoEnvelope,
+        placeholder_envelope_for_anonymous,
+    };
+
+    fn fresh_secrets() -> ([u8; 32], [u8; 32]) {
+        use rand::TryRng;
+        use rand::rngs::SysRng;
+        let mut secret = [0u8; 32];
+        let mut nullifier = [0u8; 32];
+        SysRng.try_fill_bytes(&mut secret).unwrap();
+        SysRng.try_fill_bytes(&mut nullifier).unwrap();
+        (secret, nullifier)
+    }
+
+    /// Round-trip a recipient-only envelope and confirm the plaintext
+    /// comes back byte-for-byte through the note's seal key.
+    #[test]
+    fn envelope_recipient_only_roundtrip() {
+        let (secret, nullifier) = fresh_secrets();
+        let plaintext = b"Rand Match 2026";
+        let env = MemoEnvelope::encrypt_for_recipient_only(plaintext, &secret, &nullifier).unwrap();
+        let recovered = env.decrypt_with_note(&secret, &nullifier).unwrap();
+        assert_eq!(&recovered[..], &plaintext[..]);
+        assert!(!env.has_auditor());
+    }
+
+    /// Envelope with both recipient and auditor slots: both decrypt
+    /// paths recover the same plaintext.
+    #[test]
+    fn envelope_both_slots_roundtrip() {
+        let (secret, nullifier) = fresh_secrets();
+        let auditor_sk = AuditorSecretKey::random().unwrap();
+        let auditor_pk = auditor_sk.public_key();
+        let plaintext = b"Rent April 2026";
+
+        let env = MemoEnvelope::encrypt_for_recipient_and_auditor(
+            plaintext,
+            &secret,
+            &nullifier,
+            &auditor_pk,
+        )
+        .unwrap();
+        assert!(env.has_auditor());
+
+        let recipient_pt = env.decrypt_with_note(&secret, &nullifier).unwrap();
+        assert_eq!(&recipient_pt[..], &plaintext[..]);
+
+        let auditor_pt = env.decrypt_with_auditor(&auditor_sk).unwrap().unwrap();
+        assert_eq!(&auditor_pt[..], &plaintext[..]);
+    }
+
+    /// Different note material cannot decrypt someone else's envelope.
+    #[test]
+    fn envelope_rejects_wrong_note() {
+        let (secret_a, nullifier_a) = fresh_secrets();
+        let (secret_b, nullifier_b) = fresh_secrets();
+        let env =
+            MemoEnvelope::encrypt_for_recipient_only(b"secret", &secret_a, &nullifier_a).unwrap();
+        let attempt = env.decrypt_with_note(&secret_b, &nullifier_b);
+        assert!(matches!(attempt, Err(MemoError::DecryptionFailed)));
+    }
+
+    /// Wrong auditor returns Ok(None), not an error.
+    #[test]
+    fn envelope_wrong_auditor_returns_none() {
+        let (secret, nullifier) = fresh_secrets();
+        let alice_sk = AuditorSecretKey::random().unwrap();
+        let bob_sk = AuditorSecretKey::random().unwrap();
+        let env = MemoEnvelope::encrypt_for_recipient_and_auditor(
+            b"hi",
+            &secret,
+            &nullifier,
+            &alice_sk.public_key(),
+        )
+        .unwrap();
+        assert!(env.decrypt_with_auditor(&bob_sk).unwrap().is_none());
+    }
+
+    /// Recipient-only envelope returns Ok(None) when an auditor tries.
+    #[test]
+    fn envelope_no_auditor_slot_returns_none() {
+        let (secret, nullifier) = fresh_secrets();
+        let auditor_sk = AuditorSecretKey::random().unwrap();
+        let env =
+            MemoEnvelope::encrypt_for_recipient_only(b"hi", &secret, &nullifier).unwrap();
+        assert!(env.decrypt_with_auditor(&auditor_sk).unwrap().is_none());
+    }
+
+    /// Wire format round-trip: serialise, parse, decrypt — same plaintext.
+    #[test]
+    fn envelope_wire_roundtrip_recipient_only() {
+        let (secret, nullifier) = fresh_secrets();
+        let plaintext = b"hello world";
+        let env =
+            MemoEnvelope::encrypt_for_recipient_only(plaintext, &secret, &nullifier).unwrap();
+        let bytes = env.to_bytes();
+        assert!(bytes.len() >= ENVELOPE_MIN_LEN);
+        assert!(bytes.len() <= ENVELOPE_MAX_LEN);
+        assert_eq!(bytes[0], ENVELOPE_VERSION_V1);
+        assert_eq!(bytes[1] & 0x01, 0);
+
+        let parsed = MemoEnvelope::from_bytes(&bytes).unwrap();
+        assert!(!parsed.has_auditor());
+        let recovered = parsed.decrypt_with_note(&secret, &nullifier).unwrap();
+        assert_eq!(&recovered[..], &plaintext[..]);
+    }
+
+    /// Wire format round-trip with auditor slot.
+    #[test]
+    fn envelope_wire_roundtrip_with_auditor() {
+        let (secret, nullifier) = fresh_secrets();
+        let auditor_sk = AuditorSecretKey::random().unwrap();
+        let env = MemoEnvelope::encrypt_for_recipient_and_auditor(
+            b"audit me",
+            &secret,
+            &nullifier,
+            &auditor_sk.public_key(),
+        )
+        .unwrap();
+        let bytes = env.to_bytes();
+        assert_eq!(bytes[1] & 0x01, 1);
+        let parsed = MemoEnvelope::from_bytes(&bytes).unwrap();
+        assert!(parsed.has_auditor());
+        let r = parsed.decrypt_with_note(&secret, &nullifier).unwrap();
+        assert_eq!(&r[..], b"audit me");
+        let a = parsed.decrypt_with_auditor(&auditor_sk).unwrap().unwrap();
+        assert_eq!(&a[..], b"audit me");
+    }
+
+    /// Truncated wire format → `EnvelopeTooShort`.
+    #[test]
+    fn envelope_short_bytes_rejected() {
+        let too_short = vec![0u8; ENVELOPE_MIN_LEN - 1];
+        match MemoEnvelope::from_bytes(&too_short) {
+            Err(MemoError::EnvelopeTooShort { got, needed }) => {
+                assert_eq!(got, ENVELOPE_MIN_LEN - 1);
+                assert_eq!(needed, ENVELOPE_MIN_LEN);
+            }
+            other => panic!("expected EnvelopeTooShort, got {other:?}"),
+        }
+    }
+
+    /// Unknown version byte → `UnknownEnvelopeVersion`.
+    #[test]
+    fn envelope_unknown_version_rejected() {
+        let mut bytes = vec![0u8; ENVELOPE_MIN_LEN];
+        bytes[0] = 0xFF;
+        match MemoEnvelope::from_bytes(&bytes) {
+            Err(MemoError::UnknownEnvelopeVersion(v)) => assert_eq!(v, 0xFF),
+            other => panic!("expected UnknownEnvelopeVersion, got {other:?}"),
+        }
+    }
+
+    /// Plaintext over the cap is rejected.
+    #[test]
+    fn envelope_plaintext_cap_enforced() {
+        let (secret, nullifier) = fresh_secrets();
+        let huge = vec![0u8; MAX_PLAINTEXT_LEN + 1];
+        match MemoEnvelope::encrypt_for_recipient_only(&huge, &secret, &nullifier) {
+            Err(MemoError::PlaintextTooLong { got }) => assert_eq!(got, huge.len()),
+            other => panic!("expected PlaintextTooLong, got {other:?}"),
+        }
+    }
+
+    /// Placeholder envelope is syntactically valid but unrecoverable
+    /// by anyone — even with random brute-force.
+    #[test]
+    fn envelope_placeholder_is_unrecoverable_but_parseable() {
+        let bytes = placeholder_envelope_for_anonymous().unwrap();
+        let env = MemoEnvelope::from_bytes(&bytes).unwrap();
+        // Should not have an auditor slot in the placeholder.
+        assert!(!env.has_auditor());
+        // No real note material should match its random seal.
+        let (secret, nullifier) = fresh_secrets();
+        let attempt = env.decrypt_with_note(&secret, &nullifier);
+        assert!(matches!(attempt, Err(MemoError::DecryptionFailed)));
+    }
+
+    /// Layout constants do not drift from the documented format.
+    #[test]
+    fn envelope_layout_constants_stable() {
+        assert_eq!(ENVELOPE_HEADER_LEN, 4);
+        assert_eq!(ENVELOPE_WRAP_RECIPIENT_LEN, IV_LEN + TAG_LEN + 32);
+        assert_eq!(
+            ENVELOPE_WRAP_AUDITOR_LEN,
+            POINT_LEN + IV_LEN + TAG_LEN + 32
+        );
     }
 }
