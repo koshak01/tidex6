@@ -66,6 +66,12 @@ pub struct DepositBuilder<'a> {
     note: Option<DepositNote>,
     auditor_pk: Option<AuditorPublicKey>,
     memo_plaintext: Option<String>,
+    /// Explicit opt-out: caller does not have an auditor and just
+    /// wants to deposit without selective disclosure. The on-chain
+    /// verifier still requires *some* memo bytes (length-bounded by
+    /// ADR-010), so we attach a placeholder payload that nobody can
+    /// decrypt — generated via `tidex6_core::memo::placeholder_payload_for_harness`.
+    skip_memo: bool,
 }
 
 impl<'a> DepositBuilder<'a> {
@@ -76,6 +82,7 @@ impl<'a> DepositBuilder<'a> {
             note: None,
             auditor_pk: None,
             memo_plaintext: None,
+            skip_memo: false,
         }
     }
 
@@ -111,6 +118,23 @@ impl<'a> DepositBuilder<'a> {
         self
     }
 
+    /// Explicit opt-out from Shielded Memo: deposit without an
+    /// auditor and without a human memo. The on-chain verifier still
+    /// requires `memo_payload` bytes of valid length, so the builder
+    /// substitutes a placeholder payload (encrypted under an
+    /// ephemeral key dropped immediately, so the bytes are
+    /// indistinguishable from a real memo but cryptographically
+    /// undecryptable by anyone).
+    ///
+    /// Use when the depositor has no accountant in the loop — for
+    /// example a self-payroll or a one-off self-test. Mutually
+    /// exclusive with `.with_auditor` / `.with_memo`; if both paths
+    /// are configured, `.send()` returns an error.
+    pub fn without_memo(mut self) -> Self {
+        self.skip_memo = true;
+        self
+    }
+
     /// Send the deposit transaction.
     ///
     /// Behaviour:
@@ -134,6 +158,12 @@ impl<'a> DepositBuilder<'a> {
             return Err(anyhow!(
                 "DepositBuilder::with_memo requires DepositBuilder::with_auditor; \
                  refusing to send an unencrypted memo"
+            ));
+        }
+        if self.skip_memo && (self.auditor_pk.is_some() || self.memo_plaintext.is_some()) {
+            return Err(anyhow!(
+                "DepositBuilder::without_memo is mutually exclusive with \
+                 .with_auditor() / .with_memo(); pick one path"
             ));
         }
 
@@ -209,28 +239,32 @@ impl<'a> DepositBuilder<'a> {
                 .to_bytes(),
             (Some(_), None) | (None, Some(_)) => {
                 // `.with_memo` without `.with_auditor` is caught
-                // earlier in `.send()` via an explicit error.
-                // `.with_auditor` without `.with_memo` is a CLI
-                // ergonomics concession — the caller forgot to
-                // pass memo text. We require memo on-chain now, so
-                // fall through to the empty-caller-memo branch to
-                // signal this as a builder misuse.
+                // earlier in `.send()` via an explicit error. The
+                // mirror case (`.with_auditor` without `.with_memo`)
+                // is a builder misuse — auditor without something
+                // to disclose makes no sense.
                 return Err(anyhow!(
-                    "DepositBuilder: configure both .with_auditor() and .with_memo() \
-                     — Shielded Memo is mandatory in the onchain verifier"
+                    "DepositBuilder: configure both .with_auditor() and .with_memo(), \
+                     or call .without_memo() to opt out entirely"
                 ));
             }
             (None, None) => {
-                // Caller did not configure a memo. The onchain
-                // verifier requires `memo_payload`, so we cannot
-                // silently send an empty `Vec<u8>` — the program
-                // would reject on length bounds. Refuse here with
-                // a clear diagnostic instead of bouncing off the
-                // chain.
-                return Err(anyhow!(
-                    "DepositBuilder: Shielded Memo is mandatory; call \
-                     .with_auditor(auditor_pk).with_memo(text) before .send()"
-                ));
+                // No auditor + no memo. Two cases:
+                //
+                // * Caller explicitly opted out via `.without_memo()` —
+                //   ship a placeholder so the on-chain length bounds
+                //   are satisfied.
+                // * Caller forgot to configure anything — this is a
+                //   misuse, return a clear error.
+                if self.skip_memo {
+                    tidex6_core::memo::placeholder_payload_for_harness()
+                } else {
+                    return Err(anyhow!(
+                        "DepositBuilder: Shielded Memo is mandatory; call \
+                         .with_auditor(auditor_pk).with_memo(text) — or \
+                         .without_memo() to opt out — before .send()"
+                    ));
+                }
             }
         };
         let memo_base64 = MemoPayload::from_bytes(&memo_payload_bytes)
