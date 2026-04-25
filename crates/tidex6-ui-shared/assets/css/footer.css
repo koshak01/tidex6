@@ -132,6 +132,15 @@ a.footer-stack-item:hover .footer-stack-icon {
 
 .footer-verified {
     color: var(--color-success);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.footer-check {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
 }
 
 @media (max-width: 768px) {
