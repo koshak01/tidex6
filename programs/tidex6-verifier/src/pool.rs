@@ -119,18 +119,31 @@ pub struct DepositEvent {
 }
 
 /// Minimum size, in bytes, of a `memo_payload` accepted by
-/// [`handle_deposit`]. ADR-012 envelope format: 4-byte header
-/// (version + flags + u16 ciphertext length) + minimum 28-byte
-/// ciphertext block (12-byte nonce + 16-byte tag, empty plaintext)
-/// + 60-byte recipient wrap-K slot = 92 bytes. We round up to 152
-/// to leave room for small plaintext content; a fully empty
-/// envelope is still legal because it is hard to forge bytes that
-/// round-trip through `MemoEnvelope::from_bytes`.
-pub const MEMO_PAYLOAD_MIN_LEN: usize = 152;
+/// [`handle_deposit`]. ADR-012 envelope wire-format minimum:
+///
+///     header (4)                          // version + flags + cipher_len
+///   + ciphertext block (28 + plaintext)   // 12 nonce + 16 tag + 0 bytes
+///   + recipient wrap-K slot (60)
+///   = 92 bytes
+///
+/// This is the floor for an envelope with *empty* plaintext and no
+/// auditor slot — i.e. the smallest legal `MemoEnvelope::to_bytes`
+/// output. Setting the bound any higher than this would break the
+/// recipient-only mode for short memos (e.g. a 7-byte "test" memo
+/// produces a 99-byte envelope, which an over-eager 152-byte floor
+/// would reject as `InvalidMemoPayloadLength`). Caught live on
+/// 2026-04-25 against `tidex6.com` after the previous tighter bound
+/// rejected every short recipient-only memo on chain.
+pub const MEMO_PAYLOAD_MIN_LEN: usize = 92;
 
 /// Maximum size, in bytes, of a `memo_payload`. ADR-012 ceiling:
-/// header (4) + ciphertext (up to 28 + 256 plaintext = 284) +
-/// recipient wrap (60) + optional auditor wrap (92) = 440 bytes.
+///
+///     header (4)
+///   + ciphertext (28 + 256 plaintext)     // max plaintext
+///   + recipient wrap (60)
+///   + optional auditor wrap (92)
+///   = 440 bytes
+///
 /// Rounded up to 512 for headroom; enforced on-chain so a malformed
 /// or absurdly large instruction cannot bloat the transaction
 /// beyond what a single deposit ought to cost.
