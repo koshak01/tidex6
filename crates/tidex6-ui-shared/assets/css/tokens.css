@@ -44,7 +44,7 @@
     --solana-bridge: #19B4D4;             /* optional middle stop in 3-stop gradient */
     --color-secondary-muted: rgba(20, 241, 149, 0.15);
     --color-magenta: #DC1FFF;
-    --color-gradient: linear-gradient(90deg, #9945FF, #DC1FFF, #14F195);
+    --color-gradient: linear-gradient(90deg, #9945FF 0%, #14F195 100%);  /* brandbook §2.2 — canonical 2-stop */
     --color-gradient-subtle: linear-gradient(90deg, rgba(153,69,255,0.2), rgba(20,241,149,0.2));
 
     /* COLORS - STATUS */
