@@ -28,9 +28,11 @@ for this update; only the HTTPS services were rebuilt.
 
 ### Acknowledged (not fixed in this release)
 
-| Crate | Severity | Why not fixed |
+| Crate | Severity | Status |
 |---|---|---|
-| `tracing-subscriber` 0.2.25 (log poisoning via ANSI escapes) | Low | Pulled transitively by `arkworks` (`ark-relations`). Cannot upgrade without forking the `ark-*` ecosystem. We do not log untrusted user input through arkworks paths, and our log sinks (journald, file) do not interpret ANSI escapes. Will revisit when arkworks releases a `tracing-subscriber 0.3` migration. |
+| `tracing-subscriber` 0.2.25 (RUSTSEC-2025-0055, log poisoning via ANSI escapes) | Low | Pulled transitively by `ark-relations 0.5.1` from crates.io. Upstream **already fixed on master** ([snark commit `845ce9d`](https://github.com/arkworks-rs/snark/blob/master/relations/Cargo.toml) bumps `tracing-subscriber` to `^0.3` and makes it optional), but no new crate release has been tagged yet. Tracked upstream in [arkworks-rs/snark#413](https://github.com/arkworks-rs/snark/issues/413) (open since 2026-02-10) and [arkworks-rs/algebra#1075](https://github.com/arkworks-rs/algebra/issues/1075). |
+
+**Why we are not pinning to `arkworks-rs/snark@master` via `[patch.crates-io]`:** master contains a series of unreleased commits beyond the `tracing-subscriber` bump. Any API-level reshuffling inside `ark-relations` could perturb the Fiat-Shamir transcript order baked into `WithdrawCircuit<20>` — exactly the class of regression that `docs/release/PR_CHECKLIST_PROOF_LOGIC.md` exists to catch, and which requires two independent reviewers to sign off on. Trading that risk for a Low-severity log-poisoning advisory that **we cannot trigger in our setup** (we never log untrusted bytes through arkworks paths, and our log sinks do not interpret ANSI escapes anyway) is not a sound engineering trade-off this close to release. We will adopt the fix the moment a tagged `ark-relations 0.5.2` / `0.6.0` ships on crates.io.
 
 ### Verification
 
