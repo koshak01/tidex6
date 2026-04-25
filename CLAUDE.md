@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Days 1–23 complete. ADR-012 (opaque note + envelope-encrypted memo) shipped and redeployed to mainnet 2026-04-25, commit `5c36804`, slot 415470767, executable hash `6a3c2afa9df95ae73e201e5416235b8a3dec3480f8950c42e02afc9eecb5244e`. OtterSec + on-chain PDA verification both pass. Verifier at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised.**
+**Days 1–23 complete. ADR-012 (opaque note + envelope-encrypted memo) shipped and redeployed to mainnet 2026-04-25 in v2.5.8, commit `f71575d`, slot 415541682, executable hash `5ff658c6d8ea224848c54e5e5e5255d79eaa6bfe144570cd82cfa8a7c666aa92`. OtterSec + on-chain PDA verification both pass. Verifier at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised.**
 
 **Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and ADR-010 (transport mechanism). `tidex6-core::{elgamal,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
 
