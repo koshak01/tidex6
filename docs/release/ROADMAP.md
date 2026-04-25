@@ -8,7 +8,7 @@
 
 ## Now — v0.1 MVP (Colosseum Frontier, May 11 2026)
 
-The minimum coherent system. Everything in this layer ships in working code, runs on devnet, and is demonstrated end-to-end in one flagship example.
+The minimum coherent system. Everything in this layer ships in working code, runs **live on Solana mainnet**, and is demonstrated end-to-end in one flagship example.
 
 ### Core protocol
 - Shielded pool with fixed denominations (0.1 / 1 / 10 SOL)
@@ -24,11 +24,12 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - Auditor scanning tool (CLI)
 - Offchain key sharing (hex format)
 
-### Shielded Memo — shipped 2026-04-15
-- Encrypted memo up to 256 bytes attached to each deposit
-- ECDH key exchange on Baby Jubjub + AES-256-GCM
-- Transport: SPL Memo Program instruction in the same transaction as the deposit (see ADR-010)
-- One auditor per deposit, chosen at send time; decryptable by whoever holds the matching `AuditorSecretKey`
+### Shielded Memo — shipped 2026-04-15, redesigned 2026-04-25 (ADR-012)
+- Envelope-encrypted memo up to 256 bytes attached to each deposit
+- One AES-256-GCM ciphertext, two wrap-K slots: recipient (key derived from the note's secret material) and optional auditor (Baby Jubjub ECDH)
+- Three valid modes: (memo + auditor) / (memo only, recipient-decryptable) / (anonymous deposit with placeholder envelope)
+- Padded to a fixed 286-byte ciphertext block — every on-chain envelope has identical size, no length leak about plaintext
+- Charset whitelist: Latin + Cyrillic only. Emoji and CJK rejected at SDK boundary
 - CLI: `tidex6 accountant scan` for browser-less usage
 - Web: `/accountant/` page on tidex6.com (spec in `docs/release/spec/ACCOUNTANT_WEB_SPEC.md`)
 
@@ -41,7 +42,7 @@ The minimum coherent system. Everything in this layer ships in working code, run
 
 ### DepositNote
 - First-class `DepositNote` concept in the SDK
-- Text format: `tidex6-note-v1:<denomination>:<secret>:<nullifier>`
+- Opaque hex wire format (ADR-012): 132 lowercase hex chars, no `tidex6-` prefix, no embedded memo, no separators — looks like any other random base16 string when copy-pasted into a chat
 - Offchain transferable (file, clipboard, encrypted message, QR via library)
 
 ### Infrastructure

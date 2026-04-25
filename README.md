@@ -13,15 +13,15 @@
 
 tidex6 is a Rust-native, open-source framework that lets Solana developers add full transaction privacy to their Anchor programs through a small SDK surface. Transactions are private by default — sender, receiver, and amount are hidden. Users can optionally share a viewing key with someone they trust (an accountant, an auditor, a family member) to selectively disclose history, on their own terms.
 
-**Status:** full MVP product stack **working on Solana devnet**. Deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, user-facing `tidex6` CLI, `PoolIndexer` Merkle replay, `tidex6-client` SDK with builder API, and the flagship `examples/private-payroll` three-binary demo all validated end-to-end on live devnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
+**Status:** full MVP product stack **live on Solana mainnet** at [`2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`](https://solscan.io/account/2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C) (OtterSec verified). Deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, unlinkable withdraw via reference relayer at [`relayer.tidex6.com`](https://relayer.tidex6.com), opaque hex notes + envelope-encrypted memos with padded fixed-length plaintext, user-facing `tidex6` CLI, `tidex6-client` SDK, web app at [tidex6.com](https://tidex6.com), and the flagship `examples/private-payroll` three-binary demo all validated end-to-end on mainnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
 
-> **DEVELOPMENT ONLY.** Pre-audit, pre-mainnet, single-contributor trusted setup. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
+> **DEVELOPMENT ONLY.** Pre-audit, single-contributor trusted setup, hackathon-grade trust assumptions. Verifier `upgrade-authority` is still held by the project owner and will be locked with `solana program set-upgrade-authority --final` immediately before Colosseum submission. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
 
 ---
 
 ## Quick start — CLI
 
-Three commands, no setup beyond a devnet wallet at
+Three commands, no setup beyond a Solana mainnet wallet at
 `~/.config/solana/id.json`:
 
 ```bash
