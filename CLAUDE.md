@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Days 1–23 complete. ADR-012 (opaque note + envelope-encrypted memo) shipped and redeployed to mainnet 2026-04-25 in v2.5.8, commit `f71575d`, slot 415541682, executable hash `5ff658c6d8ea224848c54e5e5e5255d79eaa6bfe144570cd82cfa8a7c666aa92`. OtterSec + on-chain PDA verification both pass. Verifier at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised.**
+**Days 1–23 complete. Full MVP stack live on mainnet, end-to-end deposit + relayer-fee withdraw verified 2026-04-25 14:32 UTC against tidex6.com. Latest release v2.5.11 carries: ADR-012 envelope-encrypted memo (commit `f71575d`, deployed slot 415541682, executable hash `5ff658c6d8ea224848c54e5e5e5255d79eaa6bfe144570cd82cfa8a7c666aa92`, OtterSec + on-chain PDA verified), padded fixed-length plaintext + Latin/Cyrillic charset whitelist, shared-crate refactor (`tidex6-notifier-client`, `tidex6-ui-shared`), SVG brand mark per BRANDBOOK.md. Verifier at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised. Telegram error pipeline (web + relayer → `errors` topic 45) is live. Reference live-test signatures: deposit `2st29MeBVLjJXDSGgkexWMBqxNYP2EdQZuEHtycUJ5fN8zk63F9d6rXUXHMmTK5VUghjVPH6csGa7tXvAWzuUAgR`, withdraw `LLoBD9xnRurzppq7XkMPRTx4pwBBYVzCTRoDfmJKisrzv1NK3GzfWUHqr7VB5YZHVfSEqwtEXmybkrnMqJuAxP3` (fee-payer = relayer, depositor wallet untouched on-chain).**
 
 **Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and ADR-010 (transport mechanism). `tidex6-core::{elgamal,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
 
