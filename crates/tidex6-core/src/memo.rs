@@ -161,6 +161,25 @@ pub enum MemoError {
     /// Envelope ciphertext_len smaller than nonce + tag.
     #[error("envelope ciphertext_len ({got}) is below the nonce+tag minimum ({minimum})")]
     EnvelopeCiphertextLenTooSmall { got: usize, minimum: usize },
+
+    /// Memo plaintext contains a character outside the supported
+    /// charset (Latin + Cyrillic). Emoji and CJK are rejected to keep
+    /// every memo within a small, padded byte budget — a 4-byte emoji
+    /// would consume four times the slot of an ASCII character. We
+    /// expose the offending Unicode codepoint so the UI can highlight
+    /// the bad position.
+    #[error("memo contains an unsupported character: U+{codepoint:04X}")]
+    UnsupportedMemoChar { codepoint: u32 },
+
+    /// Padded plaintext blob is shorter than the 2-byte length prefix.
+    #[error("padded memo plaintext is shorter than the 2-byte length prefix")]
+    PaddedPlaintextTruncated,
+
+    /// Padded plaintext blob has a `len` field that exceeds either
+    /// the buffer size or `MAX_PLAINTEXT_LEN`. Indicates a wrong key,
+    /// corruption, or pre-padding-format envelope.
+    #[error("padded plaintext length field invalid: claimed {claimed}, max {max}")]
+    PaddedPlaintextLengthInvalid { claimed: usize, max: usize },
 }
 
 /// A single encrypted memo ready to travel through the SPL Memo
@@ -381,9 +400,98 @@ pub const ENVELOPE_MIN_LEN: usize =
 /// Maximum legal envelope: header + max ciphertext + both wraps.
 pub const ENVELOPE_MAX_LEN: usize = ENVELOPE_HEADER_LEN
     + ENVELOPE_AEAD_OVERHEAD
-    + MAX_PLAINTEXT_LEN
+    + PADDED_PLAINTEXT_LEN
     + ENVELOPE_WRAP_RECIPIENT_LEN
     + ENVELOPE_WRAP_AUDITOR_LEN;
+
+/// Length-prefix size used by the padded-plaintext scheme. Two bytes
+/// big-endian — covers any plaintext up to 65535, which is far above
+/// `MAX_PLAINTEXT_LEN`.
+pub const PLAINTEXT_LEN_PREFIX: usize = 2;
+
+/// Total length of the padded plaintext that goes into AES-GCM.
+/// Always exactly this many bytes regardless of how short the user's
+/// memo is — the goal is to leak zero information about plaintext
+/// length to a passive observer of the on-chain envelope.
+pub const PADDED_PLAINTEXT_LEN: usize = PLAINTEXT_LEN_PREFIX + MAX_PLAINTEXT_LEN;
+
+/// Allowed Unicode ranges for memo plaintext. We restrict to Latin
+/// and Cyrillic only — emoji, CJK and other large-codepoint scripts
+/// are rejected so every memo fits in a small, fixed-size padded
+/// buffer. See `validate_memo_charset` for the per-character check.
+fn is_allowed_memo_char(c: char) -> bool {
+    let cp = c as u32;
+    matches!(
+        cp,
+        // Whitespace.
+        0x09 | 0x0A | 0x0D
+        // ASCII printable.
+        | 0x20..=0x7E
+        // Latin-1 Supplement (printable).
+        | 0xA0..=0xFF
+        // Latin Extended-A.
+        | 0x0100..=0x017F
+        // Latin Extended-B.
+        | 0x0180..=0x024F
+        // Cyrillic.
+        | 0x0400..=0x04FF
+        // Cyrillic Supplement.
+        | 0x0500..=0x052F
+    )
+}
+
+/// Reject any plaintext that contains characters outside the Latin +
+/// Cyrillic union. Returns `Ok(())` on success, `UnsupportedMemoChar`
+/// with the first offending codepoint on failure.
+pub fn validate_memo_charset(plaintext: &str) -> Result<(), MemoError> {
+    for c in plaintext.chars() {
+        if !is_allowed_memo_char(c) {
+            return Err(MemoError::UnsupportedMemoChar {
+                codepoint: c as u32,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Build the fixed-length padded plaintext that goes into AES-GCM:
+/// `[u16 BE actual_len][user bytes][random pad to MAX_PLAINTEXT_LEN]`.
+/// Always returns exactly `PADDED_PLAINTEXT_LEN` bytes.
+fn pad_plaintext_for_envelope(plaintext: &[u8]) -> Result<[u8; PADDED_PLAINTEXT_LEN], MemoError> {
+    if plaintext.len() > MAX_PLAINTEXT_LEN {
+        return Err(MemoError::PlaintextTooLong {
+            got: plaintext.len(),
+        });
+    }
+    let mut padded = [0u8; PADDED_PLAINTEXT_LEN];
+    let actual_len = plaintext.len() as u16;
+    padded[0..2].copy_from_slice(&actual_len.to_be_bytes());
+    padded[2..2 + plaintext.len()].copy_from_slice(plaintext);
+    // Random padding — not zeros, not user-visible characters. Random
+    // because zeros leak entropy patterns to a future cryptanalyst,
+    // however small. A few hundred random bytes per deposit cost
+    // nothing.
+    SysRng
+        .try_fill_bytes(&mut padded[2 + plaintext.len()..])
+        .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
+    Ok(padded)
+}
+
+/// Inverse of [`pad_plaintext_for_envelope`]. Reads the 2-byte length
+/// prefix, validates it, returns the trimmed user plaintext.
+fn unpad_envelope_plaintext(padded: &[u8]) -> Result<Vec<u8>, MemoError> {
+    if padded.len() < PLAINTEXT_LEN_PREFIX {
+        return Err(MemoError::PaddedPlaintextTruncated);
+    }
+    let claimed = u16::from_be_bytes([padded[0], padded[1]]) as usize;
+    if claimed > MAX_PLAINTEXT_LEN || PLAINTEXT_LEN_PREFIX + claimed > padded.len() {
+        return Err(MemoError::PaddedPlaintextLengthInvalid {
+            claimed,
+            max: MAX_PLAINTEXT_LEN,
+        });
+    }
+    Ok(padded[PLAINTEXT_LEN_PREFIX..PLAINTEXT_LEN_PREFIX + claimed].to_vec())
+}
 
 /// Symmetric "seal key" derived from a note's secret material.
 /// Anyone holding the note can reproduce it; nobody else.
@@ -425,18 +533,19 @@ pub struct MemoEnvelope {
 
 impl MemoEnvelope {
     /// Encrypt `plaintext` so only the note holder can decrypt.
+    ///
+    /// Padding-by-default: `plaintext` is wrapped in a length-prefixed
+    /// fixed-size 258-byte buffer before encryption, so every envelope
+    /// produced by this function has the same on-chain footprint
+    /// regardless of how short the actual memo is.
     pub fn encrypt_for_recipient_only(
         plaintext: &[u8],
         secret: &[u8; 32],
         nullifier: &[u8; 32],
     ) -> Result<Self, MemoError> {
-        if plaintext.len() > MAX_PLAINTEXT_LEN {
-            return Err(MemoError::PlaintextTooLong {
-                got: plaintext.len(),
-            });
-        }
+        let padded = pad_plaintext_for_envelope(plaintext)?;
         let memo_key = generate_random_key()?;
-        let ciphertext_block = aead_seal(&memo_key, plaintext)?;
+        let ciphertext_block = aead_seal(&memo_key, &padded)?;
         let seal_key = NoteSealKey::from_note_material(secret, nullifier);
         let wrap_recipient = wrap_key_with_aes(seal_key.as_bytes(), &memo_key)?;
         Ok(Self {
@@ -449,19 +558,17 @@ impl MemoEnvelope {
 
     /// Encrypt `plaintext` so both the note holder and the named
     /// auditor can decrypt. Same plaintext, two wrap-K slots.
+    ///
+    /// Padding-by-default: see [`Self::encrypt_for_recipient_only`].
     pub fn encrypt_for_recipient_and_auditor(
         plaintext: &[u8],
         secret: &[u8; 32],
         nullifier: &[u8; 32],
         auditor_pk: &AuditorPublicKey,
     ) -> Result<Self, MemoError> {
-        if plaintext.len() > MAX_PLAINTEXT_LEN {
-            return Err(MemoError::PlaintextTooLong {
-                got: plaintext.len(),
-            });
-        }
+        let padded = pad_plaintext_for_envelope(plaintext)?;
         let memo_key = generate_random_key()?;
-        let ciphertext_block = aead_seal(&memo_key, plaintext)?;
+        let ciphertext_block = aead_seal(&memo_key, &padded)?;
 
         let seal_key = NoteSealKey::from_note_material(secret, nullifier);
         let wrap_recipient = wrap_key_with_aes(seal_key.as_bytes(), &memo_key)?;
@@ -475,7 +582,9 @@ impl MemoEnvelope {
         })
     }
 
-    /// Decrypt under the note's seal key.
+    /// Decrypt under the note's seal key. Returns the user plaintext
+    /// trimmed of the length-prefix padding that was added at
+    /// encryption time.
     pub fn decrypt_with_note(
         &self,
         secret: &[u8; 32],
@@ -483,13 +592,15 @@ impl MemoEnvelope {
     ) -> Result<Vec<u8>, MemoError> {
         let seal_key = NoteSealKey::from_note_material(secret, nullifier);
         let memo_key = unwrap_key_with_aes(seal_key.as_bytes(), &self.wrap_recipient)?;
-        aead_open(&memo_key, &self.ciphertext_block)
+        let padded = aead_open(&memo_key, &self.ciphertext_block)?;
+        unpad_envelope_plaintext(&padded)
     }
 
     /// Try to decrypt under an auditor secret key.
     /// Returns `Ok(Some(_))` on success, `Ok(None)` if there is no
     /// auditor slot or the slot is not addressed to this key,
-    /// `Err(_)` on malformed inputs.
+    /// `Err(_)` on malformed inputs. Plaintext is unpadded — the
+    /// length-prefix scheme used at encryption time is reversed here.
     pub fn decrypt_with_auditor(
         &self,
         auditor_sk: &AuditorSecretKey,
@@ -502,7 +613,8 @@ impl MemoEnvelope {
             Err(MemoError::DecryptionFailed) => return Ok(None),
             Err(other) => return Err(other),
         };
-        let pt = aead_open(&memo_key, &self.ciphertext_block)?;
+        let padded = aead_open(&memo_key, &self.ciphertext_block)?;
+        let pt = unpad_envelope_plaintext(&padded)?;
         Ok(Some(pt))
     }
 
@@ -956,7 +1068,8 @@ mod tests {
     use super::{
         ENVELOPE_HEADER_LEN, ENVELOPE_MAX_LEN, ENVELOPE_MIN_LEN, ENVELOPE_VERSION_V1,
         ENVELOPE_WRAP_AUDITOR_LEN, ENVELOPE_WRAP_RECIPIENT_LEN, MemoEnvelope,
-        placeholder_envelope_for_anonymous,
+        PADDED_PLAINTEXT_LEN, PLAINTEXT_LEN_PREFIX, pad_plaintext_for_envelope,
+        placeholder_envelope_for_anonymous, unpad_envelope_plaintext, validate_memo_charset,
     };
 
     fn fresh_secrets() -> ([u8; 32], [u8; 32]) {
@@ -1142,5 +1255,124 @@ mod tests {
             ENVELOPE_WRAP_AUDITOR_LEN,
             POINT_LEN + IV_LEN + TAG_LEN + 32
         );
+        assert_eq!(PADDED_PLAINTEXT_LEN, PLAINTEXT_LEN_PREFIX + MAX_PLAINTEXT_LEN);
+    }
+
+    /// Every recipient-only envelope has the same byte length on the
+    /// wire regardless of how short the user's plaintext is. Privacy
+    /// property: no information about plaintext length leaks.
+    #[test]
+    fn envelope_size_is_constant_across_plaintext_lengths() {
+        let (secret, nullifier) = fresh_secrets();
+        let empty = MemoEnvelope::encrypt_for_recipient_only(b"", &secret, &nullifier)
+            .unwrap()
+            .to_bytes();
+        let short = MemoEnvelope::encrypt_for_recipient_only(b"hi", &secret, &nullifier)
+            .unwrap()
+            .to_bytes();
+        let max = MemoEnvelope::encrypt_for_recipient_only(
+            &vec![b'a'; MAX_PLAINTEXT_LEN],
+            &secret,
+            &nullifier,
+        )
+        .unwrap()
+        .to_bytes();
+        assert_eq!(empty.len(), short.len());
+        assert_eq!(short.len(), max.len());
+    }
+
+    /// Same property with the auditor slot present.
+    #[test]
+    fn envelope_with_auditor_size_is_constant() {
+        let (secret, nullifier) = fresh_secrets();
+        let auditor_sk = AuditorSecretKey::random().unwrap();
+        let auditor_pk = auditor_sk.public_key();
+        let a = MemoEnvelope::encrypt_for_recipient_and_auditor(
+            b"x",
+            &secret,
+            &nullifier,
+            &auditor_pk,
+        )
+        .unwrap()
+        .to_bytes();
+        let b = MemoEnvelope::encrypt_for_recipient_and_auditor(
+            &vec![b'y'; MAX_PLAINTEXT_LEN],
+            &secret,
+            &nullifier,
+            &auditor_pk,
+        )
+        .unwrap()
+        .to_bytes();
+        assert_eq!(a.len(), b.len());
+    }
+
+    /// The padded blob uses random bytes, not zeros, so two
+    /// successive encryptions of the same plaintext produce different
+    /// padded buffers. The Aes-GCM nonce already provides this property
+    /// for the ciphertext, but the underlying padding randomness is a
+    /// belt-and-braces extra layer.
+    #[test]
+    fn pad_produces_random_filler() {
+        let a = pad_plaintext_for_envelope(b"hello").unwrap();
+        let b = pad_plaintext_for_envelope(b"hello").unwrap();
+        assert_eq!(&a[..2 + 5], &b[..2 + 5]);
+        // Randomness collision after byte 7 is astronomically
+        // unlikely (256-7 = 249 bytes of OS entropy).
+        assert_ne!(a[2 + 5..], b[2 + 5..]);
+    }
+
+    /// pad → unpad recovers the original plaintext byte-for-byte for
+    /// every length we care about.
+    #[test]
+    fn pad_unpad_roundtrip() {
+        for len in [0, 1, 2, 7, 32, 128, 256] {
+            let pt: Vec<u8> = (0..len as u8).collect();
+            let padded = pad_plaintext_for_envelope(&pt).unwrap();
+            let recovered = unpad_envelope_plaintext(&padded).unwrap();
+            assert_eq!(recovered, pt, "length {} did not roundtrip", len);
+        }
+    }
+
+    /// Charset filter: ASCII Latin and Cyrillic are accepted, the
+    /// frontier ranges around them are reachable.
+    #[test]
+    fn charset_accepts_latin_and_cyrillic() {
+        validate_memo_charset("Hello world").unwrap();
+        validate_memo_charset("Привет мир").unwrap();
+        validate_memo_charset("Mixed: Ñ, ü, é, ą, ż, и Кирилл").unwrap();
+        validate_memo_charset("Numbers and punctuation: 1234567890 !?,.;:").unwrap();
+    }
+
+    /// Charset filter: emoji and CJK are rejected with a clear error
+    /// pointing at the offending codepoint.
+    #[test]
+    fn charset_rejects_emoji_and_cjk() {
+        match validate_memo_charset("Hello 🎉").unwrap_err() {
+            MemoError::UnsupportedMemoChar { codepoint } => {
+                assert_eq!(codepoint, '🎉' as u32);
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
+        match validate_memo_charset("привет 中国").unwrap_err() {
+            MemoError::UnsupportedMemoChar { codepoint } => {
+                assert_eq!(codepoint, '中' as u32);
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    /// Round-trip through the full envelope path including the
+    /// padding-aware decrypt.
+    #[test]
+    fn envelope_padded_roundtrip_short_text() {
+        let (secret, nullifier) = fresh_secrets();
+        let envelope = MemoEnvelope::encrypt_for_recipient_only(
+            "Аренда март".as_bytes(),
+            &secret,
+            &nullifier,
+        )
+        .unwrap();
+        let recovered = envelope.decrypt_with_note(&secret, &nullifier).unwrap();
+        assert_eq!(recovered, "Аренда март".as_bytes());
     }
 }
