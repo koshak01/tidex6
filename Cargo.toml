@@ -22,6 +22,8 @@ members = [
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "crates/tidex6-indexer",
+    "crates/tidex6-notifier-client",
+    "crates/tidex6-ui-shared",
     "examples/confidential-amount-demo",
     "examples/private-payroll",
     "programs/tidex6-caller",
@@ -32,7 +34,7 @@ members = [
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
-version = "2.5.9"
+version = "2.5.10"
 license = "MIT OR Apache-2.0"
 authors = ["tidex6 contributors"]
 repository = "https://github.com/koshak01/tidex6"

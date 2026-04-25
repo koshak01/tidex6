@@ -874,6 +874,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
+name = "bitcode"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a6ed1b54d8dc333e7be604d00fa9262f4635485ffea923647b6521a5fff045d"
+dependencies = [
+ "arrayvec",
+ "bitcode_derive",
+ "bytemuck",
+ "glam",
+ "serde",
+]
+
+[[package]]
+name = "bitcode_derive"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "238b90427dfad9da4a9abd60f3ec1cdee6b80454bde49ed37f1781dd8e9dc7f9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1813,6 +1837,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
+
+[[package]]
 name = "groth16-solana"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2150,6 +2180,25 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "include_dir"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd"
+dependencies = [
+ "include_dir_macros",
+]
+
+[[package]]
+name = "include_dir_macros"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75"
+dependencies = [
+ "proc-macro2",
+ "quote",
 ]
 
 [[package]]
@@ -4995,7 +5044,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-caller"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -5003,7 +5052,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -5022,7 +5071,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-cli"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5039,7 +5088,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-client"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "anyhow",
@@ -5064,7 +5113,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amount-demo"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5084,7 +5133,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amounts"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
@@ -5092,7 +5141,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",
@@ -5112,7 +5161,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-day1"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5136,7 +5185,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-example-private-payroll"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5152,7 +5201,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-indexer"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-client",
  "base64 0.22.1",
@@ -5166,8 +5215,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-notifier-client"
+version = "2.5.10"
+dependencies = [
+ "anyhow",
+ "bitcode",
+ "log",
+ "tokio",
+]
+
+[[package]]
+name = "tidex6-ui-shared"
+version = "2.5.10"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
 name = "tidex6-verifier"
-version = "2.5.9"
+version = "2.5.10"
 dependencies = [
  "anchor-lang",
  "bytemuck",

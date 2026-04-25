@@ -1,0 +1,15 @@
+[package]
+name = "tidex6-ui-shared"
+description = "Shared web chrome for the tidex6 properties: design tokens, base CSS, footer/header partials, brand assets. Embedded at compile time so consumers (tidex6-web, tidex6-relayer, future microservices) ship a single binary with no asset path drift."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# include_dir compiles a directory tree into a static `Dir` so binaries
+# can serve the shared assets without the production filesystem ever
+# touching them. Same trick tidex6-web already uses for templates.
+include_dir = "0.7"

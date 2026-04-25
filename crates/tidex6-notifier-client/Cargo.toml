@@ -1,0 +1,16 @@
+[package]
+name = "tidex6-notifier-client"
+description = "Shared IPC types and async client for the tidex6 Notifier service. Used by tidex6-web (host) and tidex6-relayer (consumer) so the wire format has a single source of truth."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# IPC framing.
+tokio = { version = "1", features = ["net", "io-util", "rt", "macros"] }
+bitcode = "0.6"
+anyhow = "1"
+log = "0.4"
