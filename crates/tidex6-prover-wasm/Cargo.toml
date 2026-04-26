@@ -1,0 +1,47 @@
+[package]
+name = "tidex6-prover-wasm"
+description = "Browser-side Groth16 proving for the tidex6 withdraw circuit. Compiled to WebAssembly via wasm-pack so the user's secret/nullifier never leave their machine. Excluded from the workspace because it targets wasm32-unknown-unknown and pulls in browser-only crates (getrandom/js, wasm-bindgen)."
+version = "2.5.20"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["tidex6 contributors"]
+repository = "https://github.com/koshak01/tidex6"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tidex6-circuits = { path = "../tidex6-circuits" }
+# Used for the canonical note parser + Poseidon hash that the
+# browser needs to compute `commitment` and `nullifier_hash`
+# without sending secret/nullifier to any server.
+tidex6-core = { path = "../tidex6-core" }
+
+ark-bn254 = "0.5"
+ark-groth16 = "0.5"
+ark-ff = "0.5"
+ark-serialize = "0.5"
+
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+# Two getrandom versions live in our dep tree: rand 0.8 brings 0.2,
+# arkworks 0.5 (via rand_core 0.9) brings 0.4. Each version requires
+# a different feature flag to enable browser RNG, and Cargo only
+# enforces feature unification within a single semver-compatible
+# resolve. We declare both as direct deps with `package = ...` so
+# the WASM-only features are pulled in for both.
+getrandom = { version = "0.2", features = ["js"] }
+getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+rand = "0.8"
+
+# Surfaces panics in the browser dev-tools instead of an opaque
+# `RuntimeError: unreachable executed`. Costs ~5 KB once per panic;
+# we keep it on so support tickets are actionable.
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
