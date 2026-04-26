@@ -222,6 +222,57 @@ Shielded Memo ships with tidex6 v0.1 as an application-layer feature. Its securi
 
 ---
 
+## 3B. Browser-side proving threat model (ADR-013, MVP)
+
+The withdraw flow on `tidex6.com/app/` runs the Groth16 prover
+inside the user's browser via `tidex6-prover-wasm`. The user's
+`secret` and `nullifier` exist only inside the WebAssembly module's
+linear memory and the JS page that owns it; the server only ever
+sees the public commitment (for the Merkle path lookup) and the
+finished proof bytes.
+
+**What this defeats:**
+
+- Server-side note logging. The operator of `tidex6.com` cannot
+  retain or accidentally leak the user's secret material because
+  it never crosses the WebSocket boundary.
+- Compromised microservice (e.g. a hostile npm-style supply chain
+  attack against `tidex6_solana`). Such an attacker can no longer
+  exfiltrate spend authority from passing traffic.
+
+**What this does NOT defeat:**
+
+- A user whose machine is fully compromised. WASM cannot protect
+  against a keylogger or a malicious browser extension reading
+  the page DOM. Outside the threat model.
+- Substitution of the served `.wasm` artefact by a network-level
+  attacker who can also bypass TLS (state-level adversary). This
+  is what Subresource Integrity (`integrity="sha384-..."`) on the
+  loading `<script>` is for; we plan to wire this in for the
+  Colosseum submission build.
+- A compromised relayer that censors specific proofs. Relayer
+  sees public proof bytes only — same trust model as the v0.1
+  relayer flow without browser proving.
+
+**Why the confinement is mechanical, not contractual:**
+
+WebAssembly modules can only call functions the host JS hands
+them through `imports`. Our wasm-bindgen-generated module imports
+30 symbols, none of which are network or storage APIs. Anyone can
+verify in DevTools Console:
+
+```js
+WebAssembly.Module.imports(
+  await WebAssembly.compileStreaming(
+    fetch('/static/wasm/tidex6_prover_wasm_bg.wasm')))
+```
+
+The result contains zero entries matching `fetch`, `XMLHttpRequest`,
+`WebSocket`, `localStorage`, `IndexedDB`, or `sendBeacon`. The
+sandbox is the proof — there is no policy to trust.
+
+---
+
 ## 4. Post-MVP security roadmap
 
 **v0.2:**
@@ -230,10 +281,11 @@ Shielded Memo ships with tidex6 v0.1 as an application-layer feature. Its securi
 - Bug bounty programme.
 - Wallet-adapter integration for secure viewing-key storage.
 - Full hierarchical key split (spending key → full viewing key → incoming-only viewing key → nullifier key).
+- Subresource Integrity on `tidex6_prover_wasm_bg.wasm` so a network-level adversary cannot substitute the proving binary.
 
 **v0.3 and later:**
 - Shared anonymity pool (network-effect anonymity set growth).
-- Browser WASM prover (no need to trust a server with proof generation).
+- Persistent browser prover (cache deserialised proving key across calls).
 - Mobile prover for small circuits.
 - Migration to a stronger curve when Solana syscalls support it.
 

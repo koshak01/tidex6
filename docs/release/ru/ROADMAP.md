@@ -46,10 +46,12 @@
 
 ### Инфраструктура
 - **Indexer** — in-memory, WebSocket подписка на события программы, offchain Merkle tree rebuild
-- **Relayer** — минимальный HTTP сервер, fee-payer abstraction
+- **Relayer** — референс HTTPS-сервис на `relayer.tidex6.com` (ADR-011): принимает withdraw-доказательства, offchain-проверяет их, подписывает и отправляет tx как on-chain fee-payer. Circuit связывает `(recipient, relayer_address, relayer_fee)` — front-runner не может перенаправить fee. Наша политика — `relayer_fee = 0` (мы платим tx fees как public good). Open-source; любой может запустить свой инстанс с любой fee policy.
+- **Browser-side prover** — `tidex6-prover-wasm` компилирует Rust-прувер в WebAssembly. Браузер парсит deposit note локально и запускает Groth16-доказательство за ~1.7 с на M-серии CPU. `secret` и `nullifier` никогда не покидают вкладку пользователя. Развёрнут на `tidex6.com/app/`. Импорты WASM-модуля не содержат network APIs — конфайнмент доказуем формально, не на словах.
 
-### Flagship пример
+### Flagship примеры
 - `examples/private-payroll/` — полный сценарий с binaries `sender`, `receiver`, `accountant`
+- `programs/tidex6-tip-jar/` (развёрнут на mainnet [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)) — третья сторона Anchor-программа, использует `tidex6_verifier::deposit` через CPI. Демонстрация: любой Solana-протокол (DAO payroll, NFT royalty splitter, subscription) может подключить tidex6 как privacy primitive в ~30 строках Rust.
 
 ### Документация
 - Манифест, README с Quick Start, обзор архитектуры, security model, ADRs, этот roadmap
@@ -120,7 +122,7 @@
 - Новый circuit, новый trusted setup
 
 ### Performance & UX
-- Browser WASM prover (proving в браузере, без server side)
+- Persistent browser prover — держать десериализованный proving key в WASM-памяти между вызовами (сейчас десериализуется на каждое доказательство, ~30 % суммарного времени)
 - GPU-accelerated proving на consumer hardware где возможно
 - Mobile prover для маленьких circuits
 

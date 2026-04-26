@@ -70,6 +70,54 @@ Helius has a programs registry for their explorer / dashboard. Reach
 out via https://dashboard.helius.dev → support, attach the same logo
 + description block above.
 
+## Submitting `tidex6-tip-jar` (Solscan Labeling Form)
+
+The tip-jar reference CPI program is a separate label submission
+on the same form (https://forms.blockscan.com/form/mW5b8Nd5gBPwtAvdO8hi8nkt5PUyjg3Hl3RXNRpnHRY).
+
+Fields to fill:
+
+- **Address / Program ID:** `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`
+- **Type:** Program
+- **Label / Display name:** `tidex6 — tip-jar (CPI integration example)`
+- **Website:** https://tidex6.com
+- **Repository:** https://github.com/koshak01/tidex6 (sub-path: `programs/tidex6-tip-jar`)
+- **Description:**
+  ```
+  Reference Cross-Program Invocation (CPI) integration example for
+  the tidex6 privacy framework. A third-party Anchor program that
+  forwards SOL into tidex6_verifier::deposit (program
+  2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C) in 30 lines of Rust,
+  demonstrating how any Solana protocol — DAO payroll, NFT royalty
+  splitter, subscription protocol, dark-pool DEX hook — can adopt
+  shielded transfers as a primitive. Open-source.
+  ```
+- **Logo:** the same SVG used for the verifier:
+  https://tidex6.com/static/images/hat-solana.svg
+
+**Proof of Labeling:**
+
+```
+1. Source code (Anchor program declares this exact program ID):
+   https://github.com/koshak01/tidex6/blob/master/programs/tidex6-tip-jar/src/lib.rs
+
+2. Deploy transaction:
+   https://solscan.io/tx/2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg
+
+3. Same upgrade authority as the verified main verifier program
+   (Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6) — the canonical
+   tidex6 project key.
+
+4. Project website lists this program ID:
+   https://tidex6.com/roadmap (search "5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x")
+
+If signed-message proof of ownership is required, the upgrade
+authority can sign any challenge string via:
+
+  solana sign-offchain-message <challenge> \
+    --keypair ~/.config/solana/id.json
+```
+
 ## Programs Registry standard (future)
 
 Solana is rolling out an on-chain program metadata standard

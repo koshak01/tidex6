@@ -48,9 +48,11 @@ The minimum coherent system. Everything in this layer ships in working code, run
 ### Infrastructure
 - **Indexer** — in-memory, WebSocket subscription to program events, offchain Merkle tree rebuild
 - **Relayer** — reference HTTPS service at `relayer.tidex6.com` (ADR-011): accepts withdraw proofs, offchain-verifies them, signs and submits the tx as the on-chain fee-payer. Circuit binds `(recipient, relayer_address, relayer_fee)` so front-runners cannot redirect the fee. Our policy is `relayer_fee = 0` — we pay tx fees for users as a public good. Open-source; anyone can run their own instance with any fee policy.
+- **Browser-side prover** — `tidex6-prover-wasm` compiles the Rust prover to WebAssembly. The browser parses the deposit note locally and runs Groth16 proving in ~1.7 s on M-series CPUs; `secret` and `nullifier` never leave the user's tab. Deployed at `tidex6.com/app/`. The WASM module's import set contains zero network APIs — confinement is provable, not asserted.
 
-### Flagship example
+### Flagship examples
 - `examples/private-payroll/` — full scenario with `sender`, `receiver`, and `accountant` binaries
+- `programs/tidex6-tip-jar/` (deployed at [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)) — third-party Anchor program that uses `tidex6_verifier::deposit` via CPI. Demonstrates that any Solana protocol — DAO payroll, NFT royalty splitter, subscription protocol, dark-pool DEX hook — can adopt tidex6 as a privacy primitive in ~30 lines of Rust.
 
 ### Documentation
 - Manifesto, README with Quick Start, architecture overview, security model, ADRs, this roadmap
@@ -96,6 +98,7 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 - Launched as a community event
 
 ### Additional examples
+*The reference `tidex6-tip-jar` CPI integration shipped in MVP. Next-tier examples:*
 - `examples/private-donations/` — anonymous donor flow with cryptographically verified transparency reports
 - `examples/private-voting/` — DAO governance with hidden ballots
 - `examples/private-grants/` — research grant disbursement with audit trail
@@ -127,7 +130,7 @@ Strategic direction. Research and engineering bets that compound the MVP.
 - New circuit, new trusted setup
 
 ### Performance & UX
-- Browser WASM prover (proving in the browser, no server side)
+- Persistent browser prover — keep the deserialised proving key in WASM memory across calls (currently re-deserialised per proof, ~30 % of total time)
 - GPU-accelerated proving on consumer hardware where feasible
 - Mobile prover for small circuits
 

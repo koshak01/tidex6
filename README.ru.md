@@ -10,7 +10,7 @@
 
 tidex6 — это Rust-native, open-source фреймворк, который позволяет Solana-разработчикам добавить полную приватность транзакций в свои Anchor-программы через небольшой SDK. Транзакции приватны по умолчанию — отправитель, получатель и сумма скрыты. Пользователи могут опционально поделиться viewing key с тем, кому доверяют (бухгалтер, аудитор, член семьи), чтобы избирательно раскрыть историю — на своих условиях.
 
-**Статус:** paperwork фаза завершена, код в разработке. MVP нацелен на **Colosseum Frontier hackathon, 2026-05-11**.
+**Статус:** полный MVP стек **в продакшене на Solana mainnet**. Verifier-программа [`2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`](https://solscan.io/account/2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C) проверена OtterSec. Полный набор фичей — deposit, ZK-withdraw (Groth16 `WithdrawCircuit<20>` через `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding защита от front-run, **unlinkable withdraw через релаер** [`relayer.tidex6.com`](https://relayer.tidex6.com), opaque hex-ноты + envelope-шифрованные memo фиксированной длины, **генерация proof целиком в браузере через WebAssembly** (`tidex6-prover-wasm`, ~1.7 секунды на M-серии CPU, secret никогда не покидает вкладку пользователя), CLI `tidex6`, SDK `tidex6-client`, веб-приложение [tidex6.com](https://tidex6.com), флагманский demo `examples/private-payroll`, и **референс CPI-интеграция** [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x) (`tidex6-tip-jar`, ~30 строк Rust для подключения приватности к любой Anchor-программе) — всё провалидировано end-to-end на mainnet. MVP нацелен на **Colosseum Frontier hackathon, 2026-05-11**.
 
 ---
 

@@ -10,6 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Relayer + fee-in-circuit shipped 2026-04-24** — see ADR-011. `WithdrawCircuit<20>` now has five public inputs (`relayer_address` and `relayer_fee` added, binding rewrites of either field via the same Tornado-style constraint that already bound `recipient`). Verifier program gains a `relayer` account in the `Withdraw` context and a `relayer_fee` instruction argument; two SOL-transfer CPIs split the payout. Reference service crate `tidex6-relayer` (Axum HTTPS) accepts proofs, offchain-verifies them against the exact on-chain VK, and submits with its own keypair as fee-payer. SDK gets `WithdrawBuilder::via_relayer(url, pubkey)` and `direct()`; CLI gets `--relayer <url> --relayer-pubkey <pk>` / `--direct` flags.
 
+**Browser-side proof generation shipped 2026-04-26** — `tidex6-prover-wasm` (separate crate, excluded from workspace, target `wasm32-unknown-unknown`) compiles `tidex6_circuits::withdraw::prove_withdraw` plus the in-circuit Poseidon to a 3.5 MB `.wasm` artefact served from `tidex6-web/static/wasm/`. JS-glue exposes `parseNote`, `commitment`, `nullifierHash`, `proveWithdraw`. The frontend withdraw flow on `tidex6.com/app/` is now a two-message WS protocol: `fetch_merkle_path { commitment_hex }` → `submit_withdraw_proof { proof_a/b/c, merkle_root, nullifier_hash, recipient }`. The user's `secret`/`nullifier` never leaves the browser tab — `WebAssembly.Module.imports(...)` of the `.wasm` artefact contains zero `fetch`/`XMLHttpRequest`/`WebSocket` symbols, which is the formal proof of confinement. End-to-end timing: ~1.7 s proof on M-series MacBook. Live verification: deposit tx `3yFehVuR4ofQTUD4hjxBqN6CgLA6AGLzmMRb2uVm6AU1JNRMFzzwEJB6BNKAwSY9KZTtXreBKUgx6WggMTaSWQ3c`, browser-side withdraw tx `5NfabmZmYp8h5Qnt7dADPueciGzLjAX2tt1hpqtXaX8nfXmbEzvG4W2PxtikcCjc3CyQnvQbezE3fhTDo3WaoeNu`.
+
+**`tidex6-tip-jar` deployed on mainnet 2026-04-26** — third-party Anchor program `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x` (deploy tx `2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg`, slot 415772933, ~95 KB). One instruction `tip(commitment, memo_payload)` does a single CPI into `tidex6_verifier::deposit`; the resulting note is byte-identical to a CLI deposit and redeems through the normal withdraw flow. Demonstrates that any Solana program — DAO payroll, NFT royalty splitter, subscription protocol — can adopt tidex6 as a privacy primitive in ~30 lines of Rust. Upgrade authority `Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6`, not finalised (this is a reference example, not consensus-critical infrastructure).
+
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
 - **Onchain verifier** (programs/tidex6-verifier): deployed at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
@@ -97,25 +101,34 @@ This replaces every earlier story idea. Do not substitute banya, freelancers, or
 ```
 tidex6/
 ├── crates/
-│   ├── tidex6-core/       — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, DepositNote
-│   ├── tidex6-circuits/   — arkworks R1CS: Poseidon gadget, DepositCircuit, WithdrawCircuit<20>, solana_bytes
-│   ├── tidex6-indexer/    — PoolIndexer: replays on-chain DepositEvent logs into a fresh MerkleTree
-│   ├── tidex6-client/     — Rust SDK with builder pattern (PrivatePool, DepositBuilder, WithdrawBuilder::{direct,via_relayer})
-│   ├── tidex6-cli/        — keygen, deposit, withdraw, accountant (thin wrapper over the SDK)
-│   ├── tidex6-relayer/    — ADR-011 reference HTTPS relayer: offchain Groth16 verify, tx signing, replay cache
-│   └── tidex6-day1/       — live devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
+│   ├── tidex6-core/             — Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, DepositNote
+│   ├── tidex6-circuits/         — arkworks R1CS: Poseidon gadget, DepositCircuit, WithdrawCircuit<20>, solana_bytes
+│   ├── tidex6-indexer/          — PoolIndexer: replays on-chain DepositEvent logs into a fresh MerkleTree
+│   ├── tidex6-client/           — Rust SDK with builder pattern (PrivatePool, DepositBuilder, WithdrawBuilder::{direct,via_relayer})
+│   ├── tidex6-cli/              — keygen, deposit, withdraw, accountant (thin wrapper over the SDK)
+│   ├── tidex6-prover-wasm/      — ADR-013 browser-side prover; compiled via wasm-pack to wasm32-unknown-unknown; excluded from workspace
+│   ├── tidex6-notifier-client/  — bitcode IPC client for the Telegram notifier microservice (shared between tidex6-web and the relayer service)
+│   ├── tidex6-ui-shared/        — shared brand/css/template assets embedded via include_dir!; single source of truth for all tidex6-* web surfaces
+│   └── tidex6-day1/             — live mainnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative, Day-13 accountant)
 ├── programs/
-│   ├── tidex6-verifier/   — singleton non-upgradeable Anchor program, Groth16 via alt_bn128 syscalls
-│   └── tidex6-caller/     — test CPI caller for Day-1 gate 4
+│   ├── tidex6-verifier/         — singleton (eventually non-upgradeable) Anchor program, Groth16 via alt_bn128 syscalls
+│   ├── tidex6-tip-jar/          — ADR-013 reference CPI integration example, deployed at 5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x
+│   ├── tidex6-confidential-amounts/  — early v0.3 Token-2022 Confidential-Transfers exploration; not on mainnet yet
+│   └── tidex6-caller/           — test CPI caller for Day-1 gate 4
 ├── examples/
-│   └── private-payroll/   — flagship example: sender (Lena), receiver (parents), accountant (Kai)
-├── brand/                  — logo assets (dark + monochrome PNGs)
-└── video/                  — PITCH_VIDEO_SCRIPT.md, DEMO_VIDEO_SCRIPT.md
+│   ├── private-payroll/         — flagship example: sender (Lena), receiver (parents), accountant (Kai)
+│   └── confidential-amount-demo/  — companion to programs/tidex6-confidential-amounts (v0.3)
+├── brand/                        — logos (SVG + Solscan-square PNGs), brandbook
+└── video/                        — pitch + demo scripts (EN + RU)
+
+External repos (sibling path-deps, not part of this workspace):
+  - tidex6-web        — production website at tidex6.com, 5-microservice IPC architecture
+  - tidex6-relayer    — production relayer at relayer.tidex6.com (Axum HTTPS)
 
 Planned for v0.2 (not yet in the workspace):
-  - ElGamal + Baby Jubjub viewing-key machinery extensions (ADR-004, ADR-007)
   - Proof of Innocence circuit and Association Set Provider (ADR-007 v2)
   - Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery, non-zero fee policies
+  - Persistent browser prover (cache deserialised proving key across calls)
 ```
 
 ## Running the demo
@@ -199,7 +212,7 @@ Not configured yet — no `Cargo.toml` exists. Do not invent commands that do no
 
 ## ADR index
 
-All nine architecture decision records live in `docs/release/adr/`. Each is a short, focused document (Status / Date / Context / Decision / Consequences / Related):
+All architecture decision records live in `docs/release/adr/`. Each is a short, focused document (Status / Date / Context / Decision / Consequences / Related):
 
 - **ADR-001** — Commitment scheme: `Poseidon(secret, nullifier)` only
 - **ADR-002** — Merkle tree offchain, root ring buffer onchain
@@ -210,8 +223,10 @@ All nine architecture decision records live in `docs/release/adr/`. Each is a sh
 - **ADR-007** — Killer features: Shielded Memo (MVP) + Association Sets (v0.2)
 - **ADR-008** — Per-program pool in MVP, shared pool in v0.3
 - **ADR-009** — Proving time budget: Day-8 benchmark, 30s acceptance
-- **ADR-010** — Memo transport via SPL Memo Program (not verifier redeploy)
+- **ADR-010** — Memo transport via SPL Memo Program (superseded by ADR-012)
 - **ADR-011** — Relayer architecture: fee-in-circuit + reference service at relayer.tidex6.com
+- **ADR-012** — Opaque note format and envelope-encrypted memo
+- **ADR-013** — Browser-side proof generation via WebAssembly
 
 When a new architectural decision is made, write a new ADR before writing code that implements it.
 

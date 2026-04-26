@@ -20,6 +20,7 @@
 | [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Memo transport via SPL Memo Program (not verifier redeploy) | Superseded by ADR-012 |
 | [ADR-011](ADR-011-relayer-architecture.md) | Relayer architecture — fee-in-circuit with reference service | Accepted |
 | [ADR-012](ADR-012-opaque-note-envelope-memo.md) | Opaque note format and envelope-encrypted memo | Accepted |
+| [ADR-013](ADR-013-browser-side-proof-generation.md) | Browser-side proof generation via WebAssembly | Accepted |
 
 ## Format
 

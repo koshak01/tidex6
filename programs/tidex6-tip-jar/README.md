@@ -4,9 +4,16 @@ Reference integration example: a third-party Anchor program that
 uses [`tidex6-verifier`](../tidex6-verifier/) as a **privacy
 primitive** via Cross-Program Invocation.
 
+**Live on Solana mainnet** at
+[`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
+(deploy tx [`2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg`](https://solscan.io/tx/2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg),
+slot 415772933, 95 KB BPF). Upgrade authority retained by the
+project — this is a reference example, not consensus-critical
+infrastructure.
+
 > **What this answers:** "Can my own protocol on Solana use tidex6
 > for privacy without rewriting half of it?" — Yes, in about thirty
-> lines of Rust.
+> lines of Rust, deployed and verifiable on mainnet today.
 
 ## What it does
 

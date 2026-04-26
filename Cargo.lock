@@ -5044,7 +5044,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-caller"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -5052,7 +5052,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -5071,7 +5071,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-cli"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5088,7 +5088,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-client"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "anyhow",
@@ -5113,7 +5113,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amount-demo"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5133,7 +5133,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amounts"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
@@ -5141,7 +5141,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",
@@ -5161,7 +5161,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-day1"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5185,7 +5185,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-example-private-payroll"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5201,7 +5201,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-indexer"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-client",
  "base64 0.22.1",
@@ -5216,7 +5216,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-notifier-client"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anyhow",
  "bitcode",
@@ -5226,7 +5226,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-tip-jar"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -5234,14 +5234,14 @@ dependencies = [
 
 [[package]]
 name = "tidex6-ui-shared"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "include_dir",
 ]
 
 [[package]]
 name = "tidex6-verifier"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "anchor-lang",
  "bytemuck",

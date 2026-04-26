@@ -25,6 +25,10 @@ Cargo.lock.bak
 *.pem
 secrets/
 keys/private/
+# Local backups of program upgrade-authority keypairs.
+# Never publish these — anyone holding a copy can rewrite the program
+# on mainnet (until --final).
+/keys/
 
 # Trusted setup artefacts (ephemeral, regenerated locally)
 *.ptau

@@ -282,78 +282,56 @@ Pinned exact versions where compatibility is critical (`anchor-lang`). Strict ve
 
 ## 7. Workspace Layout
 
+The actual layout that shipped (kept in sync with `crates/`,
+`programs/`, `examples/` directories):
+
 ```
 tidex6/
-├── Cargo.toml                      # workspace
+├── Cargo.toml                            # workspace root
 │
-├── tidex6-core/                    # shared primitives
-│   └── src/
-│       ├── commitment.rs           # Commitment type, Poseidon wrapper
-│       ├── nullifier.rs            # Nullifier type
-│       ├── keys.rs                 # SpendingKey, ViewingKey (one-level for MVP)
-│       ├── merkle.rs               # Merkle tree (offchain) + root verification helpers
-│       ├── elgamal.rs              # ElGamal on BN254 G1 + Baby Jubjub helpers
-│       ├── note.rs                 # DepositNote (first-class concept)
-│       ├── memo.rs                 # ECDH + AES-GCM helpers for shielded memo
-│       └── lib.rs
+├── crates/
+│   ├── tidex6-core/                      # commitments, nullifiers, Merkle, keys, Poseidon, ElGamal, note, memo
+│   ├── tidex6-circuits/                  # arkworks R1CS — DepositCircuit, WithdrawCircuit<20>, solana_bytes
+│   ├── tidex6-indexer/                   # PoolIndexer — replays on-chain DepositEvent logs into a fresh tree
+│   ├── tidex6-client/                    # Rust SDK — PrivatePool / DepositBuilder / WithdrawBuilder
+│   ├── tidex6-cli/                       # `tidex6 keygen|deposit|withdraw|accountant`
+│   ├── tidex6-prover-wasm/               # ADR-013 browser prover (excluded from workspace, target wasm32)
+│   ├── tidex6-notifier-client/           # bitcode IPC client to the Telegram notifier microservice
+│   ├── tidex6-ui-shared/                 # brand/css/template assets shared between web + relayer
+│   └── tidex6-day1/                      # live-mainnet flight harnesses
 │
-├── tidex6-circuits/                # arkworks R1CS circuits
-│   └── src/
-│       ├── deposit.rs              # DepositCircuit
-│       ├── withdraw.rs             # WithdrawCircuit (Merkle inclusion + nullifier)
-│       └── lib.rs
-│
-├── tidex6-verifier/                # singleton non-upgradeable Anchor program
-│   ├── Cargo.toml
-│   └── programs/verifier/
-│       └── src/lib.rs              # CPI-callable Groth16 verifier
-│
-├── tidex6-client/                  # Rust SDK (builder pattern, no macros)
-│   └── src/
-│       ├── pool.rs                 # PrivatePool builder
-│       ├── proof.rs                # ProofBuilder
-│       ├── transaction.rs          # TransactionBuilder
-│       ├── keys.rs                 # KeyManager
-│       ├── viewing.rs              # Viewing key import / export
-│       └── lib.rs
-│
-├── tidex6-cli/                     # developer CLI (3 commands)
-│   └── src/
-│       ├── keygen.rs               # generate spending key + viewing key
-│       ├── setup.rs                # local Phase 2 trusted setup
-│       ├── scan.rs                 # auditor scans chain with viewing key
-│       └── main.rs
-│
-├── tidex6-indexer/                 # in-memory indexer (WebSocket)
-│   └── src/
-│       ├── tree.rs                 # offchain Merkle tree rebuild
-│       ├── events.rs               # DepositEvent / WithdrawEvent listeners
-│       └── main.rs
-│
-├── tidex6-relayer/                 # minimal HTTP relayer
-│   └── src/
-│       └── main.rs                 # POST /relay endpoint
+├── programs/
+│   ├── tidex6-verifier/                  # Groth16 verifier singleton on-chain (mainnet)
+│   ├── tidex6-tip-jar/                   # ADR-013 reference CPI integration (mainnet)
+│   ├── tidex6-confidential-amounts/      # v0.3 Token-2022 CT exploration
+│   └── tidex6-caller/                    # Day-1 CPI test harness
 │
 ├── examples/
-│   └── private-payroll/            # flagship example (Lena's story)
-│       ├── README.md
-│       ├── src/
-│       │   ├── lib.rs
-│       │   └── bin/
-│       │       ├── sender.rs       # depositor side
-│       │       ├── receiver.rs     # withdrawer side
-│       │       └── accountant.rs   # auditor side
-│       └── scripts/
-│           └── run_demo.sh
+│   ├── private-payroll/                  # flagship: sender (Lena) / receiver (parents) / accountant (Kai)
+│   └── confidential-amount-demo/         # v0.3 companion demo
 │
-└── docs/
-    ├── THE_LEGEND.md               # philosophy / mission
-    ├── PROJECT_BRIEF.md            # this file
-    ├── ROADMAP.md                  # now / next / later
-    ├── security.md                 # threat model and known limitations
-    ├── adr/                        # architecture decision records
-    └── ru/                         # Russian translations of all the above
+├── brand/                                # SVG logos + Solscan-square PNGs + BRANDBOOK.md
+├── video/                                # pitch + demo scripts (EN + RU)
+│
+└── docs/release/                         # Public design docs — every file mirrored under ru/
+    ├── THE_LEGEND.md                     # mission / narrative
+    ├── PROJECT_BRIEF.md                  # this document
+    ├── ROADMAP.md                        # now / next / later
+    ├── security.md                       # threat model and known limitations
+    ├── PR_CHECKLIST_PROOF_LOGIC.md       # Fiat-Shamir discipline for proof-touching PRs
+    ├── adr/                              # 13 architecture decision records
+    └── ru/                               # full Russian mirror
 ```
+
+### External companion repos
+
+The website (`tidex6-web`) and the production relayer
+(`tidex6-relayer`) live in **sibling git repos** with `path = "../tidex6/..."`
+dependencies. They are not part of this workspace because they
+each ship their own bundle of microservices and infrastructure
+files (nginx configs, supervisor units), and are deployed
+independently. The split keeps the public framework repo clean
+while letting both consumers move at their own pace.
 
 ---
 
