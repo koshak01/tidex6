@@ -28,6 +28,7 @@ members = [
     "examples/private-payroll",
     "programs/tidex6-caller",
     "programs/tidex6-confidential-amounts",
+    "programs/tidex6-tip-jar",
     "programs/tidex6-verifier",
 ]
 

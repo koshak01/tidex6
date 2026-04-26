@@ -1,0 +1,28 @@
+[package]
+name = "tidex6-tip-jar"
+description = "Reference integration example: a third-party Anchor program that uses tidex6 as a privacy primitive via Cross-Program Invocation (CPI). Anyone can `tip` a creator with a fixed-denomination shielded deposit; the creator later redeems the note through the regular tidex6 withdraw path. Demonstrates that tidex6 is composable Solana infrastructure, not a standalone app."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "tidex6_tip_jar"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "1.0.0"
+tidex6-verifier = { path = "../tidex6-verifier", features = ["cpi"] }
+
+[lints]
+workspace = true
