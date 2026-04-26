@@ -4,12 +4,17 @@ Reference integration example: a third-party Anchor program that
 uses [`tidex6-verifier`](../tidex6-verifier/) as a **privacy
 primitive** via Cross-Program Invocation.
 
-**Live on Solana mainnet** at
+**Live on Solana mainnet, OtterSec-verified** at
 [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
-(deploy tx [`2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg`](https://solscan.io/tx/2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg),
-slot 415772933, 95 KB BPF). Upgrade authority retained by the
-project — this is a reference example, not consensus-critical
-infrastructure.
+(latest deploy tx
+[`5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`](https://solscan.io/tx/5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP),
+executable hash `d472146fa4d8b4f3bade8354ddf6480a02b91b95a13321681244a1bb018b66d9`,
+~96 KB BPF). Embeds a `solana_security_txt!` block so explorers
+display the project name, source URL, and `source_release =
+"2.5.20"`. Public verification badge:
+<https://verify.osec.io/status/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x>.
+Upgrade authority retained by the project — this is a reference
+example, not consensus-critical infrastructure.
 
 > **What this answers:** "Can my own protocol on Solana use tidex6
 > for privacy without rewriting half of it?" — Yes, in about thirty
