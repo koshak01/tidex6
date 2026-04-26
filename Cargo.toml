@@ -14,6 +14,12 @@ exclude = [
     # in the workspace members list or the normal `cargo build`
     # would try to compile them and fail on stable.
     "crates/tidex6-core/fuzz",
+    # The WASM prover targets wasm32-unknown-unknown and pulls in
+    # browser-only crates (getrandom/js, wasm-bindgen). It is built
+    # separately via `wasm-pack build crates/tidex6-prover-wasm`.
+    # Keeping it in workspace members would force every host build
+    # to compile WASM-only deps and fail.
+    "crates/tidex6-prover-wasm",
 ]
 members = [
     "crates/tidex6-circuits",
@@ -35,7 +41,7 @@ members = [
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
-version = "2.5.19"
+version = "2.5.20"
 license = "MIT OR Apache-2.0"
 authors = ["tidex6 contributors"]
 repository = "https://github.com/koshak01/tidex6"

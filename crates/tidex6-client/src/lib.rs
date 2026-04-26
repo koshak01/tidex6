@@ -75,7 +75,9 @@ pub mod withdraw;
 pub use accountant::{AccountantEntry, AccountantScanner};
 pub use deposit::{DepositBuilder, DepositOutcome};
 pub use pool::PrivatePool;
-pub use withdraw::{WithdrawBuilder, WithdrawOutcome};
+pub use withdraw::{
+    DEFAULT_RELAYER_PUBKEY_BASE58, DEFAULT_RELAYER_URL, WithdrawBuilder, WithdrawOutcome,
+};
 
 // Re-export commonly needed types so consumers can use the SDK
 // without pulling in tidex6-core directly for trivial types.

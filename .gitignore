@@ -50,3 +50,7 @@ target/deploy/*.json
 
 # Video recordings (local, uploaded separately to YouTube/Loom)
 /timeline/
+
+# wasm-pack output — regenerated via `wasm-pack build` and published
+# to the tidex6-web static dir, not checked in to the source tree.
+crates/tidex6-prover-wasm/pkg/

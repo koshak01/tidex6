@@ -122,9 +122,12 @@ impl PrivatePool {
     }
 
     /// Build a fresh `PoolIndexer` bound to this pool's PDA and
-    /// the current cluster's RPC URL. Used by the withdraw
-    /// builder to rebuild the offchain Merkle tree.
-    pub(crate) fn indexer(&self) -> PoolIndexer {
+    /// the current cluster's RPC URL. Used by the withdraw builder
+    /// to rebuild the offchain Merkle tree, and by external
+    /// integrators (e.g. tidex6-web's WASM withdraw flow) that need
+    /// to fetch a Merkle path for a commitment without going through
+    /// `WithdrawBuilder::send`.
+    pub fn indexer(&self) -> PoolIndexer {
         PoolIndexer::new(self.cluster.url(), self.pool_pda)
     }
 
