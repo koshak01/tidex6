@@ -5229,6 +5229,7 @@ name = "tidex6-tip-jar"
 version = "2.5.20"
 dependencies = [
  "anchor-lang",
+ "solana-security-txt",
  "tidex6-verifier",
 ]
 

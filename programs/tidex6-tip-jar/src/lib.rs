@@ -67,6 +67,23 @@ use tidex6_verifier::program::Tidex6Verifier;
 
 declare_id!("5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x");
 
+// Embed project metadata in the program's `.security.txt` section
+// so explorers (Solscan, SolanaFM) and `solana-verify` show a
+// proper version, source URL, and contact info instead of `v0.0.0`.
+// `source_release = env!("CARGO_PKG_VERSION")` pins the displayed
+// version to the workspace `version` field at compile time.
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "tidex6-tip-jar",
+    project_url: "https://tidex6.com",
+    contacts: "email:koshak01@users.noreply.github.com",
+    policy: "https://github.com/koshak01/tidex6/blob/master/SECURITY.md",
+    preferred_languages: "en,ru",
+    source_code: "https://github.com/koshak01/tidex6/tree/master/programs/tidex6-tip-jar",
+    source_release: env!("CARGO_PKG_VERSION"),
+    auditors: "Reference CPI integration example — not consensus-critical, see docs/release/security.md"
+}
+
 #[program]
 pub mod tidex6_tip_jar {
     use super::*;
