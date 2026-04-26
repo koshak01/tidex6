@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "aes-gcm",
  "ark-bn254",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-prover-wasm"
-version = "2.5.19"
+version = "2.5.20"
 dependencies = [
  "ark-bn254",
  "ark-ff",
