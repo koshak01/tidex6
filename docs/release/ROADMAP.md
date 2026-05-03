@@ -91,6 +91,13 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 - Incoming-only viewing key for tax-office-level disclosure (sees deposits but not spends)
 - Wallet-adapter integration for major Solana wallets
 
+### Auditor key lifecycle (forward secrecy via HD derivation)
+- BIP32-style hierarchical-deterministic auditor keys: fund publishes one Master Public Key + chain code; donors derive `epoch_pk = MPK + H(chain_code, epoch) · G` locally, fund derives the matching `epoch_sk = msk + H(chain_code, epoch)` only when the audit window opens
+- Math-grade isolation between epochs: leaking `epoch_sk_2026` exposes only 2026 deposits — `master_sk` and other epochs remain mathematically uncompromised, no key-destruction discipline required to bound the blast radius (epoch_sk leaks **cannot** be used to derive sibling epochs by the one-way property of the derivation hash)
+- Stack we already have: Poseidon hash + Baby Jubjub ECDH + AES-GCM. Zero new cryptographic primitives, no pairings, no academic-grade FSE/HIBE
+- Backward-compatible: v0.1 single-key envelopes continue to decrypt unchanged; v0.2 introduces the derivation as an opt-in upgrade path
+- Bounds the v0.1 limit documented in `security.md` §3A: leak of an auditor secret no longer reveals "every past memo" — only the single epoch it was issued for
+
 ### Public trusted setup ceremony
 - 10–20 independent contributors
 - Public coordination via GitHub and IPFS
