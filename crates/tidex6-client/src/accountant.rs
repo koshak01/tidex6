@@ -122,6 +122,40 @@ impl<'a> AccountantScanner<'a> {
     }
 }
 
+/// A memo envelope as stored on-chain — raw public bytes, NO decryption.
+/// The relayer serves these to the browser, which decrypts locally with
+/// its own ML-KEM secret (the secret never leaves the tab).
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct MemoEnvelope {
+    pub commitment_hex: String,
+    pub denomination: u64,
+    pub envelope_hex: String,
+}
+
+/// List every finalized memo envelope of the v2 program — raw bytes, no
+/// decryption, no secret. Read-only public data the browser scans itself.
+#[allow(deprecated)]
+pub fn list_memo_envelopes(rpc: &RpcClient, program_id: Pubkey) -> Result<Vec<MemoEnvelope>> {
+    let accounts = rpc
+        .get_program_accounts_with_config(&program_id, memo_accounts_config())
+        .context("getProgramAccounts for memo accounts failed")?;
+    let mut out = Vec::new();
+    for (_pubkey, account) in accounts {
+        let Some(memo) = decode_memo(&account.data) else {
+            continue;
+        };
+        if !memo.is_finalized {
+            continue;
+        }
+        out.push(MemoEnvelope {
+            commitment_hex: hex::encode(memo.commitment),
+            denomination: memo.denomination,
+            envelope_hex: hex::encode(&memo.data),
+        });
+    }
+    Ok(out)
+}
+
 /// What a recipient recovers when scanning for their own payments: the
 /// note's spend material plus the memo and amount. Enough to withdraw
 /// without ever having been handed the note (stealth, A9).
