@@ -29,6 +29,7 @@ use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::rngs::StdRng;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 
@@ -55,6 +56,13 @@ use crate::pool::PrivatePool;
 pub const DEFAULT_RELAYER_URL: &str = "https://relayer.tidex6.com";
 pub const DEFAULT_RELAYER_PUBKEY_BASE58: Option<&str> =
     Some("ED1HHGK6evjLyFCF9jWw8iXjAXfi2Xz4zaTHMcBNzaK9");
+
+/// Compute-budget for the withdraw tx. The Groth16 alt_bn128 verify is
+/// CU-heavy and the Solana default (200k/ix) is tight; explicit headroom
+/// avoids a CU-exceeded failure under load. The priority fee helps the tx
+/// land during mainnet congestion.
+const WITHDRAW_CU_LIMIT: u32 = 400_000;
+const WITHDRAW_PRIORITY_FEE_MICROLAMPORTS: u64 = 20_000;
 
 /// Submission mode for a withdraw. `Direct` preserves the legacy
 /// behavior (user pays fee, recipient linked on-chain). `ViaRelayer`
@@ -344,6 +352,10 @@ impl<'a> WithdrawBuilder<'a> {
                 // what the onchain verifier reduces. fee = 0.
                 program
                     .request()
+                    .instruction(ComputeBudgetInstruction::set_compute_unit_limit(WITHDRAW_CU_LIMIT))
+                    .instruction(ComputeBudgetInstruction::set_compute_unit_price(
+                        WITHDRAW_PRIORITY_FEE_MICROLAMPORTS,
+                    ))
                     .accounts(verifier_accounts::Withdraw {
                         pool: self.pool.pool_pda(),
                         vault: self.pool.vault_pda(),
@@ -503,6 +515,10 @@ impl PrivatePool {
 
         let signature = program
             .request()
+            .instruction(ComputeBudgetInstruction::set_compute_unit_limit(WITHDRAW_CU_LIMIT))
+            .instruction(ComputeBudgetInstruction::set_compute_unit_price(
+                WITHDRAW_PRIORITY_FEE_MICROLAMPORTS,
+            ))
             .accounts(verifier_accounts::Withdraw {
                 pool: self.pool_pda(),
                 vault: self.vault_pda(),

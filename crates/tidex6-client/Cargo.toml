@@ -27,6 +27,7 @@ solana-rpc-client = "3"
 solana-rpc-client-api = "3"
 solana-account-decoder-client-types = "3"
 solana-signature = "3"
+solana-compute-budget-interface = "3"
 solana-transaction-status = "3"
 
 # ADR-011: via_relayer path posts the proof to an HTTP endpoint
