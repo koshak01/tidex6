@@ -242,6 +242,116 @@ impl<'a> DepositBuilder<'a> {
     }
 }
 
+/// Outcome of a [`PrivatePool::deposit_raw`]. Same as [`DepositOutcome`]
+/// but carries no note — the caller (e.g. the browser wasm-prover) built
+/// the note locally and keeps it; the server never saw the secret.
+#[derive(Debug, Clone)]
+pub struct DepositRawOutcome {
+    pub signature: Signature,
+    pub leaf_index: u64,
+    pub memo_account: Pubkey,
+}
+
+impl PrivatePool {
+    /// Submit a deposit whose `commitment` and ML-KEM `envelope_bytes`
+    /// were built elsewhere — the browser generated the note and sealed
+    /// the envelope, so the server pays and submits but never sees the
+    /// secret material. Mirrors [`DepositBuilder::send`] minus
+    /// note/envelope generation. Used by the web solana-service.
+    pub fn deposit_raw(
+        &self,
+        payer: &Keypair,
+        commitment: [u8; 32],
+        envelope_bytes: Vec<u8>,
+        revoke_window_secs: i64,
+    ) -> Result<DepositRawOutcome> {
+        let program = self.program_handle(payer)?;
+        let payer_pubkey = {
+            use anchor_client::Signer;
+            <Keypair as Signer>::pubkey(payer)
+        };
+        let denomination_lamports = self.denomination().lamports();
+
+        // Initialise the pool on first use.
+        let rpc = program.rpc();
+        let needs_init = rpc
+            .get_account(&self.pool_pda())
+            .map(|account| account.data.is_empty())
+            .unwrap_or(true);
+        if needs_init {
+            program
+                .request()
+                .accounts(verifier_accounts::InitPool {
+                    pool: self.pool_pda(),
+                    vault: self.vault_pda(),
+                    payer: payer_pubkey,
+                    system_program: system_program::ID,
+                })
+                .args(verifier_instruction::InitPool {
+                    denomination: denomination_lamports,
+                })
+                .signer(payer)
+                .send()
+                .context("init_pool transaction failed to confirm")?;
+        }
+
+        let memo_account = self.memo_pda(&commitment);
+        let total_len = envelope_bytes.len() as u32;
+
+        // Deposit transaction carries chunk 0 and opens the memo account.
+        let chunk0_end = MEMO_CHUNK_LEN.min(envelope_bytes.len());
+        let chunk0 = envelope_bytes[..chunk0_end].to_vec();
+        let signature = program
+            .request()
+            .accounts(verifier_accounts::Deposit {
+                pool: self.pool_pda(),
+                vault: self.vault_pda(),
+                memo: memo_account,
+                payer: payer_pubkey,
+                system_program: system_program::ID,
+            })
+            .args(verifier_instruction::Deposit {
+                commitment,
+                memo_total_len: total_len,
+                revoke_window: revoke_window_secs,
+                memo_chunk: chunk0,
+            })
+            .signer(payer)
+            .send()
+            .context("deposit transaction failed to confirm")?;
+
+        // Append the remaining envelope chunks.
+        let mut offset = chunk0_end;
+        while offset < envelope_bytes.len() {
+            let end = (offset + MEMO_CHUNK_LEN).min(envelope_bytes.len());
+            let chunk = envelope_bytes[offset..end].to_vec();
+            program
+                .request()
+                .accounts(verifier_accounts::AppendMemo {
+                    memo: memo_account,
+                    depositor: payer_pubkey,
+                })
+                .args(verifier_instruction::AppendMemo {
+                    commitment,
+                    offset: offset as u32,
+                    chunk,
+                })
+                .signer(payer)
+                .send()
+                .with_context(|| format!("append_memo transaction failed at offset {offset}"))?;
+            offset = end;
+        }
+
+        let leaf_index = fetch_leaf_index(&program, &signature)?;
+
+        Ok(DepositRawOutcome {
+            signature,
+            leaf_index,
+            memo_account,
+        })
+    }
+}
+
 /// Fetch a transaction and parse its
 /// `tidex6-v2-deposit:<leaf>:<commitment>:<root>` log line.
 fn fetch_leaf_index(
