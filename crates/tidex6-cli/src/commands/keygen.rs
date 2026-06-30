@@ -1,19 +1,20 @@
-//! `tidex6 keygen` — generate a fresh spending key, derive the
-//! matching viewing key, generate a fresh Shielded Memo auditor
-//! keypair, and write all four to a JSON identity file.
+//! `tidex6 keygen` — generate a fresh spending key, derive the matching
+//! viewing key, generate a fresh ML-KEM-768 keypair, and write all of
+//! it to a JSON identity file.
 //!
 //! The identity file is the user's offline capability set:
 //!
-//! - `spending_key` — authorises spending every deposit the wallet
-//!   will ever make. Never share.
-//! - `viewing_key` — read-only, shareable with a trusted party for
-//!   selective disclosure of the user's own deposit history.
-//!   Derived from the spending key via Poseidon.
-//! - `auditor_secret_key` / `auditor_public_key` — the Baby Jubjub
-//!   ECDH keypair used to read encrypted memos. The user publishes
-//!   the public key (Kai gives his to Lena); whoever holds the
-//!   secret key can decrypt every memo addressed to the public key
-//!   via `tidex6 accountant scan`.
+//! - `spending_key` — authorises spending every deposit this wallet
+//!   makes. Never share.
+//! - `viewing_key` — read-only, shareable for selective disclosure of
+//!   the user's own deposit history. Derived via Poseidon.
+//! - `mlkem_public` / `mlkem_secret` — the post-quantum ML-KEM-768
+//!   keypair (ADR-014). The user publishes the public key; whoever
+//!   holds it can address the user as a **stealth recipient** (the
+//!   note travels encrypted to this key) or as an **auditor** (memo +
+//!   amount encrypted to this key). The matching secret, held only in
+//!   this file, opens both: `tidex6 accountant scan` (auditor view) and
+//!   the recipient scan (find my own payments).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,73 +23,56 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
-use tidex6_core::elgamal::{AuditorPublicKey, AuditorSecretKey};
 use tidex6_core::keys::{SpendingKey, ViewingKey};
+use tidex6_core::pqc::{self, PqcSecretKey};
 
-/// Arguments for `tidex6 keygen` when invoked without a subcommand —
-/// the default mode generates a new identity file.
+/// Arguments for `tidex6 keygen`.
 #[derive(Args, Debug)]
 pub struct KeygenArgs {
-    /// Optional subcommand that performs a single utility action
-    /// against an existing identity file (e.g., print the auditor
-    /// public key). When omitted, a fresh identity is generated.
     #[command(subcommand)]
     pub command: Option<KeygenCommand>,
 
     /// Where to write the identity file. Defaults to
-    /// `~/.tidex6/identity.json`, creating the directory if it does
-    /// not exist yet.
+    /// `~/.tidex6/identity.json`.
     #[arg(long)]
     pub out: Option<PathBuf>,
 
-    /// Overwrite the output file if it already exists. Without this
-    /// flag the command refuses to clobber an existing identity to
-    /// avoid accidentally destroying a user's wallet.
+    /// Overwrite an existing identity file.
     #[arg(long, default_value_t = false)]
     pub force: bool,
 }
 
-/// Utility subcommands that read an existing identity file rather
-/// than generate a new one.
+/// Utility subcommands that read an existing identity file.
 #[derive(Subcommand, Debug)]
 pub enum KeygenCommand {
-    /// Print the Baby Jubjub auditor public key of the identity
-    /// file as a single hex line. This is the value the user hands
-    /// to a depositor so the depositor can encrypt memos under it.
-    PrintAuditorPk {
+    /// Print the ML-KEM-768 public key of the identity as a single hex
+    /// line — the value a depositor uses with `--recipient` (stealth)
+    /// or `--auditor`.
+    PrintMlkemPk {
         /// Identity file to read. Defaults to `~/.tidex6/identity.json`.
         #[arg(long)]
         identity: Option<PathBuf>,
     },
 }
 
-/// On-disk representation of a tidex6 wallet identity.
-///
-/// Stored unencrypted in the MVP — users are expected to keep this
-/// file on an encrypted disk or in a trusted location. Passphrase
-/// encryption and OS-keychain delegation are tracked for v0.2.
+/// On-disk representation of a tidex6 wallet identity (v3).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IdentityFile {
-    /// Protocol version of the identity file layout. Used for
-    /// forward compatibility when the schema evolves. v1 had only
-    /// `spending_key` and `viewing_key`; v2 adds the auditor keys.
+    /// Identity-file schema version. v3 replaces the v2 Baby Jubjub
+    /// auditor keys with a post-quantum ML-KEM-768 keypair.
     pub version: u32,
     /// Lowercase hex of the raw `SpendingKey` bytes.
     pub spending_key: String,
     /// Lowercase hex of the derived `ViewingKey` bytes.
     pub viewing_key: String,
-    /// Lowercase hex of the Baby Jubjub auditor secret key.
-    /// Empty string in v1 files (pre-Shielded-Memo).
-    #[serde(default)]
-    pub auditor_secret_key: String,
-    /// Lowercase hex of the Baby Jubjub auditor public key.
-    /// Empty string in v1 files.
-    #[serde(default)]
-    pub auditor_public_key: String,
+    /// Lowercase hex of the ML-KEM-768 public (encapsulation) key.
+    pub mlkem_public: String,
+    /// Lowercase hex of the ML-KEM-768 secret (decapsulation) key.
+    pub mlkem_secret: String,
 }
 
 impl IdentityFile {
-    pub const CURRENT_VERSION: u32 = 2;
+    pub const CURRENT_VERSION: u32 = 3;
 
     /// Read an identity file from disk.
     pub fn load(path: &Path) -> Result<Self> {
@@ -99,26 +83,24 @@ impl IdentityFile {
         Ok(ident)
     }
 
-    /// Parse the stored auditor secret key into the core type.
-    /// Returns a clear error if the identity file is from v1 and
-    /// therefore has no auditor material.
-    pub fn load_auditor_secret_key(&self) -> Result<AuditorSecretKey> {
-        if self.auditor_secret_key.is_empty() {
+    /// Parse the stored ML-KEM secret key into the core type.
+    pub fn load_mlkem_secret(&self) -> Result<PqcSecretKey> {
+        if self.mlkem_secret.is_empty() {
             return Err(anyhow!(
-                "identity file does not contain auditor keys — regenerate with `tidex6 keygen --force`"
+                "identity file has no ML-KEM keys — regenerate with `tidex6 keygen --force`"
             ));
         }
-        let bytes = hex_to_bytes_32(&self.auditor_secret_key)
-            .context("invalid auditor_secret_key in identity file")?;
-        AuditorSecretKey::from_bytes(bytes)
-            .map_err(|err| anyhow!("auditor secret key is not a valid Baby Jubjub scalar: {err}"))
+        let bytes = hex::decode(self.mlkem_secret.trim())
+            .context("invalid mlkem_secret hex in identity file")?;
+        PqcSecretKey::from_bytes(&bytes)
+            .map_err(|err| anyhow!("stored ML-KEM secret key is invalid: {err}"))
     }
 }
 
 /// Run `tidex6 keygen`.
 pub fn run(args: KeygenArgs) -> Result<()> {
     match args.command {
-        Some(KeygenCommand::PrintAuditorPk { identity }) => run_print_auditor_pk(identity),
+        Some(KeygenCommand::PrintMlkemPk { identity }) => run_print_mlkem_pk(identity),
         None => run_generate(args.out, args.force),
     }
 }
@@ -138,68 +120,59 @@ fn run_generate(out: Option<PathBuf>, force: bool) -> Result<()> {
             .with_context(|| format!("create parent directory {}", parent.display()))?;
     }
 
-    // Generate the spending key from the OS CSPRNG with rejection
-    // sampling against the BN254 scalar field, then derive the
-    // matching viewing key via Poseidon.
     let spending_key = SpendingKey::random().context("generate spending key")?;
     let viewing_key = spending_key
         .derive_viewing_key()
         .context("derive viewing key")?;
 
-    // Auditor keypair for Shielded Memo. Fresh per identity so two
-    // different wallets never share the same auditor public key.
-    let auditor_sk = AuditorSecretKey::random().context("generate auditor secret key")?;
-    let auditor_pk = auditor_sk.public_key();
+    // Post-quantum ML-KEM-768 keypair (ADR-014). Fresh per identity.
+    let (mlkem_public, mlkem_secret) = pqc::keygen();
 
     let identity = IdentityFile {
         version: IdentityFile::CURRENT_VERSION,
         spending_key: bytes_to_hex(spending_key.as_bytes()),
         viewing_key: bytes_to_hex(viewing_key.as_bytes()),
-        auditor_secret_key: bytes_to_hex(&auditor_sk.to_bytes()),
-        auditor_public_key: auditor_pk.to_hex(),
+        mlkem_public: hex::encode(mlkem_public.as_bytes()),
+        mlkem_secret: hex::encode(mlkem_secret.as_bytes()),
     };
 
     let json = serde_json::to_string_pretty(&identity).context("serialize identity file")?;
     fs::write(&output_path, json)
         .with_context(|| format!("write identity file to {}", output_path.display()))?;
 
-    println!("Generated tidex6 identity.");
+    println!("Generated tidex6 identity (ML-KEM-768, post-quantum).");
     println!("  file         : {}", output_path.display());
     println!(
         "  viewing key  : {}",
         ViewingKey::from_bytes(hex_to_bytes_32(&identity.viewing_key)?)
     );
-    println!("  auditor pk   : {}", identity.auditor_public_key);
+    println!("  ML-KEM pk    : {}…", &identity.mlkem_public[..32.min(identity.mlkem_public.len())]);
     println!();
     println!("The spending key controls every deposit you make. Keep this file safe.");
-    println!("The viewing key is read-only — share it with your accountant if you want");
-    println!("them to see your deposit history.");
-    println!();
-    println!("The auditor public key (`auditor pk` above) is the value you hand to");
-    println!("someone who wants to send you memo-annotated deposits (`tidex6 deposit");
-    println!("--auditor <pk> --memo ...`). The matching secret lives only in this file.");
+    println!("The ML-KEM public key (full value via `tidex6 keygen print-mlkem-pk`) is what");
+    println!("you hand to a sender: they encrypt the payment to you (`--recipient <pk>`) or a");
+    println!("memo for you as auditor (`--auditor <pk>`). The matching secret lives only here.");
 
     Ok(())
 }
 
-fn run_print_auditor_pk(identity: Option<PathBuf>) -> Result<()> {
+fn run_print_mlkem_pk(identity: Option<PathBuf>) -> Result<()> {
     let path = match identity {
         Some(p) => p,
         None => resolve_output_path(None)?,
     };
     let ident = IdentityFile::load(&path)?;
-    if ident.auditor_public_key.is_empty() {
+    if ident.mlkem_public.is_empty() {
         return Err(anyhow!(
-            "identity file at {} has no auditor keys (v1 format); regenerate with `tidex6 keygen --force`",
+            "identity file at {} has no ML-KEM keys; regenerate with `tidex6 keygen --force`",
             path.display()
         ));
     }
-    println!("{}", ident.auditor_public_key);
+    println!("{}", ident.mlkem_public);
     Ok(())
 }
 
-/// Resolve `~/.tidex6/identity.json` as the default location, or
-/// use the caller-supplied path verbatim.
+/// Resolve `~/.tidex6/identity.json` as the default location.
 pub fn resolve_output_path(out: Option<PathBuf>) -> Result<PathBuf> {
     match out {
         Some(path) => Ok(path),
@@ -223,10 +196,7 @@ fn bytes_to_hex(bytes: &[u8; 32]) -> String {
 fn hex_to_bytes_32(hex: &str) -> Result<[u8; 32]> {
     let stripped = hex.strip_prefix("0x").unwrap_or(hex);
     if stripped.len() != 64 {
-        return Err(anyhow!(
-            "expected 64 hex characters, got {}",
-            stripped.len()
-        ));
+        return Err(anyhow!("expected 64 hex characters, got {}", stripped.len()));
     }
     let bytes = hex::decode(stripped).context("decode hex")?;
     bytes
@@ -234,10 +204,10 @@ fn hex_to_bytes_32(hex: &str) -> Result<[u8; 32]> {
         .map_err(|_| anyhow!("decoded hex is not 32 bytes"))
 }
 
-/// Verify that an input string is a valid AuditorPublicKey hex
-/// encoding. Used by the deposit subcommand to fail fast on bad
-/// input before contacting the chain.
-#[allow(dead_code)]
-pub fn parse_auditor_pk(input: &str) -> Result<AuditorPublicKey> {
-    AuditorPublicKey::from_hex(input).map_err(|err| anyhow!("invalid auditor public key: {err}"))
+/// Parse an ML-KEM public key from a hex string. Used by the deposit
+/// subcommand to validate `--recipient` / `--auditor` input.
+pub fn parse_mlkem_pk(input: &str) -> Result<tidex6_core::pqc::PqcPublicKey> {
+    let bytes = hex::decode(input.trim()).context("decode ML-KEM public key hex")?;
+    tidex6_core::pqc::PqcPublicKey::from_bytes(&bytes)
+        .map_err(|err| anyhow!("invalid ML-KEM public key: {err}"))
 }

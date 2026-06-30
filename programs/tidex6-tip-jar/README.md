@@ -84,9 +84,10 @@ This program compiles as part of the workspace:
 cargo check -p tidex6-tip-jar --features no-entrypoint
 ```
 
-For an actual on-chain deploy, follow the
-[`reference_deploy_runbook`](../../docs/release/) pattern — same as
-the verifier deploy, just point at this crate's `.so` instead.
+For an actual on-chain deploy, the build pattern is the same as
+for the main verifier — `cargo build-sbf` (or the Docker reproducible
+build flow used to obtain the OtterSec verification badge), then
+`solana program deploy` with this crate's `.so` artefact.
 
 ## Future use cases (sketches)
 

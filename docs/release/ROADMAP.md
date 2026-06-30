@@ -21,7 +21,7 @@ The minimum coherent system. Everything in this layer ships in working code, run
 ### Selective disclosure
 - Per-deposit ElGamal auditor tag (BN254 G1 group + Baby Jubjub for in-circuit derivation)
 - One-level viewing key (hierarchical derivation, simplified for MVP)
-- Auditor scanning tool (CLI)
+- Auditor scanning tool — both CLI (`tidex6 accountant scan`) and web UI at `tidex6.com/accountant/`
 - Offchain key sharing (hex format)
 
 ### Shielded Memo — shipped 2026-04-15, redesigned 2026-04-25 (ADR-012)
@@ -73,6 +73,21 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 - Reference Association Set Provider (offchain service)
 - Ragequit mechanism — public withdrawal if a user declines disclosure
 - Compliance-compatible privacy without KYC
+
+### Stablecoin pools (USDT, USDC)
+- Per-asset deployment: a separate finalized verifier program for each mint, sharing the same circuit and crypto core (`tidex6-circuits` + `tidex6-core` unchanged)
+- **USDT first**, **USDC second** — driven by P2P liquidity in target regions (USDT dominates retail off-ramps in Eastern Europe, the Balkans, CIS, Southeast Asia; USDC dominates DeFi)
+- Pool family lets the user choose trust assumption: SOL pool (no third-party freeze risk), USDT pool (broadest stablecoin liquidity), USDC pool (DeFi-friendly)
+- Each pool is its own finalized, non-upgradeable program — independent of the SOL verifier `2qEm…cU9C`
+- Honest disclosure of `freeze_authority` risk for stablecoin pools in `security.md` — Circle and Tether retain the technical ability to freeze the pool ATA; this is a property of the underlying mint, not of tidex6
+
+### Regulated pools (multi-auditor viewing keys)
+- Extension of ADR-007 (Shielded Memo) from one auditor per deposit to **N pool-level auditors**, including optional regulator-class auditor
+- Each deposit's memo is encrypted under N pubkeys via the existing envelope construction — any holder of a corresponding private key can decrypt, none can block or modify
+- Pool deployments by audit-set: a Black Pool (no auditor), a Montenegro Pool (viewing key with CBM + APML), an EU Pool (MiCA-compliant local financial authority), a Charity Pool (NGO/auditor viewing key) — one codebase, distinct deployments
+- The protocol gives the regulator a read-only audit path **without** ceding freeze authority, key escrow, or any modification right. Cooperation through audit, not through backdoor
+- Offchain-only encryption change — no circuit modification, no new trusted setup, no new VK; the existing finalized verifier continues to be used by every deployment
+- Slogan in practice: *"I grant access, not permission."* The user grants read-access to a chosen auditor set by depositing into a chosen pool; nobody — neither the protocol nor a regulator — gains permission to block
 
 ### Relayer hardening
 - HSM-backed hot wallet
@@ -126,10 +141,11 @@ Strategic direction. Research and engineering bets that compound the MVP.
 - Network effect: every new application strengthens privacy for every existing user
 - Coordinated via a singleton shared-pool program
 
-### Multi-asset support
-- SPL tokens in addition to SOL
-- Per-asset generator points for unified pool
-- One pool, many assets, one anonymity set
+### Universal shared pool (multi-asset)
+- Evolution of the per-asset stablecoin pools shipped in v0.2: a single shared pool that accepts multiple SPL tokens through `mint`-encoded commitments — `commitment = Poseidon(secret, nullifier, mint, amount)`
+- One anonymity set across all integrators and all supported assets — anonymity grows linearly with cross-asset adoption
+- Per-asset generator points for the unified balance accounting
+- Requires a new circuit, new VK, new finalized verifier program (separate from v0.1 SOL verifier and v0.2 per-asset verifiers, all of which continue to operate)
 
 ### Variable denominations
 - Range proofs inside the deposit circuit

@@ -52,9 +52,18 @@ target/deploy/*.json
 .claude/
 .DS_Store
 
+# Collective internal tooling — never published to the public submission repo.
+# synapse.toml holds secret + handshake_key; .mcp.json points at a local-only
+# synapse-bridge binary; .agents/ holds locally-installed (incl. proprietary)
+# agent skills such as the Colosseum Copilot.
+synapse.toml
+.mcp.json
+.agents/
+
 # Video recordings (local, uploaded separately to YouTube/Loom)
 /timeline/
 
 # wasm-pack output — regenerated via `wasm-pack build` and published
 # to the tidex6-web static dir, not checked in to the source tree.
 crates/tidex6-prover-wasm/pkg/
+_analysis/

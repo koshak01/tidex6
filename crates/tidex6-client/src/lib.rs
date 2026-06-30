@@ -70,11 +70,13 @@
 pub mod accountant;
 pub mod deposit;
 pub mod pool;
+pub mod refund;
 pub mod withdraw;
 
-pub use accountant::{AccountantEntry, AccountantScanner};
+pub use accountant::{AccountantEntry, AccountantScanner, RecipientEntry, RecipientScanner};
 pub use deposit::{DepositBuilder, DepositOutcome};
 pub use pool::PrivatePool;
+pub use refund::RefundBuilder;
 pub use withdraw::{
     DEFAULT_RELAYER_PUBKEY_BASE58, DEFAULT_RELAYER_URL, WithdrawBuilder, WithdrawOutcome,
 };

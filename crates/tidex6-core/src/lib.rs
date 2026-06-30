@@ -21,9 +21,11 @@
 //! `docs/release/security.md`.
 
 pub mod elgamal;
+pub mod envelope;
 pub mod keys;
 pub mod memo;
 pub mod merkle;
 pub mod note;
 pub mod poseidon;
+pub mod pqc;
 pub mod types;

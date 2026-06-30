@@ -41,6 +41,14 @@ hex = "0.4"
 # CSPRNG through `SysRng`.
 rand = { version = "0.10", default-features = false, features = ["std", "std_rng", "sys_rng"] }
 
+# Post-quantum encryption (ADR-002 v0.2 / roadmap A6): ML-KEM-768 (NIST
+# FIPS 203) key-encapsulation + ChaCha20-Poly1305 AEAD. Replaces the
+# Baby Jubjub ECDH auditor path with a quantum-resistant envelope.
+# Both crates pin the older rand_core (0.6) via `aead::OsRng`, kept
+# separate from the crate's rand 0.10 to avoid a RngCore trait clash.
+ml-kem = "0.2"
+chacha20poly1305 = "0.10"
+
 [dev-dependencies]
 # solana-poseidon is a dev-dependency here because tidex6-core is a
 # pure-primitives library and must not pull in Solana machinery at the

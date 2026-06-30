@@ -73,6 +73,21 @@
 - Ragequit механизм — публичный withdrawal если пользователь отказывается от disclosure
 - Compliance-compatible privacy без KYC
 
+### Stablecoin-пулы (USDT, USDC)
+- Per-asset деплой: отдельный finalized verifier program под каждый mint, общий circuit и crypto core (`tidex6-circuits` + `tidex6-core` без изменений)
+- **USDT первым**, **USDC вторым** — диктуется P2P-ликвидностью в целевых регионах (USDT доминирует в retail off-ramps Восточной Европы, Балкан, СНГ, ЮВ Азии; USDC доминирует в DeFi)
+- Семейство пулов даёт пользователю выбор trust assumption: SOL pool (нет third-party freeze risk), USDT pool (самая широкая stablecoin ликвидность), USDC pool (DeFi-friendly)
+- Каждый pool — свой finalized, non-upgradeable program, независимый от SOL верификатора `2qEm…cU9C`
+- Открытая декларация риска `freeze_authority` для stablecoin-пулов в `security.md` — Circle и Tether сохраняют техническую возможность заморозить pool ATA; это свойство самого mint, а не tidex6
+
+### Regulated pools (multi-auditor viewing keys)
+- Расширение ADR-007 (Shielded Memo): от одного auditor per deposit к **N pool-level auditors**, включая опциональный regulator-класс
+- Memo каждого депозита шифруется под N pubkeys через существующий envelope-механизм — любой обладатель соответствующего private key может расшифровать, никто не может блокировать или модифицировать
+- Деплои пулов по audit-set: Black Pool (без аудитора), Montenegro Pool (viewing key у CBM + APML), EU Pool (MiCA-compliant local financial authority), Charity Pool (viewing key у NGO/аудитора) — один codebase, разные деплои
+- Протокол даёт регулятору read-only путь к audit **без** передачи freeze authority, key escrow или права модификации. Cooperation through audit, not through backdoor
+- Изменение только в offchain-шифровании — circuit не меняется, новый trusted setup не нужен, VK не меняется; существующий finalized верификатор продолжает использоваться всеми деплоями
+- Слоган в действии: *«I grant access, not permission.»* Пользователь грантит read-access выбранному audit-set, кладя в выбранный pool; ни протокол, ни регулятор не получают permission блокировать
+
 ### Эргономичные macros
 - `#[privacy_program]` — module-level macro
 - `#[private_deposit]`, `#[private_withdraw]`, `#[with_auditor]` — function-level macros
@@ -83,6 +98,13 @@
 - Иерархический key split: spending key → full viewing key → incoming-only viewing key + nullifier key
 - Incoming-only viewing key для disclosure уровня налоговой (видит депозиты, не видит spends)
 - Wallet-adapter интеграция с основными Solana кошельками
+
+### Жизненный цикл аудиторских ключей (forward secrecy через HD-derivation)
+- BIP32-style hierarchical-deterministic auditor keys: фонд публикует один Master Public Key + chain code; donors локально вычисляют `epoch_pk = MPK + H(chain_code, epoch) · G`, фонд вычисляет соответствующий `epoch_sk = msk + H(chain_code, epoch)` только в момент открытия audit-окна
+- Математически строгая изоляция эпох: утечка `epoch_sk_2026` раскрывает только депозиты 2026 года — `master_sk` и другие эпохи остаются криптографически защищены, дисциплина уничтожения ключей не требуется чтобы ограничить blast radius (утечка `epoch_sk` **не позволяет** derive sibling-эпохи в силу one-way property функции derivation hash)
+- Стек уже имеется: Poseidon hash + Baby Jubjub ECDH + AES-GCM. Никакой новой криптографической математики, никаких pairing-схем, никакого academic-grade FSE/HIBE
+- Backward-compatible: v0.1 однокорневые envelope-ключи продолжают расшифровываться без изменений; v0.2 добавляет derivation как opt-in upgrade path
+- Закрывает v0.1 ограничение задокументированное в `security.md` §3A: утечка auditor secret больше не раскрывает «всю историю memo» — только одну эпоху, под которую этот ключ был выпущен
 
 ### Публичный trusted setup ceremony
 - 10–20 независимых контрибьюторов
@@ -111,10 +133,11 @@
 - Network effect: каждое новое приложение усиливает privacy для каждого существующего пользователя
 - Координируется через singleton shared-pool program
 
-### Multi-asset support
-- SPL tokens в дополнение к SOL
-- Per-asset generator points для unified pool
-- Один pool, много активов, один anonymity set
+### Universal shared pool (multi-asset)
+- Эволюция per-asset stablecoin-пулов из v0.2: один общий pool, принимающий несколько SPL-токенов через `mint`-encoded commitments — `commitment = Poseidon(secret, nullifier, mint, amount)`
+- Один anonymity set между всеми интеграторами и всеми поддерживаемыми активами — anonymity растёт линейно с cross-asset adoption
+- Per-asset generator points для unified balance accounting
+- Требует новый circuit, новую VK, новый finalized verifier program (отдельно от v0.1 SOL верификатора и v0.2 per-asset верификаторов — все они продолжают работать)
 
 ### Переменные деноминации
 - Range proofs внутри deposit circuit

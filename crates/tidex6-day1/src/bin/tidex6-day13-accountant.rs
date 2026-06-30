@@ -1,24 +1,15 @@
-//! Day-13 Accountant flight harness.
+//! Day-13 Accountant flight harness (v2, ML-KEM).
 //!
-//! Exercises the end-to-end Shielded Memo round-trip against a live
-//! Solana cluster:
+//! Exercises the end-to-end ML-KEM memo round-trip against a live
+//! cluster on the v2 verifier:
 //!
-//!   1. Generate a fresh auditor keypair in memory. Nothing touches
-//!      disk — the harness is idempotent and leaves no cached state.
-//!   2. Send three deposits into the `0.1 SOL` pool, each with a
-//!      unique memo plaintext encrypted under the auditor public
-//!      key. `tidex6-client::PrivatePool` drives the tx, which now
-//!      carries both the verifier `deposit` instruction and an SPL
-//!      Memo instruction in a single atomic transaction.
-//!   3. Run `tidex6-client::AccountantScanner::scan` against the
-//!      live pool with the matching auditor secret key.
-//!   4. Assert that exactly the three memos come back, in deposit
-//!      order, with their plaintexts intact.
-//!
-//! Failure modes — tx rejection, missing memo instruction, tag
-//! mismatch, plaintext corruption, extra or missing entry — are
-//! surfaced as non-zero exit codes with an explicit PASS/FAIL line
-//! so the harness can gate CI.
+//!   1. Generate a fresh ML-KEM-768 keypair in memory (auditor =
+//!      recipient = self for the test).
+//!   2. Send three deposits into the `0.1 SOL` pool, each sealing a
+//!      unique memo for that key (recipient slot + auditor slot).
+//!   3. Run `tidex6-client::AccountantScanner::scan` against the v2
+//!      program with the matching ML-KEM secret.
+//!   4. Assert that the three memos come back with plaintexts intact.
 //!
 //! Run with:
 //!
@@ -33,16 +24,13 @@ use anyhow::{Context, Result, anyhow};
 use solana_keypair::{Keypair, read_keypair_file};
 
 use tidex6_client::{AccountantScanner, PrivatePool};
-use tidex6_core::elgamal::AuditorSecretKey;
 use tidex6_core::note::Denomination;
+use tidex6_core::pqc;
 
-/// Denomination used for the harness. Small so repeated runs do not
-/// burn mainnet SOL; still large enough to exercise every code path.
+/// Denomination used for the harness.
 const TEST_DENOMINATION: Denomination = Denomination::OneTenthSol;
 
-/// The three memo plaintexts. Distinctive strings so a wrong
-/// pairing between plaintext and decryption result is obvious in
-/// the failure output.
+/// The three memo plaintexts.
 const MEMO_PLAINTEXTS: &[&str] = &[
     "day13-kai-rent-march-2026",
     "day13-kai-medicine-april-2026",
@@ -50,8 +38,8 @@ const MEMO_PLAINTEXTS: &[&str] = &[
 ];
 
 fn main() -> Result<()> {
-    println!("tidex6 Day-13 accountant flight harness");
-    println!("=======================================");
+    println!("tidex6 Day-13 accountant flight harness (v2, ML-KEM)");
+    println!("====================================================");
     println!();
 
     let payer = load_default_keypair().context("failed to load Solana keypair")?;
@@ -62,20 +50,16 @@ fn main() -> Result<()> {
     println!("denomination  : {TEST_DENOMINATION}");
     println!();
 
-    // Generate a fresh auditor keypair. Kept entirely in memory —
-    // the whole point of this test is to verify that the depositor
-    // does not need the auditor's *secret* key and vice versa.
-    let auditor_sk =
-        AuditorSecretKey::random().context("generate auditor secret key for harness")?;
-    let auditor_pk = auditor_sk.public_key();
-    println!("auditor pk    : {}", auditor_pk.to_hex());
+    // Fresh ML-KEM keypair, in memory only. The recipient slot and the
+    // auditor slot are both sealed to this key for the test.
+    let (mlkem_public, mlkem_secret) = pqc::keygen();
+    println!("ML-KEM pk     : {}…", &hex::encode(mlkem_public.as_bytes())[..32]);
     println!();
 
     let pool = PrivatePool::connect(cluster.clone(), TEST_DENOMINATION)?;
     println!("pool PDA      : {}", pool.pool_pda());
     println!();
 
-    // Send three memo-carrying deposits.
     println!(
         "--- Sending {} memo-carrying deposits ---",
         MEMO_PLAINTEXTS.len()
@@ -84,48 +68,40 @@ fn main() -> Result<()> {
     for (index, memo_text) in MEMO_PLAINTEXTS.iter().enumerate() {
         let outcome = pool
             .deposit(&payer)
-            .with_auditor(auditor_pk)
+            .to_recipient(mlkem_public.clone())
+            .with_auditor(mlkem_public.clone())
             .with_memo(*memo_text)
+            .revoke_after(0)
             .send()
             .with_context(|| format!("deposit #{} failed", index + 1))?;
         println!(
-            "  deposit #{}: leaf {} signature {}",
+            "  deposit #{}: leaf {} memo-account {}",
             index + 1,
             outcome.leaf_index,
-            outcome.signature
+            outcome.memo_account
         );
         expected_memos.insert((*memo_text).to_string());
     }
     println!();
 
-    // Scan the pool as the auditor would.
-    println!("--- Running AccountantScanner ---");
-    let scanner = AccountantScanner::new(cluster.url(), pool.pool_pda(), &auditor_sk);
+    println!("--- Running AccountantScanner (v2, getProgramAccounts) ---");
+    let scanner = AccountantScanner::new(cluster.url(), pool.program_id(), &mlkem_secret);
     let entries = scanner.scan().context("accountant scan failed")?;
     println!("decrypted {} entries", entries.len());
     println!();
 
-    // Check that every expected memo came back and that nothing
-    // extra was decoded. We only match by plaintext: leaf-index is
-    // not deterministic because the pool might already hold prior
-    // deposits from earlier runs.
     let mut decrypted_memos: HashSet<String> = HashSet::new();
     for (i, entry) in entries.iter().enumerate() {
         let plaintext = entry.plaintext_lossy();
         println!(
-            "  [{i}] leaf={} sig={} memo={plaintext}",
-            entry.leaf_index,
-            shorten(&entry.signature, 16),
+            "  [{i}] commitment={} amount={} memo={plaintext}",
+            shorten(&entry.commitment_hex, 16),
+            entry.denomination,
         );
         decrypted_memos.insert(plaintext);
     }
     println!();
 
-    // Verify the expected set is a subset of what we decrypted —
-    // the pool may contain memos from prior runs that also decrypt
-    // under *this run's* auditor key if (by astronomically low
-    // probability) the same scalar was sampled twice, but in
-    // practice the expected set should always appear.
     let missing: Vec<String> = expected_memos
         .difference(&decrypted_memos)
         .cloned()
@@ -137,9 +113,6 @@ fn main() -> Result<()> {
         ));
     }
 
-    // Also fail if the scan somehow returned *fewer* entries than
-    // we sent — every memo-carrying deposit in this run must be
-    // visible to the auditor.
     if entries.len() < MEMO_PLAINTEXTS.len() {
         return Err(anyhow!(
             "Day-13 FAIL: expected at least {} entries, scanner returned {}",
@@ -148,14 +121,14 @@ fn main() -> Result<()> {
         ));
     }
 
-    println!("=======================================");
-    println!("Day-13 accountant harness: PASSED");
+    println!("====================================================");
+    println!("Day-13 accountant harness (v2): PASSED");
     println!(
         "  {} deposits sent, {} entries decrypted, all expected memos present.",
         MEMO_PLAINTEXTS.len(),
         entries.len()
     );
-    println!("=======================================");
+    println!("====================================================");
 
     Ok(())
 }

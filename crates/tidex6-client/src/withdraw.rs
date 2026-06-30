@@ -32,19 +32,15 @@ use ark_std::rand::rngs::StdRng;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STD;
-
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_circuits::withdraw::{
     WITHDRAW_TREE_DEPTH, WithdrawWitness, prove_withdraw, relayer_fee_bytes_from_u64,
 };
-use tidex6_core::memo::MemoEnvelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::types::Commitment;
 use tidex6_indexer::DepositRecord;
-use tidex6_verifier::accounts as verifier_accounts;
-use tidex6_verifier::instruction as verifier_instruction;
+use tidex6_verifier_v2::accounts as verifier_accounts;
+use tidex6_verifier_v2::instruction as verifier_instruction;
 
 use crate::pool::PrivatePool;
 
@@ -416,19 +412,13 @@ impl<'a> WithdrawBuilder<'a> {
             }
         };
 
-        // ADR-012: after the withdraw confirms, decrypt the on-chain
-        // memo envelope under the note's seal key. The record was
-        // fetched above so this is pure in-memory work — no extra
-        // RPC round-trip.
-        let memo_plaintext = decrypt_memo_for_recipient(
-            &deposit_record,
-            note.secret().as_bytes(),
-            note.nullifier().as_bytes(),
-        );
-
+        // In v2 the recipient already decrypted the memo from the
+        // ML-KEM envelope when they scanned the chain for this note, so
+        // the withdraw outcome no longer re-derives it. `deposit_record`
+        // is still used above for the leaf index.
         Ok(WithdrawOutcome {
             signature,
-            memo_plaintext,
+            memo_plaintext: None,
         })
     }
 }
@@ -455,28 +445,6 @@ struct RelayerWithdrawResponse {
     #[serde(default)]
     #[allow(dead_code)]
     relayer_fee: u64,
-}
-
-/// Recover the plaintext memo associated with a deposit.
-///
-/// The indexer stores the on-chain envelope bytes in base64 form on
-/// [`DepositRecord::memo_base64`]. This helper decodes them, parses
-/// the envelope, and tries to unwrap the recipient slot using the
-/// note's seal key (`secret || nullifier`). Returns `None` when
-/// there is no memo field, when the envelope is malformed, or when
-/// the plaintext does not decode as UTF-8 — intentionally lossy, so
-/// a placeholder envelope silently produces no output instead of
-/// surfacing a cryptic error to the caller.
-fn decrypt_memo_for_recipient(
-    record: &DepositRecord,
-    secret: &[u8; 32],
-    nullifier: &[u8; 32],
-) -> Option<String> {
-    let memo_b64 = record.memo_base64.as_deref()?;
-    let bytes = BASE64_STD.decode(memo_b64).ok()?;
-    let envelope = MemoEnvelope::from_bytes(&bytes).ok()?;
-    let plaintext = envelope.decrypt_with_note(secret, nullifier).ok()?;
-    String::from_utf8(plaintext).ok()
 }
 
 /// Compute the default location for the cached `WithdrawCircuit<20>`

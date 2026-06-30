@@ -24,9 +24,10 @@ use solana_keypair::Keypair;
 
 use tidex6_core::note::Denomination;
 use tidex6_indexer::PoolIndexer;
-use tidex6_verifier::PoolState;
+use tidex6_verifier_v2::{MemoAccount, PoolState};
 
 use crate::deposit::DepositBuilder;
+use crate::refund::RefundBuilder;
 use crate::withdraw::WithdrawBuilder;
 
 /// One shielded pool, scoped to one Solana cluster and one
@@ -49,7 +50,7 @@ impl PrivatePool {
     /// client only opens a connection the first time it is
     /// actually used.
     pub fn connect(cluster: Cluster, denomination: Denomination) -> Result<Self> {
-        let program_id = tidex6_verifier::ID;
+        let program_id = tidex6_verifier_v2::ID;
         let denomination_lamports = denomination.lamports();
 
         let (pool_pda, _) = Pubkey::find_program_address(
@@ -96,10 +97,16 @@ impl PrivatePool {
         self.vault_pda
     }
 
-    /// Return the program ID the pool is bound to. Currently
-    /// always equals `tidex6_verifier::ID`, exposed for symmetry.
+    /// Return the program ID the pool is bound to
+    /// (`tidex6_verifier_v2::ID`).
     pub fn program_id(&self) -> Pubkey {
         self.program_id
+    }
+
+    /// Derive the dedicated memo-account PDA for a commitment
+    /// (ADR-014): seeds `[b"memo", commitment]`.
+    pub fn memo_pda(&self, commitment: &[u8; 32]) -> Pubkey {
+        Pubkey::find_program_address(&[MemoAccount::SEED_PREFIX, commitment], &self.program_id).0
     }
 
     /// Build an `anchor-client::Program` handle for `tidex6-verifier`
@@ -164,6 +171,12 @@ impl PrivatePool {
     /// Start building a withdraw.
     pub fn withdraw<'a>(&'a self, payer: &'a Keypair) -> WithdrawBuilder<'a> {
         WithdrawBuilder::new(self, payer)
+    }
+
+    /// Start building a refund (30-day revoke). The depositor presents
+    /// the note they kept locally to reclaim a never-withdrawn deposit.
+    pub fn refund<'a>(&'a self, payer: &'a Keypair) -> RefundBuilder<'a> {
+        RefundBuilder::new(self, payer)
     }
 }
 

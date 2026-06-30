@@ -1,35 +1,21 @@
-//! Lena — the depositor.
+//! Lena — the depositor (v2, stealth + ML-KEM).
 //!
 //! Lena lives in Amsterdam and sends monthly money home to her
 //! parents. With tidex6 she does what her grandmother did with
 //! envelopes of cash: sends privately, by choice, not by hiding.
-//! At tax time her accountant still gets a full, auditable view
-//! of every transfer — but only because Lena chose to share it
-//! with him.
 //!
-//! This binary runs a single deposit:
-//!
-//!   1. Lena picks a denomination (0.5 SOL in the demo).
-//!   2. tidex6-client generates a fresh `DepositNote` and sends
-//!      the deposit transaction to the shielded pool.
-//!   3. The note is saved to a file Lena will pass to the
-//!      recipient (`parents.note`).
-//!   4. Lena also appends a metadata entry to her local
-//!      "scan file" (`~/.tidex6/payroll_scan.jsonl`). This JSON
-//!      Lines file is her offline view of her own activity —
-//!      she can hand it, plus a viewing key, to her accountant
-//!      for selective disclosure. For the MVP demo the scan file
-//!      is the selective-disclosure primitive; the full ElGamal
-//!      + onchain encrypted memo version is planned for v0.2.
-//!
-//! Usage:
+//! In v2 she does NOT hand a note to her parents. She seals the payment
+//! to their ML-KEM public key; they scan the chain and withdraw it
+//! themselves (`receiver`). She also seals an auditor slot to Kai's
+//! ML-KEM key so he can reconstruct the ledger (`accountant`). She keeps
+//! the note locally only in case she needs to `refund` (revoke).
 //!
 //! ```text
-//! cargo run --release --bin sender -- \
-//!     deposit --amount 0.5 \
+//! cargo run --release --bin sender -- deposit --amount 0.5 \
 //!     --memo "october medicine" \
-//!     --recipient-label parents \
-//!     --note-out /tmp/parents.note
+//!     --recipient <parents_mlkem_pk_hex> \
+//!     --auditor <kai_mlkem_pk_hex> \
+//!     --revoke-after-days 30
 //! ```
 
 use std::fs;
@@ -43,12 +29,11 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::{Keypair, read_keypair_file};
 
 use tidex6_client::PrivatePool;
-use tidex6_core::elgamal::AuditorPublicKey;
 use tidex6_core::note::Denomination;
+use tidex6_core::pqc::PqcPublicKey;
 
-/// Top-level CLI definition for Lena's side of the demo.
 #[derive(Parser, Debug)]
-#[command(name = "sender", about = "Lena — private payroll sender.")]
+#[command(name = "sender", about = "Lena — private payroll sender (v2 stealth).")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -66,58 +51,51 @@ struct DepositArgs {
     #[arg(long, default_value = "0.5")]
     amount: String,
 
-    /// Short human-readable memo describing this payment
-    /// (e.g. "october medicine"). Written only to the local
-    /// scan file — never goes onchain.
+    /// Short human-readable memo (e.g. "october medicine"). Sealed for
+    /// the recipient and the auditor.
     #[arg(long)]
     memo: String,
 
-    /// Label for the recipient (e.g. "parents", "sister").
-    /// Grouped by accountant.rs for reporting.
+    /// Recipient ML-KEM-768 public key (hex) — the parents. The note is
+    /// sealed for this key; they scan the chain and withdraw themselves.
+    #[arg(long)]
+    recipient: String,
+
+    /// Auditor ML-KEM-768 public key (hex) — Kai. Gets an amount+memo
+    /// slot (cannot spend). Optional.
+    #[arg(long)]
+    auditor: Option<String>,
+
+    /// Revoke window in days. After this, if parents never withdrew,
+    /// Lena can `tidex6 refund`. 0 = irrevocable.
+    #[arg(long, default_value_t = 30)]
+    revoke_after_days: u32,
+
+    /// Recipient label for Lena's own bookkeeping.
     #[arg(long, default_value = "parents")]
     recipient_label: String,
 
-    /// Where to write the note file for the recipient.
+    /// Where to write the local note file (kept by Lena for a refund).
     #[arg(long, default_value = "/tmp/parents.note")]
     note_out: PathBuf,
 
-    /// Path to the scan file Lena keeps locally. Defaults to
-    /// `~/.tidex6/payroll_scan.jsonl`.
+    /// Lena's local scan file. Defaults to `~/.tidex6/payroll_scan.jsonl`.
     #[arg(long)]
     scan_file: Option<PathBuf>,
-
-    /// Optional auditor Baby Jubjub public key (64-char hex).
-    /// When set, the memo is also encrypted under this key and
-    /// attached to the deposit transaction as an SPL Memo payload,
-    /// so Kai the accountant can reconstruct the whole ledger
-    /// with `tidex6 accountant scan` — no scan file required.
-    #[arg(long)]
-    auditor: Option<String>,
 }
 
-/// One entry in Lena's scan file. JSON Lines format — append
-/// one object per line on each deposit. accountant.rs reads this
-/// file line-by-line.
+/// One entry in Lena's local scan file (JSON Lines).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ScanEntry {
-    /// ISO-8601 timestamp of the deposit.
     timestamp: String,
-    /// Lowercase hex of the commitment. Lets the accountant
-    /// correlate an entry with a confirmed on-chain deposit via
-    /// the `tidex6-indexer` log lines.
     commitment: String,
-    /// Denomination in lamports.
     amount_lamports: u64,
-    /// Denomination as a human-readable string ("0.5 SOL").
     amount: String,
-    /// User-supplied memo — "october medicine", "november rent"…
     memo: String,
-    /// Recipient label for grouping.
     recipient_label: String,
-    /// tx signature of the deposit for full traceability.
     signature: String,
-    /// Leaf index assigned by the pool.
     leaf_index: u64,
+    memo_account: String,
 }
 
 fn main() -> Result<()> {
@@ -143,52 +121,65 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
     let cluster = detect_cluster()?;
     let pool = PrivatePool::connect(cluster.clone(), denomination)?;
 
+    let recipient_pqc = parse_mlkem(&args.recipient).context("invalid --recipient ML-KEM key")?;
+    let auditor_pqc = match args.auditor.as_deref() {
+        Some(hex) => Some(parse_mlkem(hex).context("invalid --auditor ML-KEM key")?),
+        None => None,
+    };
+    let revoke_window_secs = (args.revoke_after_days as i64) * 86_400;
+
     println!("  cluster         : {}", cluster.url());
     println!("  payer (Lena)    : {payer_pubkey}");
     println!("  denomination    : {denomination}");
     println!("  memo            : {}", args.memo);
     println!("  recipient label : {}", args.recipient_label);
+    println!(
+        "  auditor (Kai)   : {}",
+        if auditor_pqc.is_some() { "yes" } else { "none" }
+    );
+    println!(
+        "  revoke          : {}",
+        if revoke_window_secs == 0 {
+            "irrevocable".to_string()
+        } else {
+            format!("after {} days", args.revoke_after_days)
+        }
+    );
     println!();
 
-    let auditor_pk = match args.auditor.as_deref() {
-        Some(hex) => Some(
-            AuditorPublicKey::from_hex(hex)
-                .with_context(|| format!("invalid --auditor pubkey: {hex}"))?,
-        ),
-        None => None,
-    };
-
-    println!("Sending deposit to the shielded pool...");
-    let mut builder = pool.deposit(&payer);
-    if let Some(pk) = auditor_pk {
-        builder = builder.with_auditor(pk).with_memo(args.memo.clone());
+    println!("Sealing the payment for the parents' ML-KEM key and sending...");
+    let mut builder = pool
+        .deposit(&payer)
+        .to_recipient(recipient_pqc)
+        .with_memo(args.memo.clone())
+        .revoke_after(revoke_window_secs);
+    if let Some(auditor) = auditor_pqc {
+        builder = builder.with_auditor(auditor);
     }
     let outcome = builder.send()?;
     let signature = outcome.signature;
     let note = outcome.note;
     let leaf_index = outcome.leaf_index;
 
-    println!("  commitment  : {}", note.commitment().to_hex());
-    println!("  signature   : {signature}");
-    println!("  leaf index  : {leaf_index}");
-    println!("  explorer    : https://explorer.solana.com/tx/{signature}?cluster=devnet");
+    println!("  commitment   : {}", note.commitment().to_hex());
+    println!("  signature    : {signature}");
+    println!("  leaf index   : {leaf_index}");
+    println!("  memo account : {}", outcome.memo_account);
+    println!("  explorer     : https://explorer.solana.com/tx/{signature}");
     println!();
 
-    // Save the note for the recipient.
+    // Save the note locally — Lena keeps it ONLY for a possible refund.
     fs::write(&args.note_out, note.to_text())
         .with_context(|| format!("write note to {}", args.note_out.display()))?;
-    println!("Note written to: {}", args.note_out.display());
-    println!("  → hand this file (or a QR of it) to parents.");
+    println!("Note saved locally (for a refund only): {}", args.note_out.display());
+    println!("  → the parents do NOT need it; they scan the chain themselves.");
 
-    // Append to the scan file for the accountant. This is Lena's
-    // "view-key-lite" record of her own activity — she keeps it
-    // locally and shares it with her accountant once a year.
+    // Append to Lena's local scan file.
     let scan_path = resolve_scan_path(args.scan_file)?;
     if let Some(parent) = scan_path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create scan dir {}", parent.display()))?;
     }
-
     let entry = ScanEntry {
         timestamp: Utc::now().to_rfc3339(),
         commitment: note.commitment().to_hex(),
@@ -198,9 +189,9 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
         recipient_label: args.recipient_label,
         signature: signature.to_string(),
         leaf_index,
+        memo_account: outcome.memo_account.to_string(),
     };
     let line = serde_json::to_string(&entry).context("serialise scan entry")?;
-
     use std::io::Write;
     let mut file = fs::OpenOptions::new()
         .create(true)
@@ -208,12 +199,16 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
         .open(&scan_path)
         .with_context(|| format!("open scan file {}", scan_path.display()))?;
     writeln!(file, "{line}").context("append scan entry")?;
-
     println!();
     println!("Scan entry appended to: {}", scan_path.display());
-    println!("  → share this file + your viewing key with Kai at tax time.");
 
     Ok(())
+}
+
+/// Parse an ML-KEM-768 public key from hex.
+fn parse_mlkem(input: &str) -> Result<PqcPublicKey> {
+    let bytes = hex::decode(input.trim()).context("decode ML-KEM public key hex")?;
+    PqcPublicKey::from_bytes(&bytes).map_err(|err| anyhow!("invalid ML-KEM public key: {err}"))
 }
 
 fn parse_denomination(input: &str) -> Result<Denomination> {

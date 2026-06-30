@@ -38,7 +38,7 @@ wasm-pack build --release --target web --out-dir pkg
 ```
 
 Output:
-- `pkg/tidex6_prover_wasm_bg.wasm` — ~1.8 MB after wasm-opt
+- `pkg/tidex6_prover_wasm_bg.wasm` — ~3.5 MB after wasm-opt (includes the in-WASM Poseidon implementation so commitment / nullifier_hash can be derived locally too)
 - `pkg/tidex6_prover_wasm.js` — wasm-bindgen ESM glue
 - `pkg/tidex6_prover_wasm.d.ts` — TypeScript types
 - `pkg/package.json` — npm-publishable manifest
@@ -84,9 +84,10 @@ const proofC = proofBytes.slice(192, 256);
 ## Performance
 
 On a 2024 MacBook M-series, `proveWithdraw` (WASM, including PK
-deserialisation) runs in **~3.1 s per proof** — comfortably inside
-the ADR-009 30 s budget. End-to-end correctness of the same proof
-under the on-chain `groth16-solana` verifier is exercised by
+deserialisation) runs in **~1.7 s per proof** measured live on
+`tidex6.com/app/` — comfortably inside the ADR-009 30 s budget.
+End-to-end correctness of the same proof under the on-chain
+`groth16-solana` verifier is exercised by
 `crates/tidex6-circuits/tests/withdraw_end_to_end.rs`.
 
 A persistent prover that keeps the deserialised `ProvingKey` in

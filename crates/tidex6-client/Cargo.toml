@@ -12,7 +12,7 @@ repository.workspace = true
 tidex6-core = { path = "../tidex6-core" }
 tidex6-circuits = { path = "../tidex6-circuits" }
 tidex6-indexer = { path = "../tidex6-indexer" }
-tidex6-verifier = { path = "../../programs/tidex6-verifier", features = ["no-entrypoint"] }
+tidex6-verifier-v2 = { path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
 
 anchor-client = { workspace = true }
 anyhow = { workspace = true }
@@ -23,7 +23,9 @@ ark-serialize = { workspace = true }
 ark-std = "0.5"
 
 solana-keypair = "3"
+solana-rpc-client = "3"
 solana-rpc-client-api = "3"
+solana-account-decoder-client-types = "3"
 solana-signature = "3"
 solana-transaction-status = "3"
 

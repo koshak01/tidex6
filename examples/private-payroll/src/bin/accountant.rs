@@ -1,37 +1,33 @@
-//! Kai — Lena's accountant.
+//! Kai — Lena's accountant (v2, on-chain).
 //!
-//! Once a year Lena hands Kai her scan file
-//! (`~/.tidex6/payroll_scan.jsonl`) and tells him "this is every
-//! transfer I made in 2026". Kai runs this binary, which reads
-//! the scan file, groups transfers by month and by recipient
-//! label, and emits a Markdown report suitable for attaching to
-//! Lena's tax return.
+//! In v2 Lena does not hand Kai a scan file. On every deposit she sealed
+//! an auditor slot to Kai's ML-KEM public key, so Kai scans the chain on
+//! his own with his ML-KEM secret and sees the amount + memo of every
+//! transfer Lena addressed to him — without being able to spend, and
+//! without Lena sending him anything. He builds a Markdown tax report.
 //!
-//! Kai never gets Lena's spending key — only the scan file and,
-//! in the full v0.2 protocol, a one-off viewing key. The MVP
-//! demo skips the viewing-key handshake and trusts the scan
-//! file as the selective-disclosure primitive. Everything the
-//! accountant sees is something Lena explicitly chose to share.
-//!
-//! Usage:
+//! Everything Kai sees is something Lena explicitly chose to disclose by
+//! including his auditor key. He has no spending capability.
 //!
 //! ```text
-//! cargo run --release --bin accountant -- \
-//!     scan --scan-file ~/.tidex6/payroll_scan.jsonl \
-//!          --output /tmp/lena_tax_report.md
+//! cargo run --release --bin accountant -- scan \
+//!     --identity ~/.tidex6/kai.json --output /tmp/lena_tax_report.md
 //! ```
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+use anchor_client::Cluster;
 use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, Datelike, Utc};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+use tidex6_client::{AccountantScanner, Denomination, PrivatePool};
+use tidex6_core::pqc::PqcSecretKey;
+
 #[derive(Parser, Debug)]
-#[command(name = "accountant", about = "Kai — private payroll accountant.")]
+#[command(name = "accountant", about = "Kai — private payroll accountant (v2 on-chain).")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -39,42 +35,31 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Scan Lena's offline scan file and produce a Markdown tax
-    /// report.
+    /// Scan the chain with Kai's ML-KEM secret and produce a report.
     Scan(ScanArgs),
 }
 
 #[derive(clap::Args, Debug)]
 struct ScanArgs {
-    /// Path to the scan file Lena shared.
+    /// Kai's identity JSON file (contains the ML-KEM secret).
     #[arg(long)]
-    scan_file: Option<PathBuf>,
+    identity: PathBuf,
 
-    /// Where to write the generated Markdown report. Defaults to
-    /// `/tmp/lena_tax_report.md`.
+    /// Where to write the Markdown report.
     #[arg(long, default_value = "/tmp/lena_tax_report.md")]
     output: PathBuf,
 }
 
-/// The scan entry layout must match `sender.rs`. Kept as a
-/// separate struct here so the accountant binary is standalone.
-///
-/// `commitment` and `leaf_index` are parsed but not currently
-/// rendered in the report — they are preserved here so a future
-/// version of accountant.rs can cross-check the scan file against
-/// on-chain `DepositEvent` logs via the indexer. Allowing
-/// dead_code on those fields keeps the file format honest.
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-struct ScanEntry {
-    timestamp: String,
-    commitment: String,
+#[derive(Deserialize)]
+struct Identity {
+    mlkem_secret: String,
+}
+
+/// One decoded transfer Kai can see.
+struct Transfer {
     amount_lamports: u64,
-    amount: String,
     memo: String,
-    recipient_label: String,
-    signature: String,
-    leaf_index: u64,
+    commitment: String,
 }
 
 fn main() -> Result<()> {
@@ -86,183 +71,123 @@ fn main() -> Result<()> {
 
 fn run_scan(args: ScanArgs) -> Result<()> {
     println!("┌──────────────────────────────────────────┐");
-    println!("│  KAI — accountant selective-disclosure   │");
+    println!("│  KAI — accountant on-chain disclosure     │");
     println!("└──────────────────────────────────────────┘");
     println!();
 
-    let scan_path = resolve_scan_path(args.scan_file)?;
-    println!("  scan file : {}", scan_path.display());
+    let mlkem_secret = load_mlkem_secret(&args.identity)?;
+    let cluster = detect_cluster()?;
+    let program_id = PrivatePool::connect(cluster.clone(), Denomination::OneSol)?.program_id();
 
-    let contents = fs::read_to_string(&scan_path)
-        .with_context(|| format!("read scan file {}", scan_path.display()))?;
+    println!("  rpc       : {}", cluster.url());
+    println!("Scanning the chain with Kai's ML-KEM key for transfers Lena disclosed to him...");
 
-    let mut entries: Vec<ScanEntry> = Vec::new();
-    for (line_number, line) in contents.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let entry: ScanEntry = serde_json::from_str(trimmed)
-            .with_context(|| format!("parse line {} of scan file", line_number + 1))?;
-        entries.push(entry);
-    }
+    let scanner = AccountantScanner::new(cluster.url(), program_id, &mlkem_secret);
+    let entries = scanner.scan().context("memo-account scan failed")?;
 
     if entries.is_empty() {
         return Err(anyhow!(
-            "scan file {} contains no entries — has Lena made any deposits?",
-            scan_path.display()
+            "no transfers addressed to this auditor key were found — did Lena include Kai's ML-KEM key as --auditor?"
         ));
     }
 
-    // Sort chronologically (the scan file is append-only in
-    // practice, but be defensive).
-    entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let transfers: Vec<Transfer> = entries
+        .into_iter()
+        .map(|e| Transfer {
+            amount_lamports: e.denomination,
+            memo: e.plaintext_lossy(),
+            commitment: e.commitment_hex,
+        })
+        .collect();
 
-    let report = build_report(&entries)?;
+    let report = build_report(&transfers);
     fs::write(&args.output, &report)
         .with_context(|| format!("write report to {}", args.output.display()))?;
 
-    println!("  entries   : {}", entries.len());
+    println!("  entries   : {}", transfers.len());
     println!("  report    : {}", args.output.display());
     println!();
-
-    // Also print a short summary directly to stdout — it's what
-    // will show up in the demo video.
-    print_summary(&entries);
+    print_summary(&transfers);
 
     Ok(())
 }
 
-fn build_report(entries: &[ScanEntry]) -> Result<String> {
+fn build_report(transfers: &[Transfer]) -> String {
     let mut out = String::new();
-    out.push_str("# tidex6 — private payroll report\n\n");
+    out.push_str("# tidex6 — private payroll report (on-chain disclosure)\n\n");
     out.push_str(&format!(
-        "Total entries: **{}**  \nGenerated: {}\n\n",
-        entries.len(),
+        "Total transfers: **{}**  \nGenerated: {}\n\n",
+        transfers.len(),
         Utc::now().to_rfc3339()
     ));
 
-    // All transfers table.
     out.push_str("## All transfers\n\n");
-    out.push_str("| Date | Recipient | Amount | Memo | Tx |\n");
-    out.push_str("|------|-----------|--------|------|----|\n");
-    for entry in entries {
-        let date = parse_timestamp(&entry.timestamp).unwrap_or_else(|| entry.timestamp.clone());
-        let sig_short = short_signature(&entry.signature);
+    out.push_str("| Amount (SOL) | Memo | Commitment |\n");
+    out.push_str("|--------------|------|------------|\n");
+    for t in transfers {
         out.push_str(&format!(
-            "| {} | {} | {} | {} | `{}` |\n",
-            date, entry.recipient_label, entry.amount, entry.memo, sig_short
+            "| {:.3} | {} | `{}…` |\n",
+            lamports_to_sol(t.amount_lamports),
+            t.memo,
+            &t.commitment[..t.commitment.len().min(16)]
         ));
     }
     out.push('\n');
 
-    // Monthly totals.
-    out.push_str("## Monthly totals\n\n");
-    out.push_str("| Month | Transfers | Total (SOL) |\n");
-    out.push_str("|-------|-----------|-------------|\n");
-    let mut monthly: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    for entry in entries {
-        let month = month_key(&entry.timestamp);
-        let slot = monthly.entry(month).or_insert((0, 0));
-        slot.0 += 1;
-        slot.1 += entry.amount_lamports;
-    }
-    for (month, (count, total_lamports)) in &monthly {
-        out.push_str(&format!(
-            "| {} | {} | {:.3} |\n",
-            month,
-            count,
-            lamports_to_sol(*total_lamports)
-        ));
-    }
-    out.push('\n');
-
-    // Recipient totals.
-    out.push_str("## By recipient\n\n");
-    out.push_str("| Recipient | Transfers | Total (SOL) |\n");
-    out.push_str("|-----------|-----------|-------------|\n");
-    let mut by_recipient: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    for entry in entries {
-        let slot = by_recipient
-            .entry(entry.recipient_label.clone())
-            .or_insert((0, 0));
-        slot.0 += 1;
-        slot.1 += entry.amount_lamports;
-    }
-    for (label, (count, total_lamports)) in &by_recipient {
-        out.push_str(&format!(
-            "| {} | {} | {:.3} |\n",
-            label,
-            count,
-            lamports_to_sol(*total_lamports)
-        ));
-    }
-    out.push('\n');
-
-    // Grand total.
-    let total_lamports: u64 = entries.iter().map(|e| e.amount_lamports).sum();
+    let total_lamports: u64 = transfers.iter().map(|t| t.amount_lamports).sum();
     out.push_str(&format!(
         "## Grand total\n\n**{:.3} SOL** across {} transfers.\n",
         lamports_to_sol(total_lamports),
-        entries.len()
+        transfers.len()
     ));
-
-    Ok(out)
+    out
 }
 
-fn print_summary(entries: &[ScanEntry]) {
-    println!("  Lena's transfers summary:");
-    for entry in entries {
-        let date = parse_timestamp(&entry.timestamp).unwrap_or_else(|| entry.timestamp.clone());
+fn print_summary(transfers: &[Transfer]) {
+    println!("  Transfers Lena disclosed to Kai:");
+    for t in transfers {
         println!(
-            "    {} | {} | {} | {} | {}",
-            date,
-            entry.recipient_label,
-            entry.amount,
-            entry.memo,
-            short_signature(&entry.signature)
+            "    {:.3} SOL | {} | {}…",
+            lamports_to_sol(t.amount_lamports),
+            t.memo,
+            &t.commitment[..t.commitment.len().min(12)]
         );
     }
-    let total_lamports: u64 = entries.iter().map(|e| e.amount_lamports).sum();
+    let total_lamports: u64 = transfers.iter().map(|t| t.amount_lamports).sum();
     println!();
     println!("  Grand total: {:.3} SOL", lamports_to_sol(total_lamports));
     println!();
-    println!("Tax report ready. Kai can attach it to Lena's return.");
+    println!("Tax report ready. Kai saw everything Lena disclosed — and could spend nothing.");
 }
 
-fn parse_timestamp(input: &str) -> Option<String> {
-    DateTime::parse_from_rfc3339(input)
-        .ok()
-        .map(|dt| dt.with_timezone(&Utc).format("%Y-%m-%d").to_string())
-}
-
-fn month_key(timestamp: &str) -> String {
-    DateTime::parse_from_rfc3339(timestamp)
-        .map(|dt| {
-            let d = dt.with_timezone(&Utc);
-            format!("{:04}-{:02}", d.year(), d.month())
-        })
-        .unwrap_or_else(|_| "unknown".to_string())
+fn load_mlkem_secret(path: &PathBuf) -> Result<PqcSecretKey> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read identity {}", path.display()))?;
+    let identity: Identity =
+        serde_json::from_str(&raw).context("parse identity JSON (need mlkem_secret)")?;
+    let bytes = hex::decode(identity.mlkem_secret.trim()).context("decode mlkem_secret hex")?;
+    PqcSecretKey::from_bytes(&bytes).map_err(|err| anyhow!("invalid ML-KEM secret: {err}"))
 }
 
 fn lamports_to_sol(lamports: u64) -> f64 {
     lamports as f64 / 1_000_000_000.0
 }
 
-fn short_signature(sig: &str) -> String {
-    if sig.len() > 12 {
-        format!("{}…", &sig[..12])
-    } else {
-        sig.to_string()
-    }
-}
-
-fn resolve_scan_path(override_path: Option<PathBuf>) -> Result<PathBuf> {
-    match override_path {
-        Some(path) => Ok(path),
-        None => {
-            let home = std::env::var("HOME").context("HOME not set")?;
-            Ok(PathBuf::from(format!("{home}/.tidex6/payroll_scan.jsonl")))
-        }
+fn detect_cluster() -> Result<Cluster> {
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let path = format!("{home}/.config/solana/cli/config.yml");
+    let Ok(contents) = fs::read_to_string(&path) else {
+        return Ok(Cluster::Devnet);
+    };
+    let url = contents
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("json_rpc_url:"))
+        .map(|v| v.trim().trim_matches('"').to_string());
+    match url.as_deref() {
+        Some(u) if u.contains("devnet") => Ok(Cluster::Devnet),
+        Some(u) if u.contains("mainnet") => Ok(Cluster::Mainnet),
+        Some(u) if u.contains("testnet") => Ok(Cluster::Testnet),
+        Some(u) if u.starts_with("http") => Ok(Cluster::Custom(u.to_string(), u.to_string())),
+        _ => Ok(Cluster::Devnet),
     }
 }

@@ -36,6 +36,7 @@ members = [
     "programs/tidex6-confidential-amounts",
     "programs/tidex6-tip-jar",
     "programs/tidex6-verifier",
+    "programs/tidex6-verifier-v2",
 ]
 
 [workspace.package]

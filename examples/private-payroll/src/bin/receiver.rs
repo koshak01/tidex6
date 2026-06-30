@@ -1,28 +1,14 @@
-//! Parents — the recipient.
+//! Parents — the recipient (v2, stealth).
 //!
-//! Lena's parents live somewhere that makes European bank
-//! transfers inconvenient. They receive a small encrypted text
-//! file (the `DepositNote`) from Lena once a month. This binary
-//! turns that file into SOL in their wallet.
-//!
-//! Under the hood, withdrawing is a zero-knowledge proof the
-//! parents never have to think about:
-//!
-//!   1. tidex6-client's `PoolIndexer` rebuilds the offchain
-//!      Merkle tree from the pool's on-chain history.
-//!   2. It finds the leaf index corresponding to the note's
-//!      commitment.
-//!   3. It generates a Groth16 proof that the parents know the
-//!      preimage (secret + nullifier) of a commitment at that
-//!      leaf position, bound to their recipient pubkey.
-//!   4. The proof goes on-chain via the `tidex6-verifier` program,
-//!      which pays out the denomination to the parents' wallet.
-//!
-//! Usage:
+//! In v2 Lena does NOT send them a note. The parents scan the chain
+//! with their own ML-KEM secret, find every payment addressed to them,
+//! reconstruct the note from the decrypted recipient slot, and withdraw
+//! it to their wallet. The chain itself delivers the money — nothing was
+//! handed over.
 //!
 //! ```text
-//! cargo run --release --bin receiver -- \
-//!     withdraw --note /tmp/parents.note --to <my_pubkey>
+//! cargo run --release --bin receiver -- receive \
+//!     --identity ~/.tidex6/parents.json --to <wallet>
 //! ```
 
 use std::fs;
@@ -33,13 +19,16 @@ use anchor_client::Cluster;
 use anchor_lang::prelude::Pubkey;
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
+use serde::Deserialize;
 use solana_keypair::{Keypair, read_keypair_file};
 
-use tidex6_client::PrivatePool;
+use tidex6_client::{Denomination, PrivatePool, RecipientScanner};
 use tidex6_core::note::DepositNote;
+use tidex6_core::pqc::PqcSecretKey;
+use tidex6_core::types::{Nullifier, Secret};
 
 #[derive(Parser, Debug)]
-#[command(name = "receiver", about = "Parents — private payroll recipient.")]
+#[command(name = "receiver", about = "Parents — stealth receive (v2).")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -47,79 +36,102 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Redeem one note into a recipient wallet.
-    Withdraw(WithdrawArgs),
+    /// Scan the chain for payments addressed to me and withdraw them.
+    Receive(ReceiveArgs),
 }
 
 #[derive(clap::Args, Debug)]
-struct WithdrawArgs {
-    /// Path to the note file received from Lena.
-    #[arg(long, default_value = "/tmp/parents.note")]
-    note: PathBuf,
+struct ReceiveArgs {
+    /// Parents' identity JSON file (contains the ML-KEM secret).
+    #[arg(long)]
+    identity: PathBuf,
 
-    /// Recipient wallet — where the withdrawn SOL lands.
+    /// Wallet that receives the withdrawn SOL.
     #[arg(long)]
     to: String,
+}
+
+#[derive(Deserialize)]
+struct Identity {
+    mlkem_secret: String,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Withdraw(args) => run_withdraw(args),
+        Command::Receive(args) => run_receive(args),
     }
 }
 
-fn run_withdraw(args: WithdrawArgs) -> Result<()> {
+fn run_receive(args: ReceiveArgs) -> Result<()> {
     println!("┌──────────────────────────────────────────┐");
-    println!("│  PARENTS (home) — private payroll redeem │");
+    println!("│  PARENTS (home) — stealth receive        │");
     println!("└──────────────────────────────────────────┘");
     println!();
 
-    let note_text = fs::read_to_string(&args.note)
-        .with_context(|| format!("read note from {}", args.note.display()))?;
-    let note = DepositNote::from_text(&note_text).context("parse note text")?;
-
+    let mlkem_secret = load_mlkem_secret(&args.identity)?;
     let payer = load_default_keypair()?;
-    let payer_pubkey = {
-        use anchor_client::Signer;
-        <Keypair as Signer>::pubkey(&payer)
-    };
     let recipient =
         Pubkey::from_str(&args.to).with_context(|| format!("parse recipient {}", args.to))?;
-
     let cluster = detect_cluster()?;
-    let pool = PrivatePool::connect(cluster.clone(), note.denomination())?;
+    let program_id = PrivatePool::connect(cluster.clone(), Denomination::OneSol)?.program_id();
 
-    println!("  cluster        : {}", cluster.url());
-    println!("  payer          : {payer_pubkey}");
-    println!("  denomination   : {}", note.denomination());
-    println!("  commitment     : {}", note.commitment().to_hex());
-    println!("  recipient      : {recipient}");
-    // ADR-012: memo plaintext no longer lives in the note — it is
-    // fetched from the on-chain envelope after withdraw confirms.
-    println!();
-    println!("Redeeming note...");
-    println!("  → rebuilding Merkle tree from on-chain history");
-    println!("  → generating zero-knowledge withdraw proof");
-    println!("  → submitting to verifier program");
-    println!();
+    println!("  cluster   : {}", cluster.url());
+    println!("  to        : {recipient}");
+    println!("Scanning the chain with the parents' ML-KEM key — no note was received...");
 
-    let outcome = pool.withdraw(&payer).note(note).to(recipient).send()?;
-    let signature = outcome.signature;
+    let scanner = RecipientScanner::new(cluster.url(), program_id, &mlkem_secret);
+    let entries = scanner.scan().context("recipient scan failed")?;
 
-    println!("Signature: {signature}");
-    println!("Explorer : https://explorer.solana.com/tx/{signature}?cluster=devnet");
-    println!();
-    println!("Recipient {recipient} received the funds. Done.");
+    if entries.is_empty() {
+        println!("No payments addressed to the parents were found yet.");
+        return Ok(());
+    }
+    println!("Found {} payment(s). Withdrawing each...", entries.len());
 
-    // ADR-012: memo envelope unwrapped with the note's seal key.
-    if let Some(memo) = outcome.memo_plaintext {
+    for entry in entries {
+        let denomination = denom_from_lamports(entry.denomination)?;
+        let note = DepositNote::new(
+            denomination,
+            Secret::from_bytes(entry.secret),
+            Nullifier::from_bytes(entry.nullifier),
+        )
+        .context("reconstruct note from recipient slot")?;
+        let memo = String::from_utf8_lossy(&entry.plaintext);
+
         println!();
-        println!("Message from Lena:");
-        println!("  \"{memo}\"");
+        println!("  payment    : {denomination}");
+        if !memo.trim().is_empty() {
+            println!("  message    : \"{memo}\"");
+        }
+        let pool = PrivatePool::connect(cluster.clone(), denomination)?;
+        let outcome = pool.withdraw(&payer).note(note).to(recipient).send()?;
+        println!("  withdrawn  → {recipient}");
+        println!("  signature  : {}", outcome.signature);
     }
 
+    println!();
+    println!("Done. The chain delivered the payment — Lena handed over nothing.");
     Ok(())
+}
+
+fn load_mlkem_secret(path: &PathBuf) -> Result<PqcSecretKey> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read identity {}", path.display()))?;
+    let identity: Identity =
+        serde_json::from_str(&raw).context("parse identity JSON (need mlkem_secret)")?;
+    let bytes = hex::decode(identity.mlkem_secret.trim()).context("decode mlkem_secret hex")?;
+    PqcSecretKey::from_bytes(&bytes).map_err(|err| anyhow!("invalid ML-KEM secret: {err}"))
+}
+
+fn denom_from_lamports(lamports: u64) -> Result<Denomination> {
+    match lamports {
+        100_000_000 => Ok(Denomination::OneTenthSol),
+        500_000_000 => Ok(Denomination::HalfSol),
+        1_000_000_000 => Ok(Denomination::OneSol),
+        10_000_000_000 => Ok(Denomination::TenSol),
+        other => Err(anyhow!("unknown denomination: {other} lamports")),
+    }
 }
 
 fn load_default_keypair() -> Result<Keypair> {

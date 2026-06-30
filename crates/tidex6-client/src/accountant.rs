@@ -1,155 +1,199 @@
-//! Accountant-side scanner: find and decrypt every memo addressed
-//! to a given auditor secret key.
+//! Accountant-side scanner (v2, ADR-014): find and decrypt every memo
+//! account whose auditor slot is addressed to a given ML-KEM secret.
 //!
-//! This module is the kernel of both the `tidex6 accountant scan`
-//! CLI command and the backend of the `/accountant/` page on
-//! tidex6.com. Keeping it inside the SDK rather than the CLI means
-//! every integrator — the official CLI, the web server, a custom
-//! desktop tool — runs identical decryption logic and therefore
-//! sees identical ledger output.
+//! Unlike v1 (which read the SPL-memo / log payload via the indexer),
+//! v2 stores each envelope in a dedicated `MemoAccount` PDA. The scanner
+//! therefore pulls every memo account of the v2 program with
+//! `getProgramAccounts`, decodes it, and tries
+//! [`tidex6_core::envelope::open_as_auditor`] on each. The ML-KEM
+//! `decapsulate` + AEAD tag is the "addressed to me" filter — a foreign
+//! slot simply fails to decrypt and is skipped.
 //!
-//! # Algorithm
-//!
-//! 1. Ask the indexer for every `DepositRecord` the pool has ever
-//!    seen. The indexer already filters failed transactions, sorts
-//!    by leaf index, and extracts the SPL Memo payload from each
-//!    deposit's companion instruction.
-//! 2. For every record with a non-empty `memo_base64`, try to
-//!    decrypt under the supplied `AuditorSecretKey`.
-//! 3. On authentication-tag success, record the decrypted plaintext
-//!    plus the metadata we already have (leaf index, denomination,
-//!    timestamp, signature). On failure, skip silently — that memo
-//!    is for some other auditor.
-//!
-//! The "filter for free" trick documented in `tidex6_core::memo`
-//! keeps this loop cheap: AES-GCM rejects the wrong key in constant
-//! time, so scanning ten thousand memos costs about ten thousand
-//! ECDH operations plus ten thousand tag-check misses — roughly a
-//! couple of seconds on a laptop.
-//!
-//! # What this module does *not* do
-//!
-//! - It does not validate memo plaintext schema. The plaintext is
-//!   returned as raw bytes; the caller decides whether to parse it
-//!   as JSON, text, CSV, or an invoice reference.
-//! - It does not correlate a memo with a specific recipient wallet.
-//!   That correlation only exists if Lena included a recipient
-//!   label inside the plaintext memo itself.
+//! The recipient (stealth) scan is the symmetric operation with
+//! [`tidex6_core::envelope::open_as_recipient`]; see
+//! [`RecipientScanner`].
 
 use anchor_client::anchor_lang::prelude::Pubkey;
+use anchor_client::anchor_lang::{AccountDeserialize, Discriminator};
 use anyhow::{Context, Result};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STD;
-use tidex6_core::elgamal::AuditorSecretKey;
-use tidex6_core::memo::MemoEnvelope;
-use tidex6_indexer::{DepositRecord, PoolIndexer};
+use solana_account_decoder_client_types::UiAccountEncoding;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client_api::config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+use solana_rpc_client_api::filter::{Memcmp, RpcFilterType};
+
+use tidex6_core::envelope;
+use tidex6_core::pqc::PqcSecretKey;
+use tidex6_verifier_v2::MemoAccount;
 
 /// One entry in the reconstructed ledger returned by
 /// [`AccountantScanner::scan`].
 #[derive(Clone, Debug)]
 pub struct AccountantEntry {
-    /// Leaf index of the deposit in the pool's Merkle tree.
-    pub leaf_index: u64,
-    /// Lowercase hex of the deposit commitment. Lets the caller
-    /// cross-reference with on-chain tooling if needed.
+    /// Lowercase hex of the deposit commitment.
     pub commitment_hex: String,
-    /// Transaction signature carrying the deposit and its memo.
-    pub signature: String,
-    /// Unix timestamp of the deposit block, if the RPC reported it.
-    pub block_time: Option<i64>,
-    /// Decrypted plaintext bytes. Typically a short UTF-8 note like
-    /// `"Rent March 2026"`; always treated as bytes here so no
-    /// encoding assumption is baked in.
+    /// The memo-account PDA the entry was decoded from.
+    pub memo_account: Pubkey,
+    /// Deposit amount in lamports (revealed to the auditor).
+    pub denomination: u64,
+    /// Decrypted memo plaintext bytes.
     pub plaintext: Vec<u8>,
 }
 
 impl AccountantEntry {
-    /// Best-effort UTF-8 decoding of the plaintext. Returns a lossy
-    /// string rather than `None` because the accountant UI should
-    /// always show *something* — unexpected bytes are the caller's
-    /// signal that the entry was encoded differently than the usual
-    /// text memo and deserves closer inspection.
+    /// Best-effort UTF-8 decoding of the memo.
     pub fn plaintext_lossy(&self) -> String {
         String::from_utf8_lossy(&self.plaintext).into_owned()
     }
 }
 
-/// Scanner driver. Owns a [`PoolIndexer`] and an auditor secret
-/// for the duration of one scan.
+/// Build the `getProgramAccounts` config that selects only finalized
+/// `MemoAccount`s by their Anchor discriminator.
+fn memo_accounts_config() -> RpcProgramAccountsConfig {
+    RpcProgramAccountsConfig {
+        filters: Some(vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+            0,
+            MemoAccount::DISCRIMINATOR.to_vec(),
+        ))]),
+        account_config: RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Decode a raw account into a [`MemoAccount`], or `None` if it is not
+/// one (discriminator already filtered, but data may be truncated).
+fn decode_memo(data: &[u8]) -> Option<MemoAccount> {
+    MemoAccount::try_deserialize(&mut &data[..]).ok()
+}
+
+/// Auditor scanner: owns an RPC client and an auditor ML-KEM secret.
 pub struct AccountantScanner<'a> {
-    indexer: PoolIndexer,
-    auditor_sk: &'a AuditorSecretKey,
+    rpc: RpcClient,
+    program_id: Pubkey,
+    auditor_secret: &'a PqcSecretKey,
 }
 
 impl<'a> AccountantScanner<'a> {
-    /// Build a scanner for one pool, one auditor.
+    /// Build a scanner for the v2 program and one auditor secret.
     pub fn new(
         rpc_url: impl Into<String>,
-        pool_pda: Pubkey,
-        auditor_sk: &'a AuditorSecretKey,
+        program_id: Pubkey,
+        auditor_secret: &'a PqcSecretKey,
     ) -> Self {
         Self {
-            indexer: PoolIndexer::new(rpc_url, pool_pda),
-            auditor_sk,
+            rpc: RpcClient::new(rpc_url.into()),
+            program_id,
+            auditor_secret,
         }
     }
 
-    /// Run the scan end-to-end and return every entry the auditor
-    /// can decrypt.
-    ///
-    /// This is a single-shot, blocking call: it fetches the full
-    /// pool history in chronological order and tries decryption on
-    /// every memo. For a pool with tens of thousands of memos this
-    /// is fast enough for a desktop CLI; beyond that, wrap the
-    /// underlying [`PoolIndexer`] in a caching layer and call
-    /// [`AccountantScanner::scan_from_history`] with the pre-fetched
-    /// list.
+    /// Fetch every memo account and return the ones whose auditor slot
+    /// decrypts under this secret.
+    #[allow(deprecated)] // get_program_accounts_with_config: ui-variant would change the decode path
     pub fn scan(&self) -> Result<Vec<AccountantEntry>> {
-        let history = self
-            .indexer
-            .fetch_deposit_history()
-            .context("failed to fetch pool deposit history")?;
-        Ok(self.scan_from_history(&history))
-    }
+        let accounts = self
+            .rpc
+            .get_program_accounts_with_config(&self.program_id, memo_accounts_config())
+            .context("getProgramAccounts for memo accounts failed")?;
 
-    /// Decryption-only path for callers who already have the deposit
-    /// history in hand (the web service batches this across many
-    /// auditors, and the flight harness uses it to run without a
-    /// second RPC round trip).
-    pub fn scan_from_history(&self, history: &[DepositRecord]) -> Vec<AccountantEntry> {
         let mut out = Vec::new();
-        for record in history {
-            let Some(memo_b64) = record.memo_base64.as_deref() else {
+        for (pubkey, account) in accounts {
+            let Some(memo) = decode_memo(&account.data) else {
                 continue;
             };
-            // ADR-012: on-chain bytes are a MemoEnvelope. The auditor
-            // slot is optional; envelopes without it (anonymous
-            // deposits or recipient-only memos) silently skip here.
-            let Ok(bytes) = BASE64_STD.decode(memo_b64) else {
+            if !memo.is_finalized {
                 continue;
-            };
-            let Ok(envelope) = MemoEnvelope::from_bytes(&bytes) else {
-                continue;
-            };
-            match envelope.decrypt_with_auditor(self.auditor_sk) {
-                Ok(Some(plaintext)) => {
-                    out.push(AccountantEntry {
-                        leaf_index: record.leaf_index,
-                        commitment_hex: record.commitment.to_hex(),
-                        signature: record.signature.clone(),
-                        block_time: record.block_time,
-                        plaintext,
-                    });
-                }
-                // No auditor slot, or slot not addressed to this key
-                // — the dominant case. Skip silently (the "filter for
-                // free" trick).
+            }
+            match envelope::open_as_auditor(&memo.data, self.auditor_secret) {
+                Ok(Some(view)) => out.push(AccountantEntry {
+                    commitment_hex: hex::encode(memo.commitment),
+                    memo_account: pubkey,
+                    denomination: view.denomination,
+                    plaintext: view.memo,
+                }),
+                // No auditor slot for this key, or malformed — skip.
                 Ok(None) => {}
-                // Malformed inputs: skip rather than fail the whole
-                // scan so a stray bad entry does not hide valid ones.
                 Err(_) => {}
             }
         }
-        out
+        Ok(out)
+    }
+}
+
+/// What a recipient recovers when scanning for their own payments: the
+/// note's spend material plus the memo and amount. Enough to withdraw
+/// without ever having been handed the note (stealth, A9).
+#[derive(Clone, Debug)]
+pub struct RecipientEntry {
+    /// Lowercase hex of the deposit commitment.
+    pub commitment_hex: String,
+    /// The memo-account PDA the entry was decoded from.
+    pub memo_account: Pubkey,
+    /// Deposit amount in lamports — read from the memo account (the
+    /// recipient slot itself does not carry it), needed to reconstruct
+    /// the `DepositNote` and pick the right pool to withdraw from.
+    pub denomination: u64,
+    /// Note secret material — feed into a `DepositNote` to withdraw.
+    pub secret: [u8; 32],
+    pub nullifier: [u8; 32],
+    /// Decrypted memo plaintext bytes.
+    pub plaintext: Vec<u8>,
+}
+
+/// Recipient (stealth) scanner: symmetric to [`AccountantScanner`] but
+/// opens the recipient slot, recovering the note's spend material.
+pub struct RecipientScanner<'a> {
+    rpc: RpcClient,
+    program_id: Pubkey,
+    recipient_secret: &'a PqcSecretKey,
+}
+
+impl<'a> RecipientScanner<'a> {
+    /// Build a scanner for the v2 program and one recipient secret.
+    pub fn new(
+        rpc_url: impl Into<String>,
+        program_id: Pubkey,
+        recipient_secret: &'a PqcSecretKey,
+    ) -> Self {
+        Self {
+            rpc: RpcClient::new(rpc_url.into()),
+            program_id,
+            recipient_secret,
+        }
+    }
+
+    /// Fetch every memo account and return the ones whose recipient slot
+    /// decrypts under this secret — i.e. the payments addressed to me.
+    #[allow(deprecated)] // get_program_accounts_with_config: ui-variant would change the decode path
+    pub fn scan(&self) -> Result<Vec<RecipientEntry>> {
+        let accounts = self
+            .rpc
+            .get_program_accounts_with_config(&self.program_id, memo_accounts_config())
+            .context("getProgramAccounts for memo accounts failed")?;
+
+        let mut out = Vec::new();
+        for (pubkey, account) in accounts {
+            let Some(memo) = decode_memo(&account.data) else {
+                continue;
+            };
+            if !memo.is_finalized {
+                continue;
+            }
+            match envelope::open_as_recipient(&memo.data, self.recipient_secret) {
+                Ok(Some(view)) => out.push(RecipientEntry {
+                    commitment_hex: hex::encode(memo.commitment),
+                    memo_account: pubkey,
+                    denomination: memo.denomination,
+                    secret: view.secret,
+                    nullifier: view.nullifier,
+                    plaintext: view.memo,
+                }),
+                Ok(None) => {}
+                Err(_) => {}
+            }
+        }
+        Ok(out)
     }
 }

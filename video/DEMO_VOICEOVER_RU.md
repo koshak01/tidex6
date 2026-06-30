@@ -1,5 +1,12 @@
 # tidex6 — Текст для озвучки Demo Video (русский)
 
+> **DEPRECATED — kept for historical reference only.**
+> Written 2026-04-10, описывает CLI-trilogy demo до ADR-011/012/013.
+> Финальное demo записывается без voiceover (весь narrative в YouTube
+> description), сценарий — `video/FINAL_DEMO_SCRIPT_RU.md`.
+
+---
+
 **Общее время:** ~90 секунд
 **Формат:** читаешь в диктофон с секундомером, потом ElevenLabs переведёт
 **Темп:** спокойный, не торопись. Лучше 100 секунд уверенно чем 80 скороговоркой.

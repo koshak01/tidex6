@@ -6,4 +6,6 @@
 pub mod accountant;
 pub mod deposit;
 pub mod keygen;
+pub mod receive;
+pub mod refund;
 pub mod withdraw;

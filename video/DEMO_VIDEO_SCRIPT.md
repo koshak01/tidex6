@@ -1,5 +1,13 @@
 # tidex6 — Demo Video Script
 
+> **DEPRECATED — kept for historical reference only.**
+> Written 2026-04-10, before WASM browser proving (ADR-013), the
+> reference relayer (ADR-011), opaque note format (ADR-012), and
+> the `/accountant/` web page shipped. The current canonical script
+> for the final Colosseum demo is `video/FINAL_DEMO_SCRIPT_RU.md`.
+
+---
+
 **Target length:** under 3 minutes (Colosseum hard limit: 3:00)
 **Format:** screen recording, live terminals — **NOT a slide deck, NOT a code walkthrough**
 **Audio:** voiceover in English, recorded separately and laid over the screencast

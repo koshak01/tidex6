@@ -2,12 +2,20 @@
 
 ## Status
 
-tidex6 is **pre-audit, pre-mainnet** software under active development
-for the Colosseum Frontier hackathon (2026-05-11). Everything in this
-repository is labelled **DEVELOPMENT ONLY** until a formal audit and
-multi-party Phase-2 trusted setup ceremony have been completed.
+tidex6 is **pre-audit** software under active development for the
+Colosseum Frontier hackathon (2026-05-11). The verifier program at
+[`2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`](https://solscan.io/account/2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C)
+and the reference CPI example
+[`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
+are live on Solana mainnet for end-to-end demonstration purposes only.
+Everything in this repository is labelled **DEVELOPMENT ONLY** until a
+formal cryptographic audit and a multi-party Phase-2 trusted setup
+ceremony have been completed.
 
-Do not deploy this code to mainnet. Do not use it to secure real funds.
+**Do not use this code to secure real funds.** The single-contributor
+Phase-2 ceremony, the unaudited custom ElGamal implementation, and the
+hackathon-grade engineering posture all preclude production use until
+v0.2 lands.
 
 The full threat model, known limitations, and vulnerability classes are
 documented in [`docs/release/security.md`](docs/release/security.md).
@@ -36,10 +44,13 @@ issues are prioritised over everything else on the roadmap.
 
 In scope:
 
-- The `tidex6-core`, `tidex6-circuits`, `tidex6-verifier`,
-  `tidex6-caller` crates in this repository.
+- The `tidex6-core`, `tidex6-circuits`, `tidex6-client`, `tidex6-cli`,
+  `tidex6-indexer`, `tidex6-prover-wasm` crates in this repository.
+- The `tidex6-verifier`, `tidex6-tip-jar`, and `tidex6-caller`
+  Anchor programs in [`programs/`](programs/).
 - The public documentation in [`docs/release/`](docs/release/).
-- The onchain program deployed from this repository to devnet.
+- The verifier and tip-jar programs deployed on Solana mainnet from
+  this repository (see Status section above for addresses).
 
 Out of scope (but still appreciated as informational reports):
 

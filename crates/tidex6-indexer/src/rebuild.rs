@@ -16,7 +16,7 @@
 //! from newest to oldest (the Solana API only supports this
 //! direction), collects every signature the pool account touched,
 //! fetches each transaction and scans its program logs for the
-//! `tidex6-deposit:<leaf>:<commitment>:<root>` line. Each parsed
+//! `tidex6-v2-deposit:<leaf>:<commitment>:<root>` line. Each parsed
 //! entry becomes one `DepositRecord`. The records are then sorted
 //! by `leaf_index` ascending — the only ground-truth ordering,
 //! since the onchain program assigns leaf indices strictly
@@ -283,7 +283,7 @@ impl PoolIndexer {
     }
 }
 
-/// Parsed result of a single `tidex6-deposit:` log line.
+/// Parsed result of a single `tidex6-v2-deposit:` log line.
 ///
 /// The memo field is an `Option` because older deposits — everything
 /// emitted before the Shielded Memo redeploy of 2026-04-15 — carried
@@ -297,14 +297,14 @@ struct ParsedDepositLog {
     memo_base64: Option<String>,
 }
 
-/// Parse the `tidex6-deposit:<leaf>:<commitment_hex>:<root_hex>[:<memo_hex>]`
+/// Parse the `tidex6-v2-deposit:<leaf>:<commitment_hex>:<root_hex>[:<memo_hex>]`
 /// log line out of a transaction's program-log output. Returns
 /// `None` if no matching line exists (e.g., this tx is not a
 /// deposit). Accepts both the legacy 3-field and the current
 /// 4-field variant so a single indexer pass can consume pool
 /// histories that straddle the redeploy cut-over.
 fn parse_deposit_log(logs: &[String]) -> Option<ParsedDepositLog> {
-    const PREFIX: &str = "Program log: tidex6-deposit:";
+    const PREFIX: &str = "Program log: tidex6-v2-deposit:";
 
     for line in logs {
         let Some(payload) = line.strip_prefix(PREFIX) else {
@@ -354,7 +354,7 @@ mod tests {
             "Program 77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42 invoke [1]".to_string(),
             "Program log: Instruction: Deposit".to_string(),
             format!(
-                "Program log: tidex6-deposit:7:{}:{}",
+                "Program log: tidex6-v2-deposit:7:{}:{}",
                 "a".repeat(64),
                 "b".repeat(64)
             ),
@@ -378,7 +378,7 @@ mod tests {
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
         let logs = vec![format!(
-            "Program log: tidex6-deposit:3:{}:{}:{}",
+            "Program log: tidex6-v2-deposit:3:{}:{}:{}",
             "a".repeat(64),
             "b".repeat(64),
             memo_hex,

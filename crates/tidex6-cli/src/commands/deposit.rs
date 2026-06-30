@@ -1,9 +1,12 @@
-//! `tidex6 deposit` — put a fresh `DepositNote` into the shielded
-//! pool for a given denomination.
+//! `tidex6 deposit` — put a fresh `DepositNote` into the shielded pool
+//! and seal it for a stealth recipient (ADR-014).
 //!
-//! After Day 15 this is a thin wrapper around
-//! `tidex6_client::PrivatePool::deposit`. The heavy lifting
-//! (pool init, tx construction, log parsing) lives in the SDK.
+//! Thin wrapper around `tidex6_client::PrivatePool::deposit`. The note
+//! is encrypted to the recipient's ML-KEM public key and stored in the
+//! on-chain memo account; the recipient scans the chain and withdraws
+//! it themselves — it is never handed over. The note IS saved locally
+//! for the depositor, because the depositor needs its `secret` /
+//! `nullifier` to `refund` if the deposit is never claimed.
 
 use std::fs;
 use std::path::PathBuf;
@@ -12,50 +15,57 @@ use anyhow::{Context, Result, anyhow};
 use clap::Args;
 
 use tidex6_client::PrivatePool;
-use tidex6_core::elgamal::AuditorPublicKey;
 use tidex6_core::note::Denomination;
+use tidex6_core::pqc::PqcPublicKey;
 
-use crate::commands::keygen::{IdentityFile, resolve_output_path};
+use crate::commands::keygen::{IdentityFile, parse_mlkem_pk, resolve_output_path};
 use crate::common::{detect_cluster, explorer_url, load_default_keypair};
 
 /// Arguments for `tidex6 deposit`.
 #[derive(Args, Debug)]
 pub struct DepositArgs {
-    /// Deposit denomination. Must be one of the supported fixed
-    /// amounts: `0.1`, `0.5`, `1`, or `10` (SOL).
+    /// Deposit denomination: `0.1`, `0.5`, `1`, or `10` (SOL).
     #[arg(long)]
     pub amount: String,
 
-    /// Where to write the note file. The note is the offline
-    /// capability the recipient needs to withdraw. Defaults to
-    /// `./<commitment_prefix>.note` in the current directory.
+    /// Recipient ML-KEM-768 public key (hex). The note is sealed for
+    /// this key; the recipient scans the chain and withdraws on their
+    /// own — the note is never handed over. **Required.**
     #[arg(long)]
-    pub note_out: Option<PathBuf>,
+    pub recipient: String,
 
-    /// Optional custom path to the Solana fee payer keypair.
-    /// Defaults to `~/.config/solana/id.json`.
-    #[arg(long)]
-    pub keypair: Option<PathBuf>,
-
-    /// Auditor public key (Baby Jubjub, 64-character hex). The memo
-    /// is encrypted under this key and attached to the deposit
-    /// transaction. Omit to default to your own auditor public key
-    /// from `~/.tidex6/identity.json` — that way the memo is still
-    /// recoverable later via `tidex6 accountant scan --identity
-    /// <same file>` even if no external bookkeeper was involved.
+    /// Optional auditor ML-KEM public key (hex). The auditor gets a
+    /// slot carrying amount + memo (cannot spend). Defaults to your own
+    /// ML-KEM key from the identity file so you can audit your own
+    /// deposits later. Pass `--no-auditor` to omit entirely.
     #[arg(long)]
     pub auditor: Option<String>,
 
-    /// Memo plaintext — short description of this deposit, for
-    /// example `"Rent March 2026"`. **Required.** The memo is both
-    /// encrypted for the auditor (SPL Memo on chain) *and* stored
-    /// in the note file for the recipient. Both sides read the
-    /// same sentence through different channels.
+    /// Omit the auditor slot entirely (no selective disclosure).
+    #[arg(long, default_value_t = false)]
+    pub no_auditor: bool,
+
+    /// Memo plaintext — short description, e.g. `"Rent March 2026"`.
+    /// Sealed for the recipient and (if present) the auditor.
     #[arg(long)]
     pub memo: String,
 
-    /// Path to the identity file used to fill in the default auditor
-    /// public key when `--auditor` is not given. Defaults to
+    /// Revoke window in days. After this many days, if the note was
+    /// never withdrawn, you can `tidex6 refund` it. `0` (default) makes
+    /// the deposit irrevocable.
+    #[arg(long, default_value_t = 0)]
+    pub revoke_after_days: u32,
+
+    /// Optional custom Solana fee-payer keypair path.
+    #[arg(long)]
+    pub keypair: Option<PathBuf>,
+
+    /// Where to write the local note file (kept by the depositor for a
+    /// possible refund). Defaults to `~/.tidex6/notes/<prefix>.note`.
+    #[arg(long)]
+    pub note_out: Option<PathBuf>,
+
+    /// Identity file for the default auditor key. Defaults to
     /// `~/.tidex6/identity.json`.
     #[arg(long)]
     pub identity: Option<PathBuf>,
@@ -78,7 +88,12 @@ pub fn run(args: DepositArgs) -> Result<()> {
         <solana_keypair::Keypair as Signer>::pubkey(&payer)
     };
 
-    println!("tidex6 deposit");
+    let recipient_pqc = parse_mlkem_pk(&args.recipient)
+        .context("invalid --recipient ML-KEM public key")?;
+    let auditor_pqc = resolve_auditor_pk(args.auditor.as_deref(), args.no_auditor, args.identity.clone())?;
+    let revoke_window_secs = (args.revoke_after_days as i64) * 86_400;
+
+    println!("tidex6 deposit (stealth, ML-KEM)");
     println!("  cluster      : {}", cluster.url());
     println!("  payer        : {payer_pubkey}");
     println!(
@@ -87,36 +102,36 @@ pub fn run(args: DepositArgs) -> Result<()> {
         denomination.lamports()
     );
     println!("  pool pda     : {}", pool.pool_pda());
-    println!("  vault pda    : {}", pool.vault_pda());
-
-    // Show pool status up front so the user knows whether
-    // `init_pool` will run as part of this deposit.
     match pool.next_leaf_index(&payer)? {
         Some(next) => println!("  pool status  : initialised, next_leaf_index = {next}"),
         None => println!("  pool status  : not initialised, init_pool will run first"),
     }
-
-    // Resolve the auditor pubkey. Priority: explicit --auditor,
-    // then the user's own auditor_public_key from the identity
-    // file. Failing both is a hard error — tidex6 always encrypts
-    // the memo, never ships plaintext onchain.
-    let auditor_pk = resolve_auditor_pk(args.auditor.as_deref(), args.identity.clone())
-        .context("could not determine an auditor public key for this deposit")?;
-
-    println!();
+    println!("  recipient pk : {}…", &args.recipient[..16.min(args.recipient.len())]);
     println!(
-        "  memo         : \"{}\" ({} bytes, encrypted for auditor)",
-        args.memo,
-        args.memo.len()
+        "  auditor      : {}",
+        if auditor_pqc.is_some() { "yes (amount+memo slot)" } else { "none" }
     );
-    println!("  auditor pk   : {}", auditor_pk.to_hex());
+    println!(
+        "  revoke       : {}",
+        if revoke_window_secs == 0 {
+            "irrevocable".to_string()
+        } else {
+            format!("after {} days", args.revoke_after_days)
+        }
+    );
+    println!("  memo         : \"{}\" ({} bytes)", args.memo, args.memo.len());
     println!("Sending deposit via PrivatePool::deposit...");
 
-    let outcome = pool
+    let mut builder = pool
         .deposit(&payer)
-        .with_auditor(auditor_pk)
+        .to_recipient(recipient_pqc)
         .with_memo(args.memo.clone())
-        .send()?;
+        .revoke_after(revoke_window_secs);
+    if let Some(auditor) = auditor_pqc {
+        builder = builder.with_auditor(auditor);
+    }
+    let outcome = builder.send()?;
+
     let signature = outcome.signature;
     let note = outcome.note;
     let leaf_index = outcome.leaf_index;
@@ -125,18 +140,9 @@ pub fn run(args: DepositArgs) -> Result<()> {
     println!("  signature    : {signature}");
     println!("  explorer     : {}", explorer_url(&signature, &cluster));
     println!("  leaf index   : {leaf_index}");
-    if let Some(memo_b64) = outcome.memo_base64.as_ref() {
-        println!(
-            "  memo payload : {} base64 chars in the deposit instruction",
-            memo_b64.len()
-        );
-    }
+    println!("  memo account : {}", outcome.memo_account);
 
-    // Persist the note so the recipient can redeem it later.
-    // Default location is `~/.tidex6/notes/<commitment_prefix>.note`
-    // so the CLI never depends on the current working directory being
-    // writable — a common failure mode on Linux when `target/release`
-    // is served from a read-only mount or a system-managed location.
+    // Save the note locally — the depositor needs it to `refund`.
     let note_text = note.to_text();
     let note_path = match args.note_out {
         Some(path) => path,
@@ -149,37 +155,38 @@ pub fn run(args: DepositArgs) -> Result<()> {
     fs::write(&note_path, &note_text)
         .with_context(|| format!("write note file to {}", note_path.display()))?;
     println!();
-    println!("Note saved to: {}", note_path.display());
-    println!();
-    println!("┌──────────────────────────────────────────────────────────────┐");
-    println!("│ Give this line to the recipient — they need it to withdraw: │");
-    println!("└──────────────────────────────────────────────────────────────┘");
-    println!("{note_text}");
+    println!("Note saved locally (for a possible refund): {}", note_path.display());
+    println!("The recipient does NOT need it — they find this payment by scanning the");
+    println!("chain with their ML-KEM key. Nothing was handed over.");
 
     Ok(())
 }
 
-/// `~/.tidex6/notes/<commitment_prefix>.note` — always writable for
-/// the current user, never depends on the working directory.
+/// `~/.tidex6/notes/<commitment_prefix>.note`.
 fn default_note_path(commitment_hex: &str) -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME environment variable is not set")?;
     let prefix = &commitment_hex[..commitment_hex.len().min(12)];
     Ok(PathBuf::from(format!("{home}/.tidex6/notes/{prefix}.note")))
 }
 
-/// Resolve the auditor public key for this deposit.
+/// Resolve the auditor ML-KEM public key for this deposit.
 ///
-/// - If `--auditor` was explicitly passed, parse and return it.
-/// - Otherwise, load the identity file (default
-///   `~/.tidex6/identity.json`) and use its `auditor_public_key`.
-/// - Fail loudly if neither is available: tidex6 never ships an
-///   unencrypted memo.
+/// - `--no-auditor` → `None` (no auditor slot).
+/// - `--auditor <hex>` → parse and use it.
+/// - otherwise → the user's own `mlkem_public` from the identity file
+///   (audit your own deposits). Missing identity is a hard error unless
+///   `--no-auditor` was given.
 fn resolve_auditor_pk(
     explicit_hex: Option<&str>,
+    no_auditor: bool,
     identity_path: Option<PathBuf>,
-) -> Result<AuditorPublicKey> {
+) -> Result<Option<PqcPublicKey>> {
+    if no_auditor {
+        return Ok(None);
+    }
     if let Some(hex) = explicit_hex {
-        return AuditorPublicKey::from_hex(hex)
+        return parse_mlkem_pk(hex)
+            .map(Some)
             .with_context(|| format!("invalid --auditor value: {hex}"));
     }
 
@@ -188,18 +195,13 @@ fn resolve_auditor_pk(
     let identity = IdentityFile::load(&path).with_context(|| {
         format!(
             "no --auditor given and no identity file at {}. \
-             Run `tidex6 keygen` first or pass --auditor <hex>.",
+             Run `tidex6 keygen`, pass --auditor <hex>, or --no-auditor.",
             path.display()
         )
     })?;
-    if identity.auditor_public_key.is_empty() {
-        return Err(anyhow!(
-            "identity at {} has no auditor public key (v1 format); regenerate with `tidex6 keygen --force`",
-            path.display()
-        ));
-    }
-    AuditorPublicKey::from_hex(&identity.auditor_public_key)
-        .context("identity file contains a malformed auditor_public_key")
+    parse_mlkem_pk(&identity.mlkem_public)
+        .map(Some)
+        .context("identity file contains a malformed mlkem_public")
 }
 
 /// Parse the user-supplied amount string into a fixed `Denomination`.

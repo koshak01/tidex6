@@ -55,6 +55,14 @@ enum Command {
     /// Read every Shielded Memo addressed to this identity's
     /// auditor secret key and render the result as a ledger.
     Accountant(commands::accountant::AccountantArgs),
+
+    /// Stealth receipt: scan the chain with your ML-KEM key, find
+    /// payments addressed to you, and withdraw them — no note needed.
+    Receive(commands::receive::ReceiveArgs),
+
+    /// 30-day revoke: reclaim a never-withdrawn deposit using the note
+    /// you kept locally.
+    Refund(commands::refund::RefundArgs),
 }
 
 fn main() -> Result<()> {
@@ -64,5 +72,7 @@ fn main() -> Result<()> {
         Command::Deposit(args) => commands::deposit::run(args),
         Command::Withdraw(args) => commands::withdraw::run(args),
         Command::Accountant(args) => commands::accountant::run(args),
+        Command::Receive(args) => commands::receive::run(args),
+        Command::Refund(args) => commands::refund::run(args),
     }
 }

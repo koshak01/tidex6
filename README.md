@@ -61,7 +61,7 @@ use tidex6_core::note::Denomination;
 #     payer: &solana_keypair::Keypair,
 #     recipient: anchor_client::anchor_lang::prelude::Pubkey,
 # ) -> anyhow::Result<()> {
-let pool = PrivatePool::connect(Cluster::Devnet, Denomination::OneSol)?;
+let pool = PrivatePool::connect(Cluster::Mainnet, Denomination::OneSol)?;
 
 // Deposit side: get a note back to share with the recipient.
 let (deposit_sig, note, _leaf_index) = pool.deposit(payer).send()?;
@@ -96,7 +96,7 @@ let withdraw_sig = pool
 full story of Lena sending monthly support to her parents, with
 her accountant Kai producing a tax report from a shared scan
 file. Three binaries — `sender`, `receiver`, `accountant` —
-hit live devnet.
+hit live mainnet.
 
 ```bash
 cd examples/private-payroll
@@ -157,7 +157,7 @@ Public documentation lives in [`docs/release/`](docs/release/):
 - **[ROADMAP.md](docs/release/ROADMAP.md)** — now / next / later, shipping milestones.
 - **[security.md](docs/release/security.md)** — threat model, known limitations, vulnerability classes and mitigations.
 - **[PR_CHECKLIST_PROOF_LOGIC.md](docs/release/PR_CHECKLIST_PROOF_LOGIC.md)** — Fiat-Shamir discipline checklist for every PR that touches proof logic.
-- **[adr/](docs/release/adr/)** — Architecture Decision Records (nine ADRs covering commitment scheme, Merkle tree storage, nullifier storage, ElGamal implementation, non-upgradeable verifier, builder pattern vs macros, killer features, pool isolation, and proving time budget).
+- **[adr/](docs/release/adr/)** — Architecture Decision Records (thirteen ADRs covering commitment scheme, Merkle tree storage, nullifier storage, ElGamal implementation, non-upgradeable verifier, builder pattern vs macros, killer features, pool isolation, proving time budget, memo transport, relayer architecture, opaque note format, and browser-side proof generation).
 
 **Russian translations** of all of the above are available in [`docs/release/ru/`](docs/release/ru/).
 
@@ -168,25 +168,35 @@ Public documentation lives in [`docs/release/`](docs/release/):
 ```
 tidex6/
 ├── crates/
-│   ├── tidex6-core/       — commitments, nullifiers, Merkle tree, keys, Poseidon, DepositNote
-│   ├── tidex6-circuits/   — arkworks R1CS: DepositCircuit, WithdrawCircuit<20>
-│   ├── tidex6-indexer/    — offchain Merkle tree rebuild from on-chain DepositEvent logs
-│   ├── tidex6-client/     — Rust SDK with builder pattern API (PrivatePool, DepositBuilder, WithdrawBuilder)
-│   ├── tidex6-cli/        — developer CLI: `tidex6 keygen | deposit | withdraw | accountant`
-│   ├── tidex6-relayer/    — reference Axum HTTPS service (ADR-011): POST /withdraw, offchain VK verify, replay cache
-│   └── tidex6-day1/       — Day-1..12 devnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative)
+│   ├── tidex6-core/             — commitments, nullifiers, Merkle tree, keys, Poseidon, DepositNote, ElGamal
+│   ├── tidex6-circuits/         — arkworks R1CS: DepositCircuit, WithdrawCircuit<20> with relayer binding
+│   ├── tidex6-indexer/          — offchain Merkle tree rebuild from on-chain DepositEvent logs
+│   ├── tidex6-client/           — Rust SDK with builder pattern API (PrivatePool, DepositBuilder, WithdrawBuilder direct + via_relayer)
+│   ├── tidex6-cli/              — developer CLI: `tidex6 keygen | deposit | withdraw | accountant`
+│   ├── tidex6-prover-wasm/      — ADR-013: Rust prover compiled to WebAssembly (~1.7 s in-browser proof, secret never leaves the tab); excluded from workspace, built via wasm-pack
+│   ├── tidex6-notifier-client/  — bitcode IPC client for the Telegram notifier microservice (shared between tidex6-web and the relayer service)
+│   ├── tidex6-ui-shared/        — shared brand/css/template assets embedded via include_dir!; single source of truth for tidex6-web and the relayer status pages
+│   └── tidex6-day1/             — Day-1..15 mainnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative, Day-13 accountant)
 ├── programs/
-│   ├── tidex6-verifier/   — singleton non-upgradeable Anchor verifier program
-│   └── tidex6-caller/     — test CPI caller used by Day-1 gate 4
+│   ├── tidex6-verifier/         — singleton non-upgradeable Anchor verifier program (deployed at 2qEmhLEn…nBcU9C)
+│   ├── tidex6-tip-jar/          — ADR-013 reference CPI integration example (deployed at 5WohQRRz…Ui9b9x, OtterSec-verified)
+│   ├── tidex6-confidential-amounts/  — early v0.3 Token-2022 Confidential-Transfers exploration (not on mainnet yet)
+│   └── tidex6-caller/           — test CPI caller used by Day-1 gate 4
 ├── examples/
-│   └── private-payroll/   — flagship example: sender, receiver, accountant
-├── brand/                  — logo assets
-└── video/                  — pitch and demo video scripts
+│   ├── private-payroll/         — flagship example: sender, receiver, accountant binaries
+│   └── confidential-amount-demo/  — companion to programs/tidex6-confidential-amounts (v0.3 exploration)
+├── brand/                        — logo assets, brandbook, Solscan PNGs
+└── video/                        — pitch, demo, and weekly progress scripts
+
+External repos (sibling path-deps, not part of this workspace):
+  - tidex6-web        — production website at tidex6.com (5-microservice IPC architecture)
+  - tidex6-relayer    — production relayer at relayer.tidex6.com (Axum HTTPS service, ADR-011)
 
 Planned for v0.2, not yet in the workspace:
   - Proof of Innocence circuit + Association Set Provider (ADR-007 v2)
   - Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery
   - Ergonomic proc macros (`#[private_withdraw]` etc.) layered over the builder API (ADR-006)
+  - Auditor key lifecycle — BIP32-style HD derivation for forward secrecy (extends ADR-012)
 ```
 
 ---

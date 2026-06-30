@@ -1,21 +1,17 @@
-//! [`DepositBuilder`] — builder for a single shielded deposit.
+//! [`DepositBuilder`] — v2 shielded deposit (ADR-014).
 //!
-//! The builder is produced by [`PrivatePool::deposit`] and is
-//! always consumed by [`DepositBuilder::send`] (non-chaining —
-//! you cannot stage, inspect and then send; once `.send()` is
-//! called the builder is gone). This is deliberate: a deposit
-//! touches money, so the API is explicit and one-shot.
+//! Stealth model: the recipient is named by their **ML-KEM-768 public
+//! key**, never by a Solana address. The deposit builds a multi-slot
+//! envelope ([`tidex6_core::envelope`]) sealing the note's spend
+//! material for the recipient and (optionally) the memo+amount for one
+//! or more auditors, then stores it in a dedicated memo account written
+//! in chunks (`deposit` + `append_memo`). The note itself is **never
+//! handed over** — the recipient scans the chain, decrypts their slot,
+//! and withdraws on their own.
 //!
-//! Shielded Memo: set both [`DepositBuilder::with_auditor`] and
-//! [`DepositBuilder::with_memo`] to attach an encrypted memo to the
-//! deposit. The memo is encrypted under the auditor's Baby Jubjub
-//! public key and passed to the onchain verifier program as a
-//! regular instruction argument — the verifier stores the binary
-//! payload in the emitted `DepositEvent` and in the program log
-//! line, so the offchain indexer and accountant scanner can
-//! retrieve it without needing a separate transport channel. See
-//! ADR-007 (feature design) and ADR-010 rev.2 (why memo lives
-//! inside the verifier program) for the rationale.
+//! The depositor also picks a per-deposit `revoke_window` (seconds;
+//! `0` = irrevocable): if the note is never withdrawn within it, the
+//! depositor can `refund`.
 
 use std::rc::Rc;
 
@@ -28,53 +24,46 @@ use solana_signature::Signature;
 use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STD;
-
-use tidex6_core::elgamal::AuditorPublicKey;
-use tidex6_core::memo::{MemoEnvelope, placeholder_envelope_for_anonymous, validate_memo_charset};
+use tidex6_core::envelope;
+use tidex6_core::memo::validate_memo_charset;
 use tidex6_core::note::DepositNote;
-use tidex6_verifier::accounts as verifier_accounts;
-use tidex6_verifier::instruction as verifier_instruction;
+use tidex6_core::pqc::PqcPublicKey;
+use tidex6_verifier_v2::accounts as verifier_accounts;
+use tidex6_verifier_v2::instruction as verifier_instruction;
 
 use crate::pool::PrivatePool;
 
-/// Outcome of a successful deposit. Grouping the fields into a struct
-/// leaves room to add new optional signals without breaking every
-/// call site.
+/// Maximum envelope bytes carried per transaction. Conservative: leaves
+/// headroom for the commitment, the length/offset/revoke args, the
+/// accounts and Anchor framing under the 1232-byte transaction limit.
+const MEMO_CHUNK_LEN: usize = 800;
+
+/// Outcome of a successful deposit.
 #[derive(Debug, Clone)]
 pub struct DepositOutcome {
-    /// Signature of the confirmed deposit transaction.
+    /// Signature of the confirmed `deposit` transaction (chunk 0).
     pub signature: Signature,
-    /// The note the depositor must preserve offline to later redeem.
+    /// The note. In the stealth flow the depositor does **not** send
+    /// this anywhere — it is returned only so non-stealth callers and
+    /// tests can keep it. The recipient recovers an equivalent note
+    /// from the on-chain envelope.
     pub note: DepositNote,
     /// Leaf index assigned by the verifier program.
     pub leaf_index: u64,
-    /// Base64 encoding of the Shielded Memo payload that was sent
-    /// to the verifier as part of the `deposit` instruction. Useful
-    /// for the flight harness, for debugging, and for rebuilding
-    /// the exact string the indexer will later surface. `None` if
-    /// no memo was configured on the builder (in the MVP flow CLI
-    /// always configures one, but the SDK keeps the field optional
-    /// for integrators who build their own flows).
-    pub memo_base64: Option<String>,
+    /// The dedicated memo-account PDA holding the ML-KEM envelope.
+    pub memo_account: Pubkey,
 }
 
-/// Consumable builder for a deposit transaction.
-///
-/// Build via [`PrivatePool::deposit`], finish with `.send()`.
+/// Consumable builder for a v2 deposit. Build via
+/// [`PrivatePool::deposit`], finish with `.send()`.
 pub struct DepositBuilder<'a> {
     pool: &'a PrivatePool,
     payer: &'a Keypair,
     note: Option<DepositNote>,
-    auditor_pk: Option<AuditorPublicKey>,
+    recipient_pqc: Option<PqcPublicKey>,
+    auditor_pqcs: Vec<PqcPublicKey>,
     memo_plaintext: Option<String>,
-    /// Explicit opt-out: caller does not have an auditor and just
-    /// wants to deposit without selective disclosure. The on-chain
-    /// verifier still requires *some* memo bytes (length-bounded by
-    /// ADR-012), so we attach a placeholder envelope that nobody can
-    /// decrypt — generated via `tidex6_core::memo::placeholder_envelope_for_anonymous`.
-    skip_memo: bool,
+    revoke_window_secs: i64,
 }
 
 impl<'a> DepositBuilder<'a> {
@@ -83,131 +72,83 @@ impl<'a> DepositBuilder<'a> {
             pool,
             payer,
             note: None,
-            auditor_pk: None,
+            recipient_pqc: None,
+            auditor_pqcs: Vec::new(),
             memo_plaintext: None,
-            skip_memo: false,
+            revoke_window_secs: 0,
         }
     }
 
-    /// Supply a caller-constructed `DepositNote`. Optional — if
-    /// not set, `.send()` generates a fresh random note via
-    /// `DepositNote::random`. Useful for tests that need
-    /// deterministic notes.
+    /// Supply a caller-constructed note instead of generating a fresh
+    /// random one. Mostly for tests needing determinism.
     pub fn note(mut self, note: DepositNote) -> Self {
         self.note = Some(note);
         self
     }
 
-    /// Address any memo attached to this deposit to the given auditor.
-    ///
-    /// The auditor's public key is published out of band (Telegram,
-    /// email, QR code — whatever Lena and Kai agreed on). This builder
-    /// does not validate that the auditor will actually have custody
-    /// of the corresponding secret key; that is social.
-    pub fn with_auditor(mut self, auditor_pk: AuditorPublicKey) -> Self {
-        self.auditor_pk = Some(auditor_pk);
+    /// Required. The stealth recipient's ML-KEM-768 public key. The
+    /// note's spend material is sealed for this key; the recipient
+    /// scans the chain and withdraws themselves.
+    pub fn to_recipient(mut self, recipient_pqc: PqcPublicKey) -> Self {
+        self.recipient_pqc = Some(recipient_pqc);
         self
     }
 
-    /// Attach a human-readable memo to this deposit.
-    ///
-    /// The plaintext must be at most [`tidex6_core::memo::MAX_PLAINTEXT_LEN`]
-    /// bytes and is encrypted under the auditor set via
-    /// [`Self::with_auditor`]. Calling `.with_memo` without
-    /// `.with_auditor` is a usage error and will return an error
-    /// from `.send()` — we do not silently ship an unencrypted memo.
+    /// Add an auditor (or regulator) ML-KEM public key. Each gets an
+    /// envelope slot carrying `denomination + memo` only — they can see
+    /// but not spend. Call multiple times for multiple auditors.
+    pub fn with_auditor(mut self, auditor_pqc: PqcPublicKey) -> Self {
+        self.auditor_pqcs.push(auditor_pqc);
+        self
+    }
+
+    /// Attach a human-readable memo (Latin + Cyrillic only). Visible to
+    /// the recipient and to every auditor slot.
     pub fn with_memo(mut self, text: impl Into<String>) -> Self {
         self.memo_plaintext = Some(text.into());
         self
     }
 
-    /// Explicit opt-out from Shielded Memo: deposit without an
-    /// auditor and without a human memo. The on-chain verifier still
-    /// requires `memo_payload` bytes of valid length, so the builder
-    /// substitutes a placeholder payload (encrypted under an
-    /// ephemeral key dropped immediately, so the bytes are
-    /// indistinguishable from a real memo but cryptographically
-    /// undecryptable by anyone).
-    ///
-    /// Use when the depositor has no accountant in the loop — for
-    /// example a self-payroll or a one-off self-test. Mutually
-    /// exclusive with `.with_auditor` / `.with_memo`; if both paths
-    /// are configured, `.send()` returns an error.
-    pub fn without_memo(mut self) -> Self {
-        self.skip_memo = true;
+    /// Per-deposit revoke window in seconds. `0` (the default) makes the
+    /// deposit irrevocable. After `revoke_window` seconds, if the note
+    /// was never withdrawn, the depositor can `refund`.
+    pub fn revoke_after(mut self, secs: i64) -> Self {
+        self.revoke_window_secs = secs;
         self
     }
 
-    /// Send the deposit transaction.
-    ///
-    /// Behaviour:
-    ///
-    /// 1. If the pool has never been initialised on this cluster,
-    ///    send an `init_pool` transaction first. The caller pays
-    ///    the rent for both the `PoolState` PDA and the vault.
-    /// 2. Generate a fresh `DepositNote` (unless one was supplied
-    ///    via [`DepositBuilder::note`]).
-    /// 3. Assemble a single transaction containing the `deposit`
-    ///    instruction and, if a memo was configured, an SPL Memo
-    ///    Program instruction carrying the encrypted payload.
-    /// 4. Parse the leaf index out of the transaction logs and
-    ///    return it alongside the signature, the note, and the
-    ///    base64 memo (if any).
-    ///
-    /// Returns [`DepositOutcome`]. The `note` must be preserved
-    /// offline for the recipient to later redeem it.
+    /// Send the deposit: build the envelope, create the memo account
+    /// with chunk 0, and append the remaining chunks.
     pub fn send(self) -> Result<DepositOutcome> {
-        // Memo and auditor are independent fields. Three valid modes:
-        //   1. (memo, auditor) — memo plaintext goes into the note for
-        //      the recipient AND is encrypted onchain for the auditor.
-        //   2. (memo only)     — memo plaintext goes into the note for
-        //      the recipient. Onchain we ship a placeholder payload
-        //      because there is no auditor key to encrypt for. The
-        //      recipient still reads the memo from the note file.
-        //   3. (neither)       — anonymous deposit. Placeholder onchain,
-        //      no memo in the note.
-        //
-        // The fourth combination — auditor without memo — is a usage
-        // error: nothing to encrypt for them.
-        if self.auditor_pk.is_some() && self.memo_plaintext.is_none() {
-            return Err(anyhow!(
-                "DepositBuilder::with_auditor without .with_memo() — there \
-                 is no plaintext to encrypt for the auditor"
-            ));
-        }
-        if self.skip_memo && (self.auditor_pk.is_some() || self.memo_plaintext.is_some()) {
-            return Err(anyhow!(
-                "DepositBuilder::without_memo is mutually exclusive with \
-                 .with_auditor() / .with_memo(); pick one path"
-            ));
-        }
+        let recipient_pqc = self
+            .recipient_pqc
+            .clone()
+            .ok_or_else(|| anyhow!("deposit requires .to_recipient(ml_kem_pubkey)"))?;
 
-        // ADR-012 v2.5.9: charset whitelist (Latin + Cyrillic). Reject
-        // emoji and CJK at the SDK boundary so the user gets a clear
-        // error before we burn a transaction. The padded-plaintext
-        // budget is fixed at MAX_PLAINTEXT_LEN bytes; multi-byte
-        // emoji would otherwise eat the slot 4-bytes-per-glyph and
-        // surprise users when their 60-char emoji message gets
-        // refused for "PlaintextTooLong" deeper in the encrypt path.
         if let Some(ref text) = self.memo_plaintext {
             validate_memo_charset(text)
                 .with_context(|| "memo contains an unsupported character (Latin + Cyrillic only)")?;
         }
+        let memo_bytes: Vec<u8> = self
+            .memo_plaintext
+            .as_deref()
+            .unwrap_or("")
+            .as_bytes()
+            .to_vec();
 
         let program = self.pool.program_handle(self.payer)?;
         let payer_pubkey = {
             use anchor_client::Signer;
             <Keypair as Signer>::pubkey(self.payer)
         };
+        let denomination_lamports = self.pool.denomination().lamports();
 
         // Initialise the pool on first use.
-        let denomination_lamports = self.pool.denomination().lamports();
         let rpc = program.rpc();
         let needs_init = rpc
             .get_account(&self.pool.pool_pda())
             .map(|account| account.data.is_empty())
             .unwrap_or(true);
-
         if needs_init {
             program
                 .request()
@@ -225,91 +166,84 @@ impl<'a> DepositBuilder<'a> {
                 .context("init_pool transaction failed to confirm")?;
         }
 
-        // Generate or use the caller-supplied note. Per ADR-012 the
-        // note is opaque and never carries a memo — the plaintext
-        // lives only in the on-chain envelope, encrypted under a key
-        // derived from the note's own secret material.
+        // Generate or use the caller-supplied note.
         let note = match self.note {
             Some(note) => note,
             None => DepositNote::random(self.pool.denomination())
                 .context("failed to generate a random deposit note")?,
         };
-        let commitment = note.commitment();
+        let commitment = note.commitment().to_bytes();
 
-        // ADR-012: build an envelope-encrypted memo. Key derivation
-        // is deterministic from the note's own material so the
-        // recipient can always decrypt, and the auditor slot is
-        // populated only when an auditor key is configured.
-        let note_secret_bytes: &[u8; 32] = note.secret().as_bytes();
-        let note_nullifier_bytes: &[u8; 32] = note.nullifier().as_bytes();
-        let memo_payload_bytes: Vec<u8> = match (&self.auditor_pk, &self.memo_plaintext) {
-            // (memo + auditor) — envelope with both wrap-K slots.
-            (Some(pk), Some(text)) => MemoEnvelope::encrypt_for_recipient_and_auditor(
-                text.as_bytes(),
-                note_secret_bytes,
-                note_nullifier_bytes,
-                pk,
-            )
-            .context("failed to build recipient+auditor memo envelope")?
-            .to_bytes(),
-            // (memo only) — envelope readable only by the note holder.
-            (None, Some(text)) => MemoEnvelope::encrypt_for_recipient_only(
-                text.as_bytes(),
-                note_secret_bytes,
-                note_nullifier_bytes,
-            )
-            .context("failed to build recipient-only memo envelope")?
-            .to_bytes(),
-            // (auditor only) — caught earlier as an error.
-            (Some(_), None) => unreachable!("validated at the top of send()"),
-            // (neither) — anonymous deposit. Ship a random placeholder
-            // envelope so the on-chain bytes are indistinguishable in
-            // shape from real memos.
-            (None, None) => {
-                if self.skip_memo {
-                    placeholder_envelope_for_anonymous()
-                        .context("failed to build placeholder envelope")?
-                } else {
-                    return Err(anyhow!(
-                        "DepositBuilder: configure .with_memo(text) for a \
-                         memo-to-recipient deposit, or .without_memo() for \
-                         an anonymous deposit"
-                    ));
-                }
-            }
-        };
-        let memo_base64 = BASE64_STD.encode(&memo_payload_bytes);
+        // Build the multi-slot ML-KEM envelope (ADR-014).
+        let envelope_bytes = envelope::build(
+            &recipient_pqc,
+            note.secret().as_bytes(),
+            note.nullifier().as_bytes(),
+            denomination_lamports,
+            &memo_bytes,
+            &self.auditor_pqcs,
+        )
+        .context("failed to build ML-KEM envelope")?;
+        let total_len = envelope_bytes.len() as u32;
+        let memo_account = self.pool.memo_pda(&commitment);
 
+        // Deposit transaction carries chunk 0 and opens the memo account.
+        let chunk0_end = MEMO_CHUNK_LEN.min(envelope_bytes.len());
+        let chunk0 = envelope_bytes[..chunk0_end].to_vec();
         let signature = program
             .request()
             .accounts(verifier_accounts::Deposit {
                 pool: self.pool.pool_pda(),
                 vault: self.pool.vault_pda(),
+                memo: memo_account,
                 payer: payer_pubkey,
                 system_program: system_program::ID,
             })
             .args(verifier_instruction::Deposit {
-                commitment: commitment.to_bytes(),
-                memo_payload: memo_payload_bytes,
+                commitment,
+                memo_total_len: total_len,
+                revoke_window: self.revoke_window_secs,
+                memo_chunk: chunk0,
             })
             .signer(self.payer)
             .send()
             .context("deposit transaction failed to confirm")?;
 
-        // Pull the leaf index out of the transaction logs.
+        // Append the remaining envelope chunks.
+        let mut offset = chunk0_end;
+        while offset < envelope_bytes.len() {
+            let end = (offset + MEMO_CHUNK_LEN).min(envelope_bytes.len());
+            let chunk = envelope_bytes[offset..end].to_vec();
+            program
+                .request()
+                .accounts(verifier_accounts::AppendMemo {
+                    memo: memo_account,
+                    depositor: payer_pubkey,
+                })
+                .args(verifier_instruction::AppendMemo {
+                    commitment,
+                    offset: offset as u32,
+                    chunk,
+                })
+                .signer(self.payer)
+                .send()
+                .with_context(|| format!("append_memo transaction failed at offset {offset}"))?;
+            offset = end;
+        }
+
         let leaf_index = fetch_leaf_index(&program, &signature)?;
 
         Ok(DepositOutcome {
             signature,
             note,
             leaf_index,
-            memo_base64: Some(memo_base64),
+            memo_account,
         })
     }
 }
 
 /// Fetch a transaction and parse its
-/// `tidex6-deposit:<leaf>:<commitment>:<root>` log line.
+/// `tidex6-v2-deposit:<leaf>:<commitment>:<root>` log line.
 fn fetch_leaf_index(
     program: &anchor_client::Program<Rc<Keypair>>,
     signature: &Signature,
@@ -334,7 +268,7 @@ fn fetch_leaf_index(
         _ => return Err(anyhow!("transaction meta has no log messages")),
     };
 
-    const PREFIX: &str = "Program log: tidex6-deposit:";
+    const PREFIX: &str = "Program log: tidex6-v2-deposit:";
     for line in logs {
         let Some(payload) = line.strip_prefix(PREFIX) else {
             continue;
@@ -349,11 +283,7 @@ fn fetch_leaf_index(
     }
 
     Err(anyhow!(
-        "no tidex6-deposit log line in transaction:\n{}",
+        "no tidex6-v2-deposit log line in transaction:\n{}",
         logs.join("\n")
     ))
 }
-
-/// Re-exported from anchor for documentation linking.
-#[allow(dead_code)]
-type _PubkeyAlias = Pubkey;
