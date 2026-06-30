@@ -1,10 +1,14 @@
 # ADR-014 — Post-quantum memo in a dedicated account, new verifier
 
-**Status:** Accepted — deployed to mainnet 2026-06-30 as
-`Gt1duB4bPj2CmW9y7eiGzekeCfiR1UckjiyPGSbyWRVU` (reproducible build via
-`solanafoundation/solana-verifiable-build:4.0.3`; first deploy `6VUBZ…`
-was closed/retired and re-done reproducibly per Petr; OtterSec
-verification + `--final` after deploy).
+**Status:** Accepted — mainnet `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`
+(reproducible via `solanafoundation/solana-verifiable-build:4.0.3`,
+anchor-lang 1.1.2). Deploy lineage: `6VUBZ…` (local build) → closed;
+`Gt1duB4b…` (reproducible, OtterSec-verified, finalized) → **abandoned**
+because it was built on anchor-lang 1.0.0, which carries RUSTSEC-2026-0144
+(`Program<System>` accepts arbitrary executable — exploitable in the
+vault-transfer CPIs). It is immutable (`Authority: none`) so it cannot be
+closed; we simply do not use it. `CSDD31Zm…` is the patched re-deploy
+(anchor ≥1.0.2). OtterSec verification + `--final` after deploy.
 **Date:** 2026-06-30
 **Supersedes (for new pool):** ADR-012 envelope transport via `DepositEvent.memo_payload`
 

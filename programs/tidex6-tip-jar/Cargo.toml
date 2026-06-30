@@ -21,7 +21,7 @@ cpi = ["no-entrypoint"]
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "1.0.0"
+anchor-lang = "1.0.2"
 tidex6-verifier = { path = "../tidex6-verifier", features = ["cpi"] }
 # `security_txt!` macro embeds project metadata (name, source URL,
 # contacts, source_release = pkg version) into a dedicated section

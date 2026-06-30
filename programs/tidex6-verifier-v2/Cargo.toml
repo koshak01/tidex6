@@ -21,7 +21,7 @@ cpi = ["no-entrypoint"]
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "1.0.0"
+anchor-lang = "1.0.2"
 solana-poseidon = { workspace = true }
 groth16-solana = { workspace = true }
 # bytemuck is pulled in by the `#[account(zero_copy)]` macro expansion

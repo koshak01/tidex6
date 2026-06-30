@@ -94,9 +94,11 @@ base64 = "0.22"
 
 # Anchor client and ecosystem — used by the Day-1 validation harness and
 # by any future Rust-based integrator code. Version pinned to match the
-# onchain anchor-lang version used in programs/tidex6-verifier.
-anchor-client = "1.0.0"
-anchor-lang = "1.0.0"
+# onchain anchor-lang version. Min 1.0.2: 1.0.0/1.0.1 carry
+# RUSTSEC-2026-0144 (Program<System> accepts arbitrary executable
+# programs — exploitable in vault-transfer CPIs).
+anchor-client = "1.0.2"
+anchor-lang = "1.0.2"
 
 # Dev dependencies
 criterion = "0.8"
