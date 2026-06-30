@@ -423,6 +423,111 @@ impl<'a> WithdrawBuilder<'a> {
     }
 }
 
+/// Merkle inclusion data for a commitment, computed server-side so the
+/// browser can build the withdraw proof locally. `siblings_concat` is the
+/// 20×32-byte path (leaf-adjacent first); `indices` is 20 bytes of 0/1
+/// (LSB-first leaf-index bits) — both match the wasm `proveWithdraw` ABI.
+#[derive(Debug, Clone)]
+pub struct MerklePathData {
+    pub siblings_concat: Vec<u8>,
+    pub indices: Vec<u8>,
+    pub root: [u8; 32],
+    pub leaf_index: u64,
+}
+
+impl PrivatePool {
+    /// Rebuild the offchain tree and return the Merkle path for a
+    /// commitment, so the browser can prove withdraw locally. Mirrors the
+    /// indexer portion of [`WithdrawBuilder::send`].
+    pub fn merkle_path_for(&self, commitment: [u8; 32]) -> Result<MerklePathData> {
+        let indexer = self.indexer();
+        let (tree, merkle_root) = indexer
+            .rebuild_tree(WITHDRAW_TREE_DEPTH)
+            .context("rebuild offchain Merkle tree from program logs")?;
+        let c = Commitment::from_bytes(commitment);
+        let record = indexer
+            .find_deposit_record(&c)
+            .context("find deposit record for commitment")?
+            .ok_or_else(|| {
+                anyhow!("commitment not found in pool history — note not yet on-chain")
+            })?;
+        let leaf_index = record.leaf_index;
+        let proof = tree.proof(leaf_index).context("build merkle proof for leaf")?;
+
+        if proof.siblings.len() != WITHDRAW_TREE_DEPTH {
+            return Err(anyhow!(
+                "Merkle proof depth {} != WITHDRAW_TREE_DEPTH {}",
+                proof.siblings.len(),
+                WITHDRAW_TREE_DEPTH
+            ));
+        }
+        let mut siblings_concat = Vec::with_capacity(WITHDRAW_TREE_DEPTH * 32);
+        for s in &proof.siblings {
+            siblings_concat.extend_from_slice(s.as_bytes());
+        }
+        let mut indices = vec![0u8; WITHDRAW_TREE_DEPTH];
+        for (i, slot) in indices.iter_mut().enumerate() {
+            *slot = ((leaf_index >> i) & 1) as u8;
+        }
+
+        Ok(MerklePathData {
+            siblings_concat,
+            indices,
+            root: merkle_root.to_bytes(),
+            leaf_index,
+        })
+    }
+
+    /// Submit a withdraw with a browser-built Groth16 proof. The server
+    /// pays the fee (direct path: `relayer = recipient`, fee = 0); the
+    /// user's secret never reached the server. Mirrors the Direct arm of
+    /// [`WithdrawBuilder::send`] minus proving.
+    #[allow(clippy::too_many_arguments)]
+    pub fn withdraw_raw(
+        &self,
+        payer: &Keypair,
+        proof_a: [u8; 64],
+        proof_b: [u8; 128],
+        proof_c: [u8; 64],
+        merkle_root: [u8; 32],
+        nullifier_hash: [u8; 32],
+        recipient: Pubkey,
+    ) -> Result<Signature> {
+        let (nullifier_pda, _bump) =
+            Pubkey::find_program_address(&[b"nullifier", &nullifier_hash], &self.program_id());
+        let program = self.program_handle(payer)?;
+        let payer_pubkey = {
+            use anchor_client::Signer;
+            <Keypair as Signer>::pubkey(payer)
+        };
+
+        let signature = program
+            .request()
+            .accounts(verifier_accounts::Withdraw {
+                pool: self.pool_pda(),
+                vault: self.vault_pda(),
+                nullifier: nullifier_pda,
+                recipient,
+                relayer: recipient,
+                payer: payer_pubkey,
+                system_program: system_program::ID,
+            })
+            .args(verifier_instruction::Withdraw {
+                proof_a,
+                proof_b,
+                proof_c,
+                merkle_root,
+                nullifier_hash,
+                relayer_fee: 0,
+            })
+            .signer(payer)
+            .send()
+            .context("withdraw transaction failed to confirm")?;
+
+        Ok(signature)
+    }
+}
+
 #[derive(serde::Serialize)]
 struct RelayerWithdrawRequest {
     denomination: u64,
