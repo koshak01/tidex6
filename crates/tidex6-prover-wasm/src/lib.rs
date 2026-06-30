@@ -27,8 +27,10 @@ use ark_serialize::CanonicalDeserialize;
 use js_sys::Uint8Array;
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_circuits::withdraw::{WithdrawWitness, prove_withdraw as prove_withdraw_inner};
-use tidex6_core::note::DepositNote;
+use tidex6_core::envelope;
+use tidex6_core::note::{Denomination, DepositNote};
 use tidex6_core::poseidon;
+use tidex6_core::pqc::PqcPublicKey;
 use wasm_bindgen::prelude::*;
 
 const DEPTH: usize = 20;
@@ -111,6 +113,101 @@ pub fn nullifier_hash(nullifier: &Uint8Array) -> Result<Uint8Array, JsError> {
     let h = poseidon::hash(&[&n])
         .map_err(|e| JsError::new(&format!("poseidon failed: {e}")))?;
     Ok(Uint8Array::from(&h[..]))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Deposit-side: note generation + ML-KEM envelope, all in the browser
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// A freshly generated deposit note. `secret`/`nullifier` are the spend
+/// material (kept in the tab), `commitment` is the public leaf, `noteText`
+/// is the opaque 132-hex backup string. None of this reaches the server
+/// except `commitment` (public) and the sealed envelope.
+#[wasm_bindgen]
+pub struct GeneratedNote {
+    secret: [u8; FIELD_BYTES],
+    nullifier: [u8; FIELD_BYTES],
+    commitment: [u8; FIELD_BYTES],
+    note_text: String,
+}
+
+#[wasm_bindgen]
+impl GeneratedNote {
+    #[wasm_bindgen(getter)]
+    pub fn secret(&self) -> Uint8Array { Uint8Array::from(&self.secret[..]) }
+    #[wasm_bindgen(getter)]
+    pub fn nullifier(&self) -> Uint8Array { Uint8Array::from(&self.nullifier[..]) }
+    #[wasm_bindgen(getter)]
+    pub fn commitment(&self) -> Uint8Array { Uint8Array::from(&self.commitment[..]) }
+    #[wasm_bindgen(getter, js_name = noteText)]
+    pub fn note_text(&self) -> String { self.note_text.clone() }
+}
+
+/// Generate a fresh deposit note (random secret + nullifier) for the
+/// given denomination, entirely in the browser.
+#[wasm_bindgen(js_name = generateNote)]
+pub fn generate_note(denomination_lamports: f64) -> Result<GeneratedNote, JsError> {
+    let denom = denom_from_lamports(denomination_lamports as u64)?;
+    let note = DepositNote::random(denom)
+        .map_err(|e| JsError::new(&format!("note generation failed: {e}")))?;
+    Ok(GeneratedNote {
+        secret: *note.secret().as_bytes(),
+        nullifier: *note.nullifier().as_bytes(),
+        commitment: *note.commitment().as_bytes(),
+        note_text: note.to_text(),
+    })
+}
+
+/// Build the multi-slot ML-KEM envelope for a deposit, in the browser.
+/// `recipient_pub` and `auditor_pub` are 1184-byte ML-KEM-768 public
+/// keys (`auditor_pub` may be empty for no auditor slot). The recipient
+/// slot seals `secret ‖ nullifier ‖ memo`; the auditor slot seals
+/// `denomination ‖ memo` (cannot spend).
+#[wasm_bindgen(js_name = buildEnvelope)]
+pub fn build_envelope(
+    recipient_pub: &Uint8Array,
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    denomination_lamports: f64,
+    memo: &str,
+    auditor_pub: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    let recipient = PqcPublicKey::from_bytes(&uint8array_to_vec(recipient_pub))
+        .map_err(|e| JsError::new(&format!("invalid recipient public key: {e}")))?;
+    let s = to_field_bytes(secret, "secret")?;
+    let n = to_field_bytes(nullifier, "nullifier")?;
+
+    let auditors: Vec<PqcPublicKey> = if auditor_pub.length() == 0 {
+        Vec::new()
+    } else {
+        let a = PqcPublicKey::from_bytes(&uint8array_to_vec(auditor_pub))
+            .map_err(|e| JsError::new(&format!("invalid auditor public key: {e}")))?;
+        vec![a]
+    };
+
+    let envelope = envelope::build(
+        &recipient,
+        &s,
+        &n,
+        denomination_lamports as u64,
+        memo.as_bytes(),
+        &auditors,
+    )
+    .map_err(|e| JsError::new(&format!("envelope build failed: {e}")))?;
+
+    Ok(Uint8Array::from(envelope.as_slice()))
+}
+
+fn denom_from_lamports(lamports: u64) -> Result<Denomination, JsError> {
+    match lamports {
+        100_000_000 => Ok(Denomination::OneTenthSol),
+        500_000_000 => Ok(Denomination::HalfSol),
+        1_000_000_000 => Ok(Denomination::OneSol),
+        10_000_000_000 => Ok(Denomination::TenSol),
+        other => Err(JsError::new(&format!(
+            "unsupported denomination: {other} lamports (use 0.1 / 0.5 / 1 / 10 SOL)"
+        ))),
+    }
 }
 
 /// Generate a withdraw proof entirely in the browser.
