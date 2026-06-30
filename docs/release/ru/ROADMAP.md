@@ -19,21 +19,23 @@
 - Локальный Phase 2 trusted setup ceremony, помечен **DEVELOPMENT ONLY — не для реальных средств**
 
 ### Selective disclosure
-- Per-deposit ElGamal auditor tag (BN254 G1 group + Baby Jubjub для in-circuit derivation)
+- Per-deposit ML-KEM-768 auditor slot (post-quantum) sealed через ChaCha20-Poly1305 — слот не содержит secret/nullifier, аудитор может читать но не тратить (legacy v1 pool использовал ElGamal на BN254 G1 + Baby Jubjub)
 - Одноуровневый viewing key (упрощённая иерархическая деривация для MVP)
 - Auditor scanning tool (CLI)
 - Offchain передача ключей (hex format)
 
-### Shielded Memo — отгружен 2026-04-15
-- Зашифрованное memo до 256 байт прикреплённое к каждому депозиту
-- ECDH key exchange на Baby Jubjub + AES-256-GCM
-- Транспорт: SPL Memo Program инструкция в той же транзакции что и deposit (см. ADR-010)
-- Один auditor на deposit, выбирается при отправке; расшифровывает тот, у кого есть `AuditorSecretKey`
+### Shielded Memo — отгружен 2026-04-15, post-quantum редизайн (ADR-014, заменяет ADR-012)
+- Sealed memo до 256 байт в выделенном per-deposit memo-аккаунте (не в DepositEvent)
+- ML-KEM-768 (post-quantum, NIST FIPS 203) key encapsulation + ChaCha20-Poly1305 AEAD
+- Два sealed-слота: recipient slot который seal'ит ноту (secret + nullifier), и опциональный auditor slot который seal'ит memo + метаданные но НЕ содержит secret/nullifier — аудитор может читать но не тратить
+- Stealth-доставка: нота никогда не передаётся получателю — он сканирует сеть своим ML-KEM secret key и реконструирует депозит
+- Per-deposit revoke: отправитель может закрыть выделенный memo-аккаунт депозита, удалив sealed-слоты из состояния chain'а
+- Charset whitelist: только Latin + Cyrillic. Emoji и CJK отклоняются на границе SDK
 - CLI: `tidex6 accountant scan` для использования без браузера
 - Web: страница `/accountant/` на tidex6.com (спецификация в `docs/release/spec/ACCOUNTANT_WEB_SPEC.md`)
 
 ### Developer SDK
-- `tidex6-core` — примитивы (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, ElGamal)
+- `tidex6-core` — примитивы (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, pqc (ML-KEM-768 + ChaCha20-Poly1305); ElGamal legacy v1)
 - `tidex6-circuits` — arkworks R1CS (DepositCircuit, WithdrawCircuit)
 - `tidex6-verifier` — singleton Anchor program
 - `tidex6-client` — builder-pattern API (ProofBuilder, TransactionBuilder, KeyManager, viewing-key import/export)
@@ -41,8 +43,9 @@
 
 ### DepositNote
 - First-class `DepositNote` концепт в SDK
-- Текстовый формат: `tidex6-note-v1:<denomination>:<secret>:<nullifier>`
+- Opaque hex wire-формат (ADR-012): 132 строчных hex-символа, без префикса `tidex6-`, без встроенного memo, без разделителей — выглядит как любая случайная base16-строка при копировании в чат
 - Передаваема offchain (файл, clipboard, зашифрованное сообщение, QR через библиотеку)
+- Stealth-доставка (ADR-014): ноту вообще не нужно передавать — получатель реконструирует её сканируя сеть своим ML-KEM secret key
 
 ### Инфраструктура
 - **Indexer** — in-memory, WebSocket подписка на события программы, offchain Merkle tree rebuild
@@ -77,7 +80,7 @@
 - Per-asset деплой: отдельный finalized verifier program под каждый mint, общий circuit и crypto core (`tidex6-circuits` + `tidex6-core` без изменений)
 - **USDT первым**, **USDC вторым** — диктуется P2P-ликвидностью в целевых регионах (USDT доминирует в retail off-ramps Восточной Европы, Балкан, СНГ, ЮВ Азии; USDC доминирует в DeFi)
 - Семейство пулов даёт пользователю выбор trust assumption: SOL pool (нет third-party freeze risk), USDT pool (самая широкая stablecoin ликвидность), USDC pool (DeFi-friendly)
-- Каждый pool — свой finalized, non-upgradeable program, независимый от SOL верификатора `2qEm…cU9C`
+- Каждый pool — свой finalized, non-upgradeable program, независимый от текущего SOL верификатора `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`
 - Открытая декларация риска `freeze_authority` для stablecoin-пулов в `security.md` — Circle и Tether сохраняют техническую возможность заморозить pool ATA; это свойство самого mint, а не tidex6
 
 ### Regulated pools (multi-auditor viewing keys)

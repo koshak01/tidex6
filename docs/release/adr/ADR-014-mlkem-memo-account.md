@@ -8,7 +8,10 @@ because it was built on anchor-lang 1.0.0, which carries RUSTSEC-2026-0144
 (`Program<System>` accepts arbitrary executable — exploitable in the
 vault-transfer CPIs). It is immutable (`Authority: none`) so it cannot be
 closed; we simply do not use it. `CSDD31Zm…` is the patched re-deploy
-(anchor ≥1.0.2). OtterSec verification + `--final` after deploy.
+(anchor 1.1.2), **OtterSec-verified** (job `8d63a8f5…`) and **finalized
+immutable** (`Authority: none`) 2026-06-30, with a clean `cargo audit`
+run before `--final` (lesson learned — always audit deps before the
+point of no return).
 **Date:** 2026-06-30
 **Supersedes (for new pool):** ADR-012 envelope transport via `DepositEvent.memo_payload`
 

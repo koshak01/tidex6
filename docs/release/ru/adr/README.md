@@ -11,14 +11,17 @@
 | [ADR-001](ADR-001-commitment-scheme.md) | Commitment scheme: только `Poseidon(secret, nullifier)` | Accepted |
 | [ADR-002](ADR-002-merkle-tree-storage.md) | Merkle tree offchain, root ring buffer onchain | Accepted |
 | [ADR-003](ADR-003-nullifier-storage.md) | Хранение nullifier'ов: один PDA на каждый nullifier | Accepted |
-| [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal на BN254 — кастомная dual-curve реализация | Accepted |
+| [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal на BN254 — кастомная dual-curve реализация | Accepted — legacy/v1 only |
 | [ADR-005](ADR-005-non-upgradeable-verifier.md) | Verifier program non-upgradeable после deploy | Accepted |
 | [ADR-006](ADR-006-no-proc-macros.md) | Никаких proc macros в MVP — builder pattern взамен | Accepted |
 | [ADR-007](ADR-007-killer-features.md) | Killer features: Shielded Memo (MVP) + Association Sets (v0.2) | Accepted — Memo отгружен |
 | [ADR-008](ADR-008-pool-isolation.md) | Per-program pool в MVP, shared pool в v0.3 | Accepted |
 | [ADR-009](ADR-009-proving-time-budget.md) | Proving time budget: Day-8 benchmark, 30 секунд acceptance | Accepted |
-| [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Транспорт memo через SPL Memo Program (без редеплоя верификатора) | Accepted |
+| [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Транспорт memo через SPL Memo Program (без редеплоя верификатора) | Superseded by ADR-012 |
 | [ADR-011](ADR-011-relayer-architecture.md) | Архитектура релаера — fee внутри circuit + reference-сервис | Accepted |
+| [ADR-012](ADR-012-opaque-note-envelope-memo.md) | Opaque-формат note и envelope-зашифрованное memo | Superseded by ADR-014 for the new pool |
+| [ADR-013](ADR-013-browser-side-proof-generation.md) | Генерация proof в браузере через WebAssembly | Accepted |
+| [ADR-014](ADR-014-mlkem-memo-account.md) | Пост-квантовое ML-KEM memo в выделенном аккаунте, новый verifier | Accepted — mainnet CSDD31Zm…, supersedes ADR-012 for the new pool |
 
 ## Формат
 

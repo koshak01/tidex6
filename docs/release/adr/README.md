@@ -11,7 +11,7 @@
 | [ADR-001](ADR-001-commitment-scheme.md) | Commitment scheme: `Poseidon(secret, nullifier)` only | Accepted |
 | [ADR-002](ADR-002-merkle-tree-storage.md) | Merkle tree offchain, root ring buffer onchain | Accepted |
 | [ADR-003](ADR-003-nullifier-storage.md) | Nullifier storage: one PDA per nullifier | Accepted |
-| [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal on BN254 — custom dual-curve implementation | Accepted |
+| [ADR-004](ADR-004-elgamal-bn254.md) | ElGamal on BN254 — custom dual-curve implementation | Accepted — legacy/v1 only |
 | [ADR-005](ADR-005-non-upgradeable-verifier.md) | Verifier program is non-upgradeable after deploy | Accepted |
 | [ADR-006](ADR-006-no-proc-macros.md) | No proc macros in MVP — builder pattern instead | Accepted |
 | [ADR-007](ADR-007-killer-features.md) | Killer features: Shielded Memo (MVP) + Association Sets (v0.2) | Accepted — Memo shipped |
@@ -19,8 +19,9 @@
 | [ADR-009](ADR-009-proving-time-budget.md) | Proving time budget: Day-8 benchmark, 30s acceptance | Accepted |
 | [ADR-010](ADR-010-memo-transport-via-spl-memo.md) | Memo transport via SPL Memo Program (not verifier redeploy) | Superseded by ADR-012 |
 | [ADR-011](ADR-011-relayer-architecture.md) | Relayer architecture — fee-in-circuit with reference service | Accepted |
-| [ADR-012](ADR-012-opaque-note-envelope-memo.md) | Opaque note format and envelope-encrypted memo | Accepted |
+| [ADR-012](ADR-012-opaque-note-envelope-memo.md) | Opaque note format and envelope-encrypted memo | Superseded by ADR-014 for the new pool |
 | [ADR-013](ADR-013-browser-side-proof-generation.md) | Browser-side proof generation via WebAssembly | Accepted |
+| [ADR-014](ADR-014-mlkem-memo-account.md) | Post-quantum ML-KEM memo in a dedicated account, new verifier | Accepted — mainnet CSDD31Zm…, supersedes ADR-012 for the new pool |
 
 ## Format
 

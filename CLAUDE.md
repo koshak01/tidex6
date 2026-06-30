@@ -4,19 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Days 1–23 complete. Full MVP stack live on mainnet, end-to-end deposit + relayer-fee withdraw verified 2026-04-25 14:32 UTC against tidex6.com. Latest release v2.5.11 carries: ADR-012 envelope-encrypted memo (commit `f71575d`, deployed slot 415541682, executable hash `5ff658c6d8ea224848c54e5e5e5255d79eaa6bfe144570cd82cfa8a7c666aa92`, OtterSec + on-chain PDA verified), padded fixed-length plaintext + Latin/Cyrillic charset whitelist, shared-crate refactor (`tidex6-notifier-client`, `tidex6-ui-shared`), SVG brand mark per BRANDBOOK.md. Verifier at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`, upgrade authority held, not yet finalised. Telegram error pipeline (web + relayer → `errors` topic 45) is live. Reference live-test signatures: deposit `2st29MeBVLjJXDSGgkexWMBqxNYP2EdQZuEHtycUJ5fN8zk63F9d6rXUXHMmTK5VUghjVPH6csGa7tXvAWzuUAgR`, withdraw `LLoBD9xnRurzppq7XkMPRTx4pwBBYVzCTRoDfmJKisrzv1NK3GzfWUHqr7VB5YZHVfSEqwtEXmybkrnMqJuAxP3` (fee-payer = relayer, depositor wallet untouched on-chain).**
+**Days 1–23 complete. Full MVP stack live on mainnet, end-to-end deposit + relayer-fee withdraw verified 2026-04-25 14:32 UTC against tidex6.com. Current architecture per ADR-014: ML-KEM-768 (post-quantum) envelope-encrypted memo stored in a dedicated on-chain account (not the `DepositEvent`, not ElGamal), stealth payments (the note is never handed to the recipient — they scan the chain with their own ML-KEM secret and reconstruct it), per-deposit revoke; shared-crate refactor (`tidex6-notifier-client`, `tidex6-ui-shared`), SVG brand mark per BRANDBOOK.md. Verifier at `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` — patched anchor-lang 1.1.2 (RUSTSEC-2026-0144 resolved), OtterSec-verified, immutable (upgrade authority renounced / finalized). The superseded v1 verifier `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` is historical only. Telegram error pipeline (web + relayer → `errors` topic 45) is live. Reference live-test signatures: deposit `2st29MeBVLjJXDSGgkexWMBqxNYP2EdQZuEHtycUJ5fN8zk63F9d6rXUXHMmTK5VUghjVPH6csGa7tXvAWzuUAgR`, withdraw `LLoBD9xnRurzppq7XkMPRTx4pwBBYVzCTRoDfmJKisrzv1NK3GzfWUHqr7VB5YZHVfSEqwtEXmybkrnMqJuAxP3` (fee-payer = relayer, depositor wallet untouched on-chain).**
 
-**Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and ADR-010 (transport mechanism). `tidex6-core::{elgamal,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
+**Shielded Memo + Accountant shipped 2026-04-15** — see ADR-007 (feature commitment) and the transport chain ADR-010 → ADR-012 → ADR-014 (the memo is now ML-KEM-768 post-quantum encrypted and stored in a dedicated on-chain account). `tidex6-core::{pqc,memo}`, `tidex6-client::AccountantScanner`, and `tidex6 accountant scan` are all live.
 
 **Relayer + fee-in-circuit shipped 2026-04-24** — see ADR-011. `WithdrawCircuit<20>` now has five public inputs (`relayer_address` and `relayer_fee` added, binding rewrites of either field via the same Tornado-style constraint that already bound `recipient`). Verifier program gains a `relayer` account in the `Withdraw` context and a `relayer_fee` instruction argument; two SOL-transfer CPIs split the payout. Reference service crate `tidex6-relayer` (Axum HTTPS) accepts proofs, offchain-verifies them against the exact on-chain VK, and submits with its own keypair as fee-payer. SDK gets `WithdrawBuilder::via_relayer(url, pubkey)` and `direct()`; CLI gets `--relayer <url> --relayer-pubkey <pk>` / `--direct` flags.
 
-**Browser-side proof generation shipped 2026-04-26** — `tidex6-prover-wasm` (separate crate, excluded from workspace, target `wasm32-unknown-unknown`) compiles `tidex6_circuits::withdraw::prove_withdraw` plus the in-circuit Poseidon to a 3.5 MB `.wasm` artefact served from `tidex6-web/static/wasm/`. JS-glue exposes `parseNote`, `commitment`, `nullifierHash`, `proveWithdraw`. The frontend withdraw flow on `tidex6.com/app/` is now a two-message WS protocol: `fetch_merkle_path { commitment_hex }` → `submit_withdraw_proof { proof_a/b/c, merkle_root, nullifier_hash, recipient }`. The user's `secret`/`nullifier` never leaves the browser tab — `WebAssembly.Module.imports(...)` of the `.wasm` artefact contains zero `fetch`/`XMLHttpRequest`/`WebSocket` symbols, which is the formal proof of confinement. End-to-end timing: ~1.7 s proof on M-series MacBook. Live verification: deposit tx `3yFehVuR4ofQTUD4hjxBqN6CgLA6AGLzmMRb2uVm6AU1JNRMFzzwEJB6BNKAwSY9KZTtXreBKUgx6WggMTaSWQ3c`, browser-side withdraw tx `5NfabmZmYp8h5Qnt7dADPueciGzLjAX2tt1hpqtXaX8nfXmbEzvG4W2PxtikcCjc3CyQnvQbezE3fhTDo3WaoeNu`.
+**Browser-side deposit + proof generation shipped 2026-04-26** — `tidex6-prover-wasm` (separate crate, excluded from workspace, target `wasm32-unknown-unknown`) now compiles **both** sides of the flow: deposit-note generation + ML-KEM envelope building, and `tidex6_circuits::withdraw::prove_withdraw` plus the in-circuit Poseidon, into a `.wasm` artefact served from `tidex6-web/static/wasm/`. JS-glue exposes `generateNote`, `buildEnvelope`, `parseNote`, `commitment`, `nullifierHash`, `proveWithdraw`. The withdraw flow on `tidex6.com/app/` is a two-message WS protocol: `fetch_merkle_path { commitment_hex }` → `submit_withdraw_proof { proof_a/b/c, merkle_root, nullifier_hash, recipient }`. Stealth payments: the note is never handed to the recipient — they scan the chain with their own ML-KEM secret and reconstruct it. The user's `secret`/`nullifier` never leaves the browser tab — `WebAssembly.Module.imports(...)` of the `.wasm` artefact contains zero `fetch`/`XMLHttpRequest`/`WebSocket` symbols, which is the formal proof of confinement. End-to-end timing: ~1.7 s proof on M-series MacBook. Live verification: deposit tx `3yFehVuR4ofQTUD4hjxBqN6CgLA6AGLzmMRb2uVm6AU1JNRMFzzwEJB6BNKAwSY9KZTtXreBKUgx6WggMTaSWQ3c`, browser-side withdraw tx `5NfabmZmYp8h5Qnt7dADPueciGzLjAX2tt1hpqtXaX8nfXmbEzvG4W2PxtikcCjc3CyQnvQbezE3fhTDo3WaoeNu`.
 
-**`tidex6-tip-jar` deployed on mainnet 2026-04-26, OtterSec-verified the same day** — third-party Anchor program `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x` (latest deploy tx `5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`, executable hash `d472146fa4d8b4f3bade8354ddf6480a02b91b95a13321681244a1bb018b66d9`, ~96 KB; carries `solana_security_txt!` block with `source_release = "2.5.20"`, source URL, contacts). One instruction `tip(commitment, memo_payload)` does a single CPI into `tidex6_verifier::deposit`; the resulting note is byte-identical to a CLI deposit and redeems through the normal withdraw flow. Demonstrates that any Solana program — DAO payroll, NFT royalty splitter, subscription protocol — can adopt tidex6 as a privacy primitive in ~30 lines of Rust. Public OtterSec verification at <https://verify.osec.io/status/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x> (job `c19d2a90-ed0c-4e67-a015-6b1cfb10adf2`, repo pinned to commit `d9e071b`). Upgrade authority `Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6`, not finalised (this is a reference example, not consensus-critical infrastructure).
+**`tidex6-tip-jar` deployed on mainnet 2026-04-26, OtterSec-verified the same day** — third-party Anchor program `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x` (latest deploy tx `5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`, executable hash `d472146fa4d8b4f3bade8354ddf6480a02b91b95a13321681244a1bb018b66d9`, ~96 KB; carries `solana_security_txt!` block with `source_release = "2.5.20"`, source URL, contacts). One instruction `tip(commitment, memo_payload)` does a single CPI into `tidex6_verifier::deposit`; the resulting note is byte-identical to a CLI deposit and redeems through the normal withdraw flow. Demonstrates that any Solana program — DAO payroll, NFT royalty splitter, subscription protocol — can adopt tidex6 as a privacy primitive in ~30 lines of Rust. Public OtterSec verification at <https://verify.osec.io/status/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x> (job `c19d2a90-ed0c-4e67-a015-6b1cfb10adf2`, repo pinned to commit `d9e071b`). Upgrade authority `Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6`, not finalised (this is a reference example, not consensus-critical infrastructure). Note: this example was built and OtterSec-verified against the v1 verifier; its CPI target (`tidex6_verifier::deposit`) and note format should be re-confirmed against the current verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` and ADR-014 before reuse.
 
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.
-- **Onchain verifier** (programs/tidex6-verifier): deployed at `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` on Solana devnet. Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction).
+- **Onchain verifier** (programs/tidex6-verifier): deployed at `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` on Solana mainnet, immutable (upgrade authority renounced / finalized), built on patched anchor-lang 1.1.2 (RUSTSEC-2026-0144 resolved). Handles `init_pool`, `deposit`, `withdraw` (hardcoded WithdrawCircuit<20> VK, per-nullifier PDA double-spend protection, Tornado-style recipient binding, BN254 scalar reduction). The superseded v1 verifier `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` is historical only.
 - **Indexer** (tidex6-indexer): `PoolIndexer::rebuild_tree` replays `tidex6-deposit:<leaf>:<commitment>:<root>` program logs into an offchain Merkle tree. Enables withdraws on non-empty pools.
 - **Client SDK** (tidex6-client): `PrivatePool::connect`, `DepositBuilder::send`, `WithdrawBuilder::send` — the builder-pattern API from ADR-006 is real and used by the CLI internally.
 - **CLI** (tidex6-cli): `tidex6 keygen | deposit | withdraw | accountant`, thin wrapper over the SDK. `deposit --auditor <pk> --memo <text>` attaches an encrypted memo; `accountant scan --identity <file>` decrypts every memo addressed to this identity's auditor key.
@@ -26,15 +26,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Brand**: logos in `brand/`, pitch video script in `video/PITCH_VIDEO_SCRIPT.md`.
 - **Website** (separate repo: tidex6-web): production site at **tidex6.com**. 5-microservice architecture (database, notifier, solana, ws_gateway, web_server). Deposit/withdraw via browser with Phantom wallet. Invite system with Telegram bot approval. tidex6-client used natively (not CLI subprocess).
 
-**Remaining to ship:**
-- Mainnet redeploy of `tidex6-verifier` with the ADR-011 circuit change and new VK (Day 5 of ADR-011 rollout). Existing Day-13 test deposits must be withdrawn under the old circuit first to clean the pool.
-- Provision `relayer.tidex6.com` subdomain + nginx + systemd unit + hot wallet fund (Day 12 of ADR-011 rollout — user-side).
-- Frontend replace of local signing with HTTPS POST to the relayer, in the separate `tidex6-web` repo (Day 11 of ADR-011 rollout).
-- Record pitch video (2 min) and demo video (3 min) per scripts in `video/`.
-- `solana program set-upgrade-authority --final` on the verifier (point of no return, executed last).
-- Final Colosseum submission.
+**Shipped:**
+- Mainnet verifier redeployed under ADR-011 (fee-in-circuit) and ADR-014 (ML-KEM memo in a dedicated account) at `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`, OtterSec-verified and finalized — `solana program set-upgrade-authority --final` executed, upgrade authority renounced.
+- `relayer.tidex6.com` live (nginx + systemd + hot wallet); frontend proves and signs browser-side and submits through the relayer.
+- Pitch + demo videos per scripts in `video/`; Colosseum Frontier submission made.
 
-MVP deadline: Colosseum Frontier hackathon, **2026-05-11**.
+**Open (v0.2):**
+- Proof of Innocence circuit and Association Set Provider (ADR-007 v2).
+- Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery, non-zero fee policies.
+- Persistent browser prover (cache deserialised proving key across calls).
+
+MVP deadline was the Colosseum Frontier hackathon, **2026-05-11** (now past).
 
 Slogan: **"I grant access, not permission."**
 Subtitle: **"The Rust-native privacy framework for Solana."**
@@ -47,7 +49,7 @@ Before touching any code, read in this order:
 2. **`docs/release/PROJECT_BRIEF.md`** — the engineering brief: architecture, data flow, workspace layout, dependency stack, developer experience.
 3. **`docs/release/ROADMAP.md`** — now / next / later horizons.
 4. **`docs/release/security.md`** — threat model, known limitations, vulnerability classes.
-5. **`docs/release/adr/README.md`** — index of all nine architecture decision records.
+5. **`docs/release/adr/README.md`** — index of all fourteen architecture decision records.
 
 Russian versions of all of the above are available in `docs/release/ru/`.
 
@@ -62,7 +64,7 @@ docs/release/
 ├── ROADMAP.md                   ← now / next / later
 ├── security.md                  ← threat model
 ├── PR_CHECKLIST_PROOF_LOGIC.md  ← Fiat-Shamir discipline
-├── adr/                         ← 9 ADRs + index
+├── adr/                         ← 14 ADRs + index
 └── ru/                          ← Russian mirror of everything above
 ```
 
@@ -162,11 +164,11 @@ Fixed decisions. Changing any of these without explicit approval breaks several 
 - **Curve:** BN254. The only curve with native Solana syscall support (`alt_bn128`). Approximately 100-bit security — documented in `security.md`.
 - **Proof system:** Groth16. Verification via CPI into the singleton `tidex6-verifier` program, never embedded into integrator programs.
 - **Hash:** Poseidon, circom-compatible parameters. Offchain uses `light-poseidon::Poseidon::<Fr>::new_circom(n)` exclusively. Never use `ark-crypto-primitives::sponge::poseidon` — parameters will not match the Solana syscall.
-- **Commitment scheme (ADR-001):** `commitment = Poseidon(secret, nullifier)` only. Auditor tag and encrypted memo live as separate fields in `DepositEvent`, not inside the commitment. See ADR-001 for the full rationale — note that the original brief had two contradictory schemes; this ADR fixes that bug.
+- **Commitment scheme (ADR-001):** `commitment = Poseidon(secret, nullifier)` only. The auditor tag and encrypted memo live outside the commitment — in a dedicated on-chain account (ADR-014), not inside the commitment and not in the `DepositEvent`. See ADR-001 for the full rationale — note that the original brief had two contradictory schemes; this ADR fixes that bug.
 - **Merkle tree (ADR-002):** depth 20 (~1M capacity). Full tree offchain in the indexer. Onchain stores a ring buffer of the **last 30 roots** + a `next_leaf_index` counter.
 - **Nullifier storage (ADR-003):** one PDA per used nullifier. Seeds `[b"nullifier", nullifier_hash]`, empty data, rent-exempt minimum.
-- **ElGamal (ADR-004):** custom dual-curve implementation. BN254 G1 for onchain ciphertext, Baby Jubjub (`ark-ed-on-bn254`) for in-circuit operations. **Unaudited.** Isolated from the consensus path.
-- **Verifier (ADR-005):** non-upgradeable. Locked with `solana program set-upgrade-authority --final` immediately after deployment. This is legally and cryptographically load-bearing — bugs cannot be patched post-deploy.
+- **ElGamal (ADR-004) — legacy/v1 only:** custom dual-curve implementation. BN254 G1 for onchain ciphertext, Baby Jubjub (`ark-ed-on-bn254`) for in-circuit operations. **Unaudited.** Isolated from the consensus path. Superseded by ADR-014 (ML-KEM-768) for the current pool; retained only for the historical v1 verifier.
+- **Verifier (ADR-005):** non-upgradeable. The mainnet verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` is locked with `solana program set-upgrade-authority --final` (upgrade authority renounced) — immutable forever. This is legally and cryptographically load-bearing — bugs cannot be patched post-deploy.
 - **No proc macros in MVP (ADR-006):** builder pattern API instead. Macros are a v0.2 deliverable, built on top of the proven builder API.
 - **Killer features (ADR-007):** Shielded Memo ships in MVP code; Proof of Innocence (association sets) ships in roadmap v0.2 — prominently positioned in pitch deck, not yet implemented.
 - **Pool isolation (ADR-008):** per-program pool in MVP. Shared anonymity pool is a v0.3 target with the *network effect* framing: the more apps integrate tidex6, the stronger privacy becomes for all users.
@@ -177,9 +179,11 @@ Fixed decisions. Changing any of these without explicit approval breaks several 
 
 Pinned in `docs/release/PROJECT_BRIEF.md §6`. Before adding any new dependency, check the list — anything outside it is an architectural decision requiring explicit approval.
 
-**Onchain:** `anchor-lang = "=1.0.0"`, `anchor-spl = "=1.0.0"`, `groth16-solana = "0.2"`, `solana-poseidon = "4"`, `tidex6-core`.
+**Onchain:** `anchor-lang = "=1.1.2"`, `anchor-spl = "=1.1.2"` (RUSTSEC-2026-0144 resolved), `groth16-solana = "0.2"`, `solana-poseidon = "4"`, `tidex6-core`.
 
 **Offchain:** arkworks 0.5.x (`ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`), `light-poseidon = "0.4"`, `anchor-client = "1.0"`, `solana-sdk = "4.0"`.
+
+**PQC (`tidex6-core::pqc`):** `ml-kem = "0.2"`, `chacha20poly1305 = "0.10"` — ADR-014 post-quantum encrypted memo.
 
 **Explicitly not in MVP:** no SP1, no RISC0, no SPL tokens (SOL only), no range proofs, no proc macros.
 
@@ -202,7 +206,7 @@ Two-reviewer policy: author plus one independent reviewer must sign off on trans
 
 ## Build / test / lint
 
-Not configured yet — no `Cargo.toml` exists. Do not invent commands that do not exist. Once the workspace is bootstrapped, the expected flow is standard Rust (`cargo build`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt`) plus `anchor build` / `anchor test` for onchain programs. Update this section with the real commands after the workspace lands.
+The workspace `Cargo.toml` exists and builds. Standard Rust flow: `cargo build`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt`, plus `anchor build` / `anchor test` for the onchain programs and `wasm-pack build` (target `wasm32-unknown-unknown`) for `tidex6-prover-wasm`.
 
 ## Language and style
 
@@ -225,8 +229,9 @@ All architecture decision records live in `docs/release/adr/`. Each is a short, 
 - **ADR-009** — Proving time budget: Day-8 benchmark, 30s acceptance
 - **ADR-010** — Memo transport via SPL Memo Program (superseded by ADR-012)
 - **ADR-011** — Relayer architecture: fee-in-circuit + reference service at relayer.tidex6.com
-- **ADR-012** — Opaque note format and envelope-encrypted memo
+- **ADR-012** — Opaque note format and envelope-encrypted memo (superseded by ADR-014 for the current pool)
 - **ADR-013** — Browser-side proof generation via WebAssembly
+- **ADR-014** — Post-quantum ML-KEM memo in a dedicated account, new verifier (supersedes ADR-012)
 
 When a new architectural decision is made, write a new ADR before writing code that implements it.
 

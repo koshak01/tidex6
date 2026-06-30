@@ -19,22 +19,23 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - Local Phase 2 trusted setup ceremony, marked **DEVELOPMENT ONLY — not for real funds**
 
 ### Selective disclosure
-- Per-deposit ElGamal auditor tag (BN254 G1 group + Baby Jubjub for in-circuit derivation)
+- Per-deposit ML-KEM-768 auditor slot (post-quantum) sealed with ChaCha20-Poly1305 — the slot omits secret/nullifier, so an auditor can read but never spend (legacy v1 pool used ElGamal on BN254 G1 + Baby Jubjub)
 - One-level viewing key (hierarchical derivation, simplified for MVP)
 - Auditor scanning tool — both CLI (`tidex6 accountant scan`) and web UI at `tidex6.com/accountant/`
 - Offchain key sharing (hex format)
 
-### Shielded Memo — shipped 2026-04-15, redesigned 2026-04-25 (ADR-012)
-- Envelope-encrypted memo up to 256 bytes attached to each deposit
-- One AES-256-GCM ciphertext, two wrap-K slots: recipient (key derived from the note's secret material) and optional auditor (Baby Jubjub ECDH)
-- Three valid modes: (memo + auditor) / (memo only, recipient-decryptable) / (anonymous deposit with placeholder envelope)
-- Padded to a fixed 286-byte ciphertext block — every on-chain envelope has identical size, no length leak about plaintext
+### Shielded Memo — shipped 2026-04-15, post-quantum redesign (ADR-014, supersedes ADR-012)
+- Sealed memo up to 256 bytes in a dedicated per-deposit memo account (not the DepositEvent)
+- ML-KEM-768 (post-quantum, NIST FIPS 203) key encapsulation + ChaCha20-Poly1305 AEAD
+- Two sealed slots: a recipient slot that seals the note (secret + nullifier), and an optional auditor slot that seals memo + metadata but OMITS secret/nullifier — an auditor can read but never spend
+- Stealth delivery: the note is never handed to the recipient — they scan the chain with their own ML-KEM secret key and reconstruct the deposit
+- Per-deposit revoke: the depositor can close a deposit's dedicated memo account, removing the sealed slots from chain state
 - Charset whitelist: Latin + Cyrillic only. Emoji and CJK rejected at SDK boundary
 - CLI: `tidex6 accountant scan` for browser-less usage
 - Web: `/accountant/` page on tidex6.com (spec in `docs/release/spec/ACCOUNTANT_WEB_SPEC.md`)
 
 ### Developer SDK
-- `tidex6-core` — primitives (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, ElGamal)
+- `tidex6-core` — primitives (Commitment, Nullifier, MerkleTree, Keys, Poseidon wrapper, pqc (ML-KEM-768 + ChaCha20-Poly1305); ElGamal legacy v1)
 - `tidex6-circuits` — arkworks R1CS (DepositCircuit, WithdrawCircuit)
 - `tidex6-verifier` — singleton Anchor program
 - `tidex6-client` — builder-pattern API (ProofBuilder, TransactionBuilder, KeyManager, viewing-key import/export)
@@ -44,6 +45,7 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - First-class `DepositNote` concept in the SDK
 - Opaque hex wire format (ADR-012): 132 lowercase hex chars, no `tidex6-` prefix, no embedded memo, no separators — looks like any other random base16 string when copy-pasted into a chat
 - Offchain transferable (file, clipboard, encrypted message, QR via library)
+- Stealth delivery (ADR-014): the note need not be transferred at all — the recipient reconstructs it by scanning the chain with their own ML-KEM secret key
 
 ### Infrastructure
 - **Indexer** — in-memory, WebSocket subscription to program events, offchain Merkle tree rebuild
@@ -78,7 +80,7 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 - Per-asset deployment: a separate finalized verifier program for each mint, sharing the same circuit and crypto core (`tidex6-circuits` + `tidex6-core` unchanged)
 - **USDT first**, **USDC second** — driven by P2P liquidity in target regions (USDT dominates retail off-ramps in Eastern Europe, the Balkans, CIS, Southeast Asia; USDC dominates DeFi)
 - Pool family lets the user choose trust assumption: SOL pool (no third-party freeze risk), USDT pool (broadest stablecoin liquidity), USDC pool (DeFi-friendly)
-- Each pool is its own finalized, non-upgradeable program — independent of the SOL verifier `2qEm…cU9C`
+- Each pool is its own finalized, non-upgradeable program — independent of the current SOL verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`
 - Honest disclosure of `freeze_authority` risk for stablecoin pools in `security.md` — Circle and Tether retain the technical ability to freeze the pool ATA; this is a property of the underlying mint, not of tidex6
 
 ### Regulated pools (multi-auditor viewing keys)

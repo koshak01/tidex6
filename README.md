@@ -13,9 +13,9 @@
 
 tidex6 is a Rust-native, open-source framework that lets Solana developers add full transaction privacy to their Anchor programs through a small SDK surface. Transactions are private by default — sender, receiver, and amount are hidden. Users can optionally share a viewing key with someone they trust (an accountant, an auditor, a family member) to selectively disclose history, on their own terms.
 
-**Status:** full MVP product stack **live on Solana mainnet**. The privacy-core verifier program at [`2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`](https://solscan.io/account/2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C) is OtterSec-verified. The full feature stack — deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, **unlinkable withdraw via reference relayer** at [`relayer.tidex6.com`](https://relayer.tidex6.com), opaque hex notes + envelope-encrypted memos with padded fixed-length plaintext, **client-side proof generation in the browser via WebAssembly** (`tidex6-prover-wasm`, ~1.7 s per proof, secret never leaves the user's tab), user-facing `tidex6` CLI, `tidex6-client` SDK, web app at [tidex6.com](https://tidex6.com), the flagship `examples/private-payroll` three-binary demo, and a **third-party CPI integration example** at [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x) (`tidex6-tip-jar`, ~30 lines of Rust to add privacy to any Anchor program) — all validated end-to-end on mainnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
+**Status:** full MVP product stack **live on Solana mainnet**. The privacy-core verifier program at [`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd) is OtterSec-verified and immutable (upgrade authority renounced). The full feature stack — deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, **unlinkable withdraw via reference relayer** at [`relayer.tidex6.com`](https://relayer.tidex6.com), opaque hex notes + **post-quantum ML-KEM-768 encrypted memos in a dedicated on-chain account**, **stealth payments** (the recipient is never handed the note — they scan the chain with their own ML-KEM secret) and **per-deposit revoke**, **client-side proof generation in the browser via WebAssembly** (`tidex6-prover-wasm`, ~1.7 s per proof, secret never leaves the user's tab), user-facing `tidex6` CLI, `tidex6-client` SDK, web app at [tidex6.com](https://tidex6.com), the flagship `examples/private-payroll` three-binary demo, and a **third-party CPI integration example** at [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x) (`tidex6-tip-jar`, ~30 lines of Rust to add privacy to any Anchor program) — all validated end-to-end on mainnet. MVP targeted for **Colosseum Frontier hackathon, 2026-05-11**.
 
-> **DEVELOPMENT ONLY.** Pre-audit, single-contributor trusted setup, hackathon-grade trust assumptions. Verifier `upgrade-authority` is still held by the project owner and will be locked with `solana program set-upgrade-authority --final` immediately before Colosseum submission. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
+> **DEVELOPMENT ONLY.** Pre-audit, single-contributor trusted setup, hackathon-grade trust assumptions. Verifier `upgrade-authority` has been renounced with `solana program set-upgrade-authority --final` — the program is immutable. Do not use to secure real funds. See [`docs/release/security.md`](docs/release/security.md).
 
 ---
 
@@ -63,7 +63,9 @@ use tidex6_core::note::Denomination;
 # ) -> anyhow::Result<()> {
 let pool = PrivatePool::connect(Cluster::Mainnet, Denomination::OneSol)?;
 
-// Deposit side: get a note back to share with the recipient.
+// Deposit side: keep the note locally — with stealth payments the recipient
+// is never handed the note; they discover the deposit by scanning the chain
+// with their own ML-KEM secret.
 let (deposit_sig, note, _leaf_index) = pool.deposit(payer).send()?;
 std::fs::write("parents.note", note.to_text())?;
 
@@ -114,13 +116,13 @@ withdraw → report — in under a minute.
 - **Groth16** zero-knowledge proofs on the **BN254** curve, verified onchain via native Solana `alt_bn128` syscalls in under 200,000 compute units per proof.
 - **Poseidon** hash function, parameter-aligned between offchain (`light-poseidon`) and onchain (`solana-poseidon`) components.
 - **Offchain Merkle tree** (depth 20, ~1M capacity) with an onchain root ring buffer.
-- **Per-deposit selective disclosure** via ElGamal auditor tags — users choose who sees what, per transaction.
-- **Shielded memos** — encrypted notes up to ~200 bytes attached to each deposit, readable only by the viewing-key holder.
+- **Per-deposit selective disclosure** via post-quantum ML-KEM-768 auditor tags — users choose who sees what, per transaction.
+- **Shielded memos** — post-quantum ML-KEM-768 encrypted notes stored in a dedicated on-chain account (separate from the deposit event), readable only by the viewing-key holder. Supports **stealth payments** (the recipient scans the chain with their own ML-KEM secret rather than receiving the note) and **per-deposit revoke**.
 - **Non-upgradeable verifier** — the core proof verifier is locked after deployment, so users do not have to trust the deployer forever.
 - **Relayer unlinkability** — ADR-011: a reference HTTPS service at `relayer.tidex6.com` signs and submits withdraw transactions so the user's wallet never appears on-chain as the payer. The proof commits to the specific relayer (public input) so front-runners cannot redirect the fee. Fee policy for the reference service is zero — we pay tx fees for users as a public good; anyone may run their own relayer with any fee.
 - **Client-side proof generation** — `tidex6-prover-wasm` compiles the Rust prover to WebAssembly. The browser parses the deposit note locally, derives `commitment` and `nullifier_hash` via in-WASM Poseidon, and runs Groth16 entirely on the user's machine in ~1.7 s on M-series CPUs. The user's `secret` and `nullifier` never reach our server, the relayer, or anyone else — formally provable by inspecting `WebAssembly.Module.imports(...)` of the deployed `.wasm` artefact, which contains zero `fetch` / `XMLHttpRequest` / `WebSocket` symbols. Sandbox is the proof.
 - **Composable as a CPI primitive** — any Anchor program can route SOL through `tidex6_verifier::deposit` and inherit the full privacy stack. The reference example [`tidex6-tip-jar`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x) is live on mainnet in ~30 lines of Rust; payroll, royalty splitters, subscription protocols, and dark-pool DEX hooks follow the same pattern.
-- **Built with Anchor 1.0.**
+- **Built with Anchor 1.1.2.**
 
 Full technical detail: [docs/release/PROJECT_BRIEF.md](docs/release/PROJECT_BRIEF.md).
 
@@ -128,14 +130,15 @@ Full technical detail: [docs/release/PROJECT_BRIEF.md](docs/release/PROJECT_BRIE
 
 ## Technical stack
 
-**Onchain (Anchor 1.0 program):**
-- `anchor-lang = "=1.0.0"`
+**Onchain (Anchor 1.1.2 program):**
+- `anchor-lang = "=1.1.2"`
 - `groth16-solana = "0.2"` — Groth16 verifier via `alt_bn128` syscalls
 - `solana-poseidon = "4"` — native Poseidon syscall
 
 **Offchain (client and prover):**
 - `arkworks 0.5.x` — `ark-bn254`, `ark-groth16`, `ark-crypto-primitives`, `ark-r1cs-std`, `ark-relations`, `ark-ff`, `ark-ec`, `ark-serialize`, `ark-ed-on-bn254`
 - `light-poseidon = "0.4"` — circom-compatible Poseidon, byte-for-byte equivalent to the onchain syscall
+- `ml-kem = "0.2"`, `chacha20poly1305 = "0.10"` — post-quantum ML-KEM-768 memo encryption
 - `anchor-client = "1.0"`, `solana-sdk = "4.0"`
 
 ---
@@ -157,7 +160,7 @@ Public documentation lives in [`docs/release/`](docs/release/):
 - **[ROADMAP.md](docs/release/ROADMAP.md)** — now / next / later, shipping milestones.
 - **[security.md](docs/release/security.md)** — threat model, known limitations, vulnerability classes and mitigations.
 - **[PR_CHECKLIST_PROOF_LOGIC.md](docs/release/PR_CHECKLIST_PROOF_LOGIC.md)** — Fiat-Shamir discipline checklist for every PR that touches proof logic.
-- **[adr/](docs/release/adr/)** — Architecture Decision Records (thirteen ADRs covering commitment scheme, Merkle tree storage, nullifier storage, ElGamal implementation, non-upgradeable verifier, builder pattern vs macros, killer features, pool isolation, proving time budget, memo transport, relayer architecture, opaque note format, and browser-side proof generation).
+- **[adr/](docs/release/adr/)** — Architecture Decision Records (fourteen ADRs covering commitment scheme, Merkle tree storage, nullifier storage, ElGamal implementation, non-upgradeable verifier, builder pattern vs macros, killer features, pool isolation, proving time budget, memo transport, relayer architecture, opaque note format, browser-side proof generation, and post-quantum ML-KEM memo in a dedicated account).
 
 **Russian translations** of all of the above are available in [`docs/release/ru/`](docs/release/ru/).
 
@@ -168,7 +171,7 @@ Public documentation lives in [`docs/release/`](docs/release/):
 ```
 tidex6/
 ├── crates/
-│   ├── tidex6-core/             — commitments, nullifiers, Merkle tree, keys, Poseidon, DepositNote, ElGamal
+│   ├── tidex6-core/             — commitments, nullifiers, Merkle tree, keys, Poseidon, DepositNote, pqc (ML-KEM-768)
 │   ├── tidex6-circuits/         — arkworks R1CS: DepositCircuit, WithdrawCircuit<20> with relayer binding
 │   ├── tidex6-indexer/          — offchain Merkle tree rebuild from on-chain DepositEvent logs
 │   ├── tidex6-client/           — Rust SDK with builder pattern API (PrivatePool, DepositBuilder, WithdrawBuilder direct + via_relayer)
@@ -178,7 +181,7 @@ tidex6/
 │   ├── tidex6-ui-shared/        — shared brand/css/template assets embedded via include_dir!; single source of truth for tidex6-web and the relayer status pages
 │   └── tidex6-day1/             — Day-1..15 mainnet flight harnesses (Day-1 gates, Day-5 deposit, Day-11 withdraw, Day-12 negative, Day-13 accountant)
 ├── programs/
-│   ├── tidex6-verifier/         — singleton non-upgradeable Anchor verifier program (deployed at 2qEmhLEn…nBcU9C)
+│   ├── tidex6-verifier/         — singleton non-upgradeable Anchor verifier program (deployed at CSDD31Zm…sJhcd)
 │   ├── tidex6-tip-jar/          — ADR-013 reference CPI integration example (deployed at 5WohQRRz…Ui9b9x, OtterSec-verified)
 │   ├── tidex6-confidential-amounts/  — early v0.3 Token-2022 Confidential-Transfers exploration (not on mainnet yet)
 │   └── tidex6-caller/           — test CPI caller used by Day-1 gate 4
@@ -196,7 +199,7 @@ Planned for v0.2, not yet in the workspace:
   - Proof of Innocence circuit + Association Set Provider (ADR-007 v2)
   - Relayer hardening: HSM keypair, multi-sig cold wallet, federated discovery
   - Ergonomic proc macros (`#[private_withdraw]` etc.) layered over the builder API (ADR-006)
-  - Auditor key lifecycle — BIP32-style HD derivation for forward secrecy (extends ADR-012)
+  - Auditor key lifecycle — BIP32-style HD derivation for forward secrecy (extends ADR-014)
 ```
 
 ---

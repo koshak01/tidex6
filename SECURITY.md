@@ -4,7 +4,7 @@
 
 tidex6 is **pre-audit** software under active development for the
 Colosseum Frontier hackathon (2026-05-11). The verifier program at
-[`2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C`](https://solscan.io/account/2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C)
+[`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd)
 and the reference CPI example
 [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
 are live on Solana mainnet for end-to-end demonstration purposes only.
@@ -13,7 +13,7 @@ formal cryptographic audit and a multi-party Phase-2 trusted setup
 ceremony have been completed.
 
 **Do not use this code to secure real funds.** The single-contributor
-Phase-2 ceremony, the unaudited custom ElGamal implementation, and the
+Phase-2 ceremony, the unaudited ML-KEM-768 memo encryption, and the
 hackathon-grade engineering posture all preclude production use until
 v0.2 lands.
 

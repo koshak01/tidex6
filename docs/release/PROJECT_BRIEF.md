@@ -54,7 +54,7 @@ tidex6 stands on standard cryptographic primitives:
 - **R1CS** constraint synthesis via the arkworks ecosystem.
 - **Hierarchical key derivation** — spending key, full viewing key, incoming-only viewing key, nullifier key.
 - **Pedersen commitments** with **Merkle tree** inclusion proofs for the shielded set.
-- **ElGamal encryption** on BN254 G1 for selective disclosure tags. Baby Jubjub (`ark-ed-on-bn254`) for in-circuit key derivation.
+- **ML-KEM-768** post-quantum key encapsulation (NIST FIPS 203) with **ChaCha20-Poly1305** AEAD for the encrypted memo and selective-disclosure slots. (Legacy v1 used **ElGamal** on BN254 G1 with Baby Jubjub (`ark-ed-on-bn254`) for in-circuit key derivation — retained for the v1 pool only.)
 - **Association set proofs** as a roadmap item for v0.2 — allowing users to prove fund legitimacy without revealing which specific deposit is theirs.
 
 These are standard building blocks of modern shielded-pool design. tidex6 combines them into a single Rust-native developer framework targeting Solana.
@@ -91,7 +91,8 @@ DEVELOPER (uses our SDK)
             ├── MerkleTree
             ├── Keys (SK / FVK / IVK / NK)
             ├── Poseidon wrapper
-            └── ElGamal on BN254
+            ├── pqc (ML-KEM-768 + ChaCha20-Poly1305)
+            └── ElGamal on BN254 (legacy v1 only)
                 │
                 └─→ tidex6-circuits (arkworks R1CS)
                     │
@@ -117,18 +118,25 @@ DEVELOPER (uses our SDK)
    ├── Locally: secret = random_32_bytes()
    ├── Locally: nullifier = random_32_bytes()
    ├── Locally: commitment = Poseidon(secret, nullifier)
-   ├── Optionally: auditor_tag = ElGamal(auditor_pubkey, deposit_metadata)
-   ├── Optionally: encrypted_memo = AES-GCM(ECDH-derived key, memo_text)
-   └── Send to program: commitment, auditor_tag (opt), encrypted_memo (opt) + SOL
+   ├── Recipient slot: ML-KEM-768 + ChaCha20-Poly1305 seal of the note
+   │                   (secret + nullifier) under the recipient's public key
+   ├── Optional auditor slot: ML-KEM-768 + ChaCha20-Poly1305 seal of the memo
+   │                   and metadata under the auditor's public key — this slot
+   │                   OMITS secret/nullifier, so an auditor can read but never spend
+   └── Send to program: commitment + SOL, plus a dedicated per-deposit memo
+                        account holding the sealed slots
 
 2. PROGRAM (uses tidex6-client SDK)
    ├── Receives commitment + transfers SOL into pool vault
    ├── Adds commitment to Merkle tree (offchain via indexer)
    ├── Updates onchain root ring buffer (last 30 roots)
-   └── Emits DepositEvent { commitment, root, auditor_tag?, encrypted_memo? }
+   ├── Writes the sealed slots into the dedicated per-deposit memo account
+   └── Emits DepositEvent { commitment, root }
 
 3. WITHDRAWER (Bob, possibly Alice with a fresh address)
-   ├── Receives DepositNote offchain (text format with secret + nullifier)
+   ├── Scans the chain with his own ML-KEM secret key — no note is handed
+   │   over; the recipient finds and decrypts his own deposit (stealth)
+   ├── Reconstructs the note (secret + nullifier) from the recipient slot
    ├── Indexer provides Merkle proof for the commitment
    ├── Generates Groth16 proof locally
    │   ├── Public inputs:  nullifier_hash, root, recipient
@@ -138,7 +146,7 @@ DEVELOPER (uses our SDK)
    └── Submits to program: proof + public inputs
 
 4. PROGRAM
-   ├── Verifies Groth16 proof via CPI to tidex6-verifier
+   ├── Verifies Groth16 proof via CPI to the SOL verifier
    ├── Checks nullifier PDA does not exist (anti double-spend)
    ├── Creates nullifier PDA (marks nullifier as used)
    └── Transfers amount from vault to recipient
@@ -148,7 +156,7 @@ OBSERVER SEES:
    ─ A fresh address withdrew from the pool.
    ─ No link between the two events.
    ─ No access to amounts beyond the fixed denomination.
-   ─ No access to the encrypted memo (unless they have the viewing key).
+   ─ No access to the sealed memo (unless they hold the matching ML-KEM secret key).
 ```
 
 ### 4.3 Commitment scheme
@@ -157,10 +165,10 @@ OBSERVER SEES:
 commitment = Poseidon(secret, nullifier)
 ```
 
-Two ingredients only. Amount is implicit because of the fixed-denomination model — the program physically sees how much SOL was transferred, so it does not need to be inside the commitment. The auditor tag and encrypted memo are stored as **separate fields** in `DepositEvent`, not inside the commitment. This separation of concerns:
+Two ingredients only. Amount is implicit because of the fixed-denomination model — the program physically sees how much SOL was transferred, so it does not need to be inside the commitment. The ML-KEM-768 sealed memo slots live in a **dedicated per-deposit memo account**, not inside the commitment. This separation of concerns:
 
 - Keeps the ZK circuit simple — fewer constraints, lower CU cost, smaller attack surface.
-- Decouples the privacy layer (Merkle tree + nullifiers) from the disclosure layer (auditor tag + memo).
+- Decouples the privacy layer (Merkle tree + nullifiers) from the disclosure layer (sealed memo slots).
 - A bug in the disclosure layer cannot compromise the privacy layer, and vice versa.
 
 ### 4.4 Merkle tree
@@ -184,7 +192,7 @@ Anti-double-spend check: `try_create_pda`. If the PDA already exists, the withdr
 
 ### 4.6 Verifier program
 
-`tidex6-verifier` is a **singleton, non-upgradeable** Anchor program deployed once on devnet (and later on mainnet). All integrator programs call into it via CPI for Groth16 proof verification. This approach:
+`tidex6-verifier` is a **singleton, non-upgradeable** Anchor program deployed once on Solana mainnet — the current SOL verifier is `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`, immutable (upgrade authority renounced). All integrator programs call into it via CPI for Groth16 proof verification. This approach:
 
 - Saves bytecode space in every integrator program (the verifier is shared)
 - Ensures consistent security properties across all integrators
@@ -198,17 +206,17 @@ The verifier is locked with `solana program set-upgrade-authority --final` immed
 
 ### 5.1 Per-deposit selective disclosure
 
-The user attaches an optional ElGamal-encrypted tag to each deposit. The tag carries deposit metadata (amount, timestamp, descriptor) encrypted under an auditor's public key. The auditor — and only the auditor — can decrypt by scanning chain events with their private key.
+The user attaches an optional ML-KEM-768 sealed slot to each deposit, written to a dedicated per-deposit memo account. The slot carries the memo and deposit metadata (amount, timestamp, descriptor) encapsulated under an auditor's public key. The auditor — and only the auditor — can decrypt by scanning chain accounts with their secret key. The auditor slot omits the note's secret and nullifier, so an auditor can read a deposit but can never spend it.
 
 Properties:
 - **Per-deposit granularity** — the user picks a different auditor (or no auditor) for each transaction
-- **No onchain coordination** — the auditor scans events offchain, no protocol-level disclosure mechanism
+- **No onchain coordination** — the auditor scans accounts offchain, no protocol-level disclosure mechanism
 - **No backdoor** — protocol developers cannot decrypt anything
-- **Revocable in spirit** — the user simply stops attaching the auditor tag to future deposits; past disclosures cannot be undone (this is a fundamental property of any encryption-based disclosure system)
+- **Per-deposit revoke** — the depositor can close the dedicated memo account for a specific deposit, removing the sealed slots from chain state; future deposits simply omit the auditor slot. Disclosures an auditor already decrypted cannot be undone (a fundamental property of any encryption-based disclosure system)
 
 ### 5.2 Shielded Memo
 
-Each deposit can carry an encrypted memo of up to ~200 bytes. The memo is encrypted via ECDH key exchange on Baby Jubjub plus AES-256-GCM. Only the holder of the viewing key can decrypt.
+Each deposit can carry an encrypted memo of up to ~200 bytes. The memo is encapsulated via ML-KEM-768 (post-quantum) plus ChaCha20-Poly1305 AEAD, sealed into a dedicated per-deposit memo account. Only the holder of the matching ML-KEM secret key can decrypt.
 
 Use cases:
 - "Invoice #3847, January development work"
@@ -216,7 +224,7 @@ Use cases:
 - "Donation: legal defence fund"
 - "Salary: October, contractor 12"
 
-The memo is **not part of the ZK circuit**. It is an application-layer field stored in `DepositEvent`. This keeps the circuit simple and the memo flexible (no circuit changes when memo schema evolves).
+The memo is **not part of the ZK circuit**. It is an application-layer field stored in a dedicated per-deposit memo account. This keeps the circuit simple and the memo flexible (no circuit changes when memo schema evolves).
 
 ### 5.3 Proof of Innocence (roadmap v0.2)
 
@@ -232,8 +240,8 @@ This is the compliance layer. It is the answer to *"how do you prove your funds 
 
 ```toml
 [dependencies]
-anchor-lang     = "=1.0.0"
-anchor-spl      = "=1.0.0"   # for SPL token deposits in v0.3
+anchor-lang     = "=1.1.2"
+anchor-spl      = "=1.1.2"   # for SPL token deposits in v0.3
 groth16-solana  = "0.2"      # Groth16 verifier via alt_bn128 syscalls
 solana-poseidon = "4"        # native Poseidon syscall
 tidex6-core     = { path = "../tidex6-core" }
@@ -252,18 +260,17 @@ ark-relations          = "0.5"
 ark-ff                 = "0.5"
 ark-ec                 = "0.5"
 ark-serialize          = "0.5"
-ark-ed-on-bn254        = "0.5"   # Baby Jubjub for in-circuit key derivation
+ark-ed-on-bn254        = "0.5"   # Baby Jubjub — legacy v1 only (ElGamal memo path)
 
 light-poseidon         = "0.4"   # MUST match onchain syscall byte-for-byte
                                  # Use Poseidon::<Fr>::new_circom(n) only.
 
-anchor-client          = "1.0"
+anchor-client          = "1.1"
 solana-sdk             = "4.0"
 
-# Shielded Memo stack (ADR-007, ADR-010).
-aes-gcm                = "0.10"  # RustCrypto AEAD for memo encryption
-sha2                   = "0.10"  # shared-secret → AES key KDF
-base64                 = "0.22"  # SPL Memo payload encoding
+# Post-quantum memo stack (ADR-014).
+ml-kem                 = "0.2"   # ML-KEM-768 (NIST FIPS 203) key encapsulation
+chacha20poly1305       = "0.10"  # AEAD sealing the memo + note slots
 
 tidex6-core            = { path = "../tidex6-core" }
 tidex6-client          = { path = "../tidex6-client" }
@@ -290,7 +297,7 @@ tidex6/
 ├── Cargo.toml                            # workspace root
 │
 ├── crates/
-│   ├── tidex6-core/                      # commitments, nullifiers, Merkle, keys, Poseidon, ElGamal, note, memo
+│   ├── tidex6-core/                      # commitments, nullifiers, Merkle, keys, Poseidon, pqc (ML-KEM), note, memo; ElGamal legacy v1
 │   ├── tidex6-circuits/                  # arkworks R1CS — DepositCircuit, WithdrawCircuit<20>, solana_bytes
 │   ├── tidex6-indexer/                   # PoolIndexer — replays on-chain DepositEvent logs into a fresh tree
 │   ├── tidex6-client/                    # Rust SDK — PrivatePool / DepositBuilder / WithdrawBuilder
@@ -319,7 +326,7 @@ tidex6/
     ├── ROADMAP.md                        # now / next / later
     ├── security.md                       # threat model and known limitations
     ├── PR_CHECKLIST_PROOF_LOGIC.md       # Fiat-Shamir discipline for proof-touching PRs
-    ├── adr/                              # 13 architecture decision records
+    ├── adr/                              # 14 architecture decision records
     └── ru/                               # full Russian mirror
 ```
 
@@ -455,7 +462,7 @@ Full threat model and known limitations in [security.md](security.md). Highlight
 
 - **BN254 ~100-bit security level** — documented limitation. BN254 is chosen for native Solana syscall support; alternatives lose order-of-magnitude on verification cost.
 - **arkworks "academic prototype" disclaimer** — acknowledged. arkworks is the de facto Rust ZK standard despite the disclaimer. Pinned versions, security advisories monitored.
-- **Custom ElGamal on BN254** — written from scratch because no production-ready crate exists. Marked unaudited in code and docs. Isolated from the consensus path (privacy layer uses standard Groth16; ElGamal is application layer).
+- **Post-quantum memo encryption (ML-KEM-768 + ChaCha20-Poly1305)** — isolated from the consensus path (privacy layer uses standard Groth16; the sealed memo is application layer). The legacy v1 ElGamal-on-BN254 path is marked unaudited and retained for the v1 pool only.
 - **Local Phase 2 trusted setup** — MVP only. Marked DEVELOPMENT ONLY. Mainnet deployment requires the public ceremony scheduled for v0.2.
 - **Fiat-Shamir discipline** — every PR touching proof logic goes through a dedicated transcript-construction checklist with two-reviewer policy. See [PR_CHECKLIST_PROOF_LOGIC.md](PR_CHECKLIST_PROOF_LOGIC.md).
 - **Viewing-key compromise is not recoverable** — documented. Viewing keys are read-only, so compromise reveals history but does not enable theft.

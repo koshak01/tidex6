@@ -1,9 +1,12 @@
 # tidex6-prover-wasm
 
-Browser-side Groth16 proving for the tidex6 withdraw circuit. The
-user's `(secret, nullifier)` pair never leaves their machine — the
-proof is generated locally in WebAssembly and the relayer only ever
-sees the public proof bytes.
+Browser-side cryptography for tidex6: deposit note generation
+(`generateNote` / `buildEnvelope`, including the post-quantum
+ML-KEM-768 encrypted memo) and Groth16 proving for the withdraw
+circuit (`proveWithdraw`). The user's `(secret, nullifier)` pair
+never leaves their machine — notes are built and proofs generated
+locally in WebAssembly, and the relayer only ever sees the public
+proof bytes.
 
 > **Why this matters:** without WASM proving, the browser would have
 > to ship `secret` and `nullifier` to a backend prover. That single
@@ -52,10 +55,14 @@ host build to compile WASM-only deps and fail.
 ## Usage from the browser
 
 ```js
-import init, { initPanicHook, proveWithdraw } from "./pkg/tidex6_prover_wasm.js";
+import init, { initPanicHook, generateNote, buildEnvelope, proveWithdraw } from "./pkg/tidex6_prover_wasm.js";
 
 await init();
 initPanicHook();
+
+// Deposit side: generateNote() mints a fresh (secret, nullifier) note and
+// buildEnvelope() seals the ML-KEM-768 encrypted memo — both run in-tab.
+// Withdraw side (shown below): proveWithdraw() generates the Groth16 proof.
 
 // Fetched once and cached — same artifact as
 // crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin

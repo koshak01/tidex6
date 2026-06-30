@@ -59,7 +59,9 @@ Despite this disclaimer, `arkworks` is the de facto standard Rust ZK stack. Prod
 - We do not modify arkworks source; we use it as-is.
 - We acknowledge the disclaimer publicly here instead of pretending it does not exist.
 
-### 1.3 Custom unaudited ElGamal on BN254
+### 1.3 Custom unaudited ElGamal on BN254 (legacy v1 pool only)
+
+> The current pool seals the memo with ML-KEM-768 (post-quantum) + ChaCha20-Poly1305 (see [ADR-014](adr/ADR-014-mlkem-memo-account.md) and §3A). The ElGamal path below applies only to the immutable v1 pool and is retained for historical compatibility.
 
 No production-ready Rust crate exists for ElGamal encryption on BN254. All major Rust ElGamal crates target Curve25519 or Ristretto, which are incompatible with our Groth16 circuit field and our Solana syscalls. We are writing our own ElGamal from scratch using arkworks primitives.
 
@@ -70,7 +72,7 @@ No production-ready Rust crate exists for ElGamal encryption on BN254. All major
 - The ElGamal implementation lives in `tidex6-core::elgamal` and is isolated from the consensus path. The privacy layer (Merkle tree, nullifiers, Groth16 verification) uses standard well-understood primitives. A bug in our ElGamal code can leak deposit metadata to the wrong party for users who opted into disclosure — but it cannot compromise the privacy of users who did not opt in, and it cannot enable theft.
 - The code is marked `unaudited` in the module documentation, in the README, and in this document.
 - Independent cryptographic audit is a precondition for mainnet deployment.
-- See [ADR-004](adr/ADR-004-elgamal-bn254.md) for the full rationale and the dual-curve design (BN254 G1 for onchain ElGamal, Baby Jubjub for in-circuit operations).
+- See [ADR-004](adr/ADR-004-elgamal-bn254.md) for the full rationale and the dual-curve design (BN254 G1 for onchain ElGamal, Baby Jubjub for in-circuit operations). ADR-004 is legacy v1 only; the current pool follows [ADR-014](adr/ADR-014-mlkem-memo-account.md).
 
 ### 1.4 Local Phase 2 trusted setup — DEVELOPMENT ONLY
 
@@ -131,9 +133,9 @@ Covered in section 1.4. For MVP the trusted setup is explicitly marked DEVELOPME
 
 A secondary mitigation: even if the mainnet ceremony contributors are collectively compromised, an attacker who learns the toxic waste can forge proofs but cannot retroactively reveal the contents of past deposits. Privacy is preserved; only the soundness of the proof system is broken. This limits the damage to funds that are in the pool at the time of the attack.
 
-### 2.5 ElGamal implementation bugs (HIGH, disclosure path only)
+### 2.5 Disclosure-path encryption bugs (HIGH, disclosure path only)
 
-Covered in section 1.3. Bugs in our custom ElGamal code are application-layer and do not compromise the privacy core. They can, however, leak deposit metadata to the wrong party for users who opted into disclosure. The mitigation is a pre-mainnet audit and explicit marking of the code as unaudited.
+Covered in section 1.3 (legacy v1 ElGamal) and section 3A (current ML-KEM-768 + ChaCha20-Poly1305). Bugs in this custom disclosure code are application-layer and do not compromise the privacy core. They can, however, leak deposit metadata to the wrong party for users who opted into disclosure. The mitigation is a pre-mainnet audit and explicit marking of the code as unaudited.
 
 ### 2.6 Indexer availability and honesty (OPERATIONAL)
 
@@ -153,7 +155,7 @@ If a user's viewing key is leaked, all past deposits encrypted under that key be
 
 **Mitigations:**
 - Viewing keys should be treated with the same care as a tax return — shared only with trusted parties, stored encrypted at rest, transmitted over encrypted channels.
-- Users who need to rotate their disclosure posture can simply stop attaching the auditor tag to future deposits. The old leaked key reveals old deposits; the new deposits are protected by a new viewing key not yet shared.
+- Users who need to rotate their disclosure posture can simply stop attaching the auditor slot to future deposits, or revoke a specific deposit by closing its dedicated memo account. The old leaked key reveals old deposits; the new deposits are protected by a new key not yet shared.
 - Wallet-level viewing key management is a v0.2 roadmap item (integration with major Solana wallets for secure storage and selective sharing).
 
 ### 2.8 Anonymity set on day one (OPERATIONAL)
@@ -204,21 +206,21 @@ Shielded Memo ships with tidex6 v0.1 as an application-layer feature. Its securi
 
 **What Shielded Memo guarantees:**
 
-- *Memo confidentiality under honest-majority.* An encrypted memo can be read only by the holder of the Baby Jubjub secret key it was encrypted for. Brute-force would cost ~2^125 operations against a single memo.
-- *Integrity via AES-GCM.* A tampered memo fails the GCM tag check and the auditor scan silently skips it — an attacker cannot tamper a memo into decrypting to a different plaintext.
-- *Atomic binding to its deposit.* The SPL Memo instruction sits in the same transaction as the verifier `deposit` instruction. Either both land on chain or neither does. Replaying a memo without its deposit is indistinguishable from creating a new failed transaction.
+- *Memo confidentiality, post-quantum.* An encrypted memo can be read only by the holder of the ML-KEM-768 secret key it was encapsulated for. ML-KEM-768 (NIST FIPS 203) targets NIST security level 3 and is believed to resist both classical and quantum adversaries.
+- *Integrity via ChaCha20-Poly1305.* A tampered memo fails the AEAD tag check and the auditor scan silently skips it — an attacker cannot tamper a memo into decrypting to a different plaintext.
+- *Atomic binding to its deposit.* The dedicated per-deposit memo account is written in the same transaction as the verifier `deposit` instruction. Either both land on chain or neither does. Replaying a memo without its deposit is indistinguishable from creating a new failed transaction.
 
 **What Shielded Memo does not guarantee:**
 
-- *Not part of the ZK proof.* The memo ciphertext is not an input to the withdraw circuit. A user cannot prove in zero knowledge that a specific memo was attached to a specific deposit. The "evidence" that a deposit has a memo is purely social: anyone reading the transaction sees the SPL Memo instruction, and anyone with the auditor key can decrypt it.
-- *Sender not hidden.* The transaction fee payer is on chain as plaintext, so the memo binds plaintext-identifiable sender ↔ encrypted-recipient. This is intentional — tidex6 hides receivers, not senders.
-- *Key compromise is forward-only unrecoverable.* Losing an auditor secret key reveals every past memo ever encrypted under the matching public key. Rotate keys by issuing a new one and only sharing that with new senders; the protocol has no revocation mechanism.
-- *Not audited.* The ElGamal + AES-GCM composition follows textbook construction, but the implementation in `tidex6-core::{elgamal,memo}` is new code written for this project. Keep it outside the consensus path (ADR-005 / ADR-010) until a professional audit lands in v0.2.
+- *Not part of the ZK proof.* The sealed memo is not an input to the withdraw circuit. A user cannot prove in zero knowledge that a specific memo was attached to a specific deposit. The "evidence" that a deposit has a memo is purely social: anyone reading the transaction sees the dedicated memo account, and anyone with the matching ML-KEM secret key can decrypt it.
+- *Sender not hidden.* The transaction fee payer is on chain as plaintext, so the memo binds plaintext-identifiable fee payer ↔ encrypted recipient. This is intentional — tidex6 hides receivers, not the payer of the deposit transaction. (Under stealth delivery the note itself is never handed over: the recipient scans the chain with their own ML-KEM secret key and reconstructs the deposit.)
+- *Key compromise is forward-only unrecoverable.* Losing an ML-KEM secret key reveals every past memo ever encapsulated under the matching public key. Rotate keys by issuing a new one and only sharing that with new senders. The depositor can also revoke a specific deposit by closing its dedicated memo account, removing the sealed slots from chain state — but an auditor who already decrypted a memo keeps that plaintext.
+- *Not audited.* The ML-KEM-768 + ChaCha20-Poly1305 composition follows standard construction, but the implementation in `tidex6-core::pqc` is new code written for this project. Keep it outside the consensus path (ADR-005 / ADR-014) until a professional audit lands in v0.2.
 
 **Known limits:**
 
-- Memo plaintext is capped at 256 bytes by `MAX_PLAINTEXT_LEN`. SPL Memo's ~566-character ceiling forces this — larger memos would need a dedicated PDA-based transport (considered and deferred in ADR-010).
-- Metadata is visible: anyone on chain sees *that* a memo was attached, which auditor public key it was addressed to (through the ephemeral key + GCM tag structure nothing is hidden *about the recipient* per se, but the transaction's payer and the pool itself are public). Reasoning: this reveals no more than the deposit itself already does.
+- Memo plaintext is capped at 256 bytes by `MAX_PLAINTEXT_LEN`. The dedicated per-deposit memo account removes the SPL Memo character ceiling that constrained the v1 transport (see ADR-014, superseding ADR-012).
+- Metadata is visible: anyone on chain sees *that* a memo was attached and which dedicated account holds it. The transaction's payer and the pool itself are public. Reasoning: this reveals no more than the deposit itself already does.
 
 ---
 
@@ -297,7 +299,7 @@ To make this document useful as a standalone read for auditors and grant reviewe
 
 - We use BN254 (~100-bit security) because it is the only option native to Solana.
 - We depend on arkworks, which carries an academic-prototype disclaimer.
-- Our ElGamal implementation is custom and unaudited, but isolated from the privacy-critical path.
+- Our disclosure-path encryption — ML-KEM-768 + ChaCha20-Poly1305 in the current pool, legacy ElGamal in the v1 pool — is custom and unaudited, but isolated from the privacy-critical path.
 - Our MVP trusted setup is a single-contributor ceremony marked DEVELOPMENT ONLY.
 - Our day-one anonymity set is small and we say so explicitly.
 - We guard against Fiat-Shamir transcript bugs with a dedicated checklist and two-reviewer policy, because this class of bug has bitten similar systems in the recent past.
