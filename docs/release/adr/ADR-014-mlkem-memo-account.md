@@ -1,9 +1,10 @@
 # ADR-014 — Post-quantum memo in a dedicated account, new verifier
 
 **Status:** Accepted — deployed to mainnet 2026-06-30 as
-`6VUBZPpnXY8gJitoWqrvCqWkdXWARm8CsBLuX4oVn8pm` (upgradeable; executable
-hash `0ea56b52e657389c82a12d88d90f99dc8d9ac8a238c78a3f2f13d7f1181557e0`;
-OtterSec verification pending; `--final` after verify).
+`Gt1duB4bPj2CmW9y7eiGzekeCfiR1UckjiyPGSbyWRVU` (reproducible build via
+`solanafoundation/solana-verifiable-build:4.0.3`; first deploy `6VUBZ…`
+was closed/retired and re-done reproducibly per Petr; OtterSec
+verification + `--final` after deploy).
 **Date:** 2026-06-30
 **Supersedes (for new pool):** ADR-012 envelope transport via `DepositEvent.memo_payload`
 

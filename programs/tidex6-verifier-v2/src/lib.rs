@@ -38,7 +38,7 @@ pub use pool::{
 // same verifying key the on-chain program uses.
 pub use withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
 
-declare_id!("6VUBZPpnXY8gJitoWqrvCqWkdXWARm8CsBLuX4oVn8pm");
+declare_id!("Gt1duB4bPj2CmW9y7eiGzekeCfiR1UckjiyPGSbyWRVU");
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
