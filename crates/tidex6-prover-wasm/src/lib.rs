@@ -30,7 +30,7 @@ use tidex6_circuits::withdraw::{WithdrawWitness, prove_withdraw as prove_withdra
 use tidex6_core::envelope;
 use tidex6_core::note::{Denomination, DepositNote};
 use tidex6_core::poseidon;
-use tidex6_core::pqc::PqcPublicKey;
+use tidex6_core::pqc::{PqcPublicKey, PqcSecretKey};
 use wasm_bindgen::prelude::*;
 
 const DEPTH: usize = 20;
@@ -207,6 +207,86 @@ fn denom_from_lamports(lamports: u64) -> Result<Denomination, JsError> {
         other => Err(JsError::new(&format!(
             "unsupported denomination: {other} lamports (use 0.1 / 0.5 / 1 / 10 SOL)"
         ))),
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Client-side scan: decrypt a memo envelope locally — secret never leaves the tab
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Recipient view of a decrypted memo slot — carries the note's spend
+/// material so the browser can reconstruct and withdraw.
+#[wasm_bindgen]
+pub struct RecipientSlot {
+    secret: [u8; FIELD_BYTES],
+    nullifier: [u8; FIELD_BYTES],
+    memo: String,
+}
+
+#[wasm_bindgen]
+impl RecipientSlot {
+    #[wasm_bindgen(getter)]
+    pub fn secret(&self) -> Uint8Array { Uint8Array::from(&self.secret[..]) }
+    #[wasm_bindgen(getter)]
+    pub fn nullifier(&self) -> Uint8Array { Uint8Array::from(&self.nullifier[..]) }
+    #[wasm_bindgen(getter)]
+    pub fn memo(&self) -> String { self.memo.clone() }
+}
+
+/// Auditor view of a decrypted memo slot — amount + memo, cannot spend.
+#[wasm_bindgen]
+pub struct AuditorSlot {
+    denomination: f64,
+    memo: String,
+}
+
+#[wasm_bindgen]
+impl AuditorSlot {
+    #[wasm_bindgen(getter, js_name = denominationLamports)]
+    pub fn denomination(&self) -> f64 { self.denomination }
+    #[wasm_bindgen(getter)]
+    pub fn memo(&self) -> String { self.memo.clone() }
+}
+
+/// Try to decrypt a memo envelope as the recipient. Returns the slot if
+/// this ML-KEM secret is the addressee, else `undefined`. Runs entirely
+/// in the browser — the secret never leaves the tab.
+#[wasm_bindgen(js_name = decryptRecipientSlot)]
+pub fn decrypt_recipient_slot(
+    envelope: &Uint8Array,
+    secret: &Uint8Array,
+) -> Result<Option<RecipientSlot>, JsError> {
+    let sk = PqcSecretKey::from_bytes(&uint8array_to_vec(secret))
+        .map_err(|e| JsError::new(&format!("invalid ML-KEM secret: {e}")))?;
+    let env = uint8array_to_vec(envelope);
+    match envelope::open_as_recipient(&env, &sk) {
+        Ok(Some(v)) => Ok(Some(RecipientSlot {
+            secret: v.secret,
+            nullifier: v.nullifier,
+            memo: String::from_utf8_lossy(&v.memo).into_owned(),
+        })),
+        Ok(None) => Ok(None),
+        Err(e) => Err(JsError::new(&format!("decrypt failed: {e}"))),
+    }
+}
+
+/// Try to decrypt a memo envelope as an auditor. Returns amount+memo if
+/// this ML-KEM secret is an addressed auditor, else `undefined`.
+#[wasm_bindgen(js_name = decryptAuditorSlot)]
+pub fn decrypt_auditor_slot(
+    envelope: &Uint8Array,
+    secret: &Uint8Array,
+) -> Result<Option<AuditorSlot>, JsError> {
+    let sk = PqcSecretKey::from_bytes(&uint8array_to_vec(secret))
+        .map_err(|e| JsError::new(&format!("invalid ML-KEM secret: {e}")))?;
+    let env = uint8array_to_vec(envelope);
+    match envelope::open_as_auditor(&env, &sk) {
+        Ok(Some(v)) => Ok(Some(AuditorSlot {
+            denomination: v.denomination as f64,
+            memo: String::from_utf8_lossy(&v.memo).into_owned(),
+        })),
+        Ok(None) => Ok(None),
+        Err(e) => Err(JsError::new(&format!("decrypt failed: {e}"))),
     }
 }
 
