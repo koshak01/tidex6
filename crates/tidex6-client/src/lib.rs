@@ -74,7 +74,7 @@ pub mod refund;
 pub mod withdraw;
 
 pub use accountant::{AccountantEntry, AccountantScanner, RecipientEntry, RecipientScanner};
-pub use deposit::{DepositBuilder, DepositOutcome};
+pub use deposit::{DepositBuilder, DepositOutcome, DepositPlan, IxAccount, IxRecipe};
 pub use pool::PrivatePool;
 pub use refund::RefundBuilder;
 pub use withdraw::{

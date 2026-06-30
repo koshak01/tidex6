@@ -13,12 +13,12 @@
 //! `0` = irrevocable): if the note is never withdrawn within it, the
 //! depositor can `refund`.
 
-use std::rc::Rc;
-
 use anchor_client::anchor_lang::prelude::Pubkey;
 use anchor_client::anchor_lang::system_program;
+use anchor_client::Instruction;
 use anyhow::{Context, Result, anyhow};
 use solana_keypair::Keypair;
+use solana_rpc_client::rpc_client::RpcClient;
 use solana_rpc_client_api::config::RpcTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction_status::UiTransactionEncoding;
@@ -231,7 +231,7 @@ impl<'a> DepositBuilder<'a> {
             offset = end;
         }
 
-        let leaf_index = fetch_leaf_index(&program, &signature)?;
+        let leaf_index = fetch_leaf_index(&program.rpc(), &signature)?;
 
         Ok(DepositOutcome {
             signature,
@@ -342,7 +342,7 @@ impl PrivatePool {
             offset = end;
         }
 
-        let leaf_index = fetch_leaf_index(&program, &signature)?;
+        let leaf_index = fetch_leaf_index(&program.rpc(), &signature)?;
 
         Ok(DepositRawOutcome {
             signature,
@@ -352,13 +352,157 @@ impl PrivatePool {
     }
 }
 
+/// One Solana account reference in a serialisable instruction recipe.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IxAccount {
+    /// base58 account pubkey.
+    pub pubkey: String,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
+/// One instruction as a recipe the browser rebuilds with `@solana/web3.js`.
+/// `data_hex` is Anchor's borsh-encoded instruction data (8-byte
+/// discriminator + args) — already a `Vec<u8>`, no serialisation needed.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IxRecipe {
+    /// base58 program id.
+    pub program_id: String,
+    pub accounts: Vec<IxAccount>,
+    pub data_hex: String,
+}
+
+/// An unsigned deposit plan: a list of transactions, each a list of
+/// instruction recipes. The browser assembles each transaction with
+/// web3.js, sets fee-payer = the depositor and a recent blockhash, signs
+/// them all with Phantom, and submits **in order** — `append_memo`
+/// instructions depend on the memo account opened by the first (deposit)
+/// transaction. No wire serialisation happens server-side: web3.js builds
+/// and serialises the transactions in the browser.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DepositPlan {
+    pub transactions: Vec<Vec<IxRecipe>>,
+}
+
+impl PrivatePool {
+    /// Build the instruction recipe for a v2 deposit paid by
+    /// `payer_pubkey` — the depositor's own wallet. The browser turns
+    /// this into web3.js transactions, has Phantom sign + send them, and
+    /// funds the deposit with the depositor's own SOL. The relayer that
+    /// calls this never signs and never funds the deposit (correctness,
+    /// not just privacy — the depositor's SOL must fund the pool).
+    pub fn build_deposit_plan(
+        &self,
+        payer_pubkey: Pubkey,
+        commitment: [u8; 32],
+        envelope_bytes: Vec<u8>,
+        revoke_window_secs: i64,
+    ) -> Result<DepositPlan> {
+        // program_handle needs a Keypair for the Anchor Client, but we
+        // only call `.instructions()` (never `.send()`), so the signer is
+        // never used — the account fields carry `payer_pubkey`.
+        let throwaway = Keypair::new();
+        let program = self.program_handle(&throwaway)?;
+        let rpc = program.rpc();
+        let denomination_lamports = self.denomination().lamports();
+
+        let needs_init = rpc
+            .get_account(&self.pool_pda())
+            .map(|account| account.data.is_empty())
+            .unwrap_or(true);
+
+        let memo_account = self.memo_pda(&commitment);
+        let total_len = envelope_bytes.len() as u32;
+        let chunk0_end = MEMO_CHUNK_LEN.min(envelope_bytes.len());
+
+        // tx0: optional init_pool, then the deposit that opens the memo.
+        let mut tx0_ixs: Vec<Instruction> = Vec::new();
+        if needs_init {
+            tx0_ixs.extend(
+                program
+                    .request()
+                    .accounts(verifier_accounts::InitPool {
+                        pool: self.pool_pda(),
+                        vault: self.vault_pda(),
+                        payer: payer_pubkey,
+                        system_program: system_program::ID,
+                    })
+                    .args(verifier_instruction::InitPool {
+                        denomination: denomination_lamports,
+                    })
+                    .instructions(),
+            );
+        }
+        tx0_ixs.extend(
+            program
+                .request()
+                .accounts(verifier_accounts::Deposit {
+                    pool: self.pool_pda(),
+                    vault: self.vault_pda(),
+                    memo: memo_account,
+                    payer: payer_pubkey,
+                    system_program: system_program::ID,
+                })
+                .args(verifier_instruction::Deposit {
+                    commitment,
+                    memo_total_len: total_len,
+                    revoke_window: revoke_window_secs,
+                    memo_chunk: envelope_bytes[..chunk0_end].to_vec(),
+                })
+                .instructions(),
+        );
+
+        // One append_memo tx per remaining chunk.
+        let mut tx_ix_sets: Vec<Vec<Instruction>> = vec![tx0_ixs];
+        let mut offset = chunk0_end;
+        while offset < envelope_bytes.len() {
+            let end = (offset + MEMO_CHUNK_LEN).min(envelope_bytes.len());
+            tx_ix_sets.push(
+                program
+                    .request()
+                    .accounts(verifier_accounts::AppendMemo {
+                        memo: memo_account,
+                        depositor: payer_pubkey,
+                    })
+                    .args(verifier_instruction::AppendMemo {
+                        commitment,
+                        offset: offset as u32,
+                        chunk: envelope_bytes[offset..end].to_vec(),
+                    })
+                    .instructions(),
+            );
+            offset = end;
+        }
+
+        let transactions = tx_ix_sets
+            .iter()
+            .map(|ixs| ixs.iter().map(ix_to_recipe).collect())
+            .collect();
+        Ok(DepositPlan { transactions })
+    }
+}
+
+/// Convert an Anchor-built [`Instruction`] into a browser-rebuildable
+/// recipe. `data` is already borsh bytes; we only hex-encode it.
+fn ix_to_recipe(ix: &Instruction) -> IxRecipe {
+    IxRecipe {
+        program_id: ix.program_id.to_string(),
+        accounts: ix
+            .accounts
+            .iter()
+            .map(|meta| IxAccount {
+                pubkey: meta.pubkey.to_string(),
+                is_signer: meta.is_signer,
+                is_writable: meta.is_writable,
+            })
+            .collect(),
+        data_hex: hex::encode(&ix.data),
+    }
+}
+
 /// Fetch a transaction and parse its
 /// `tidex6-v2-deposit:<leaf>:<commitment>:<root>` log line.
-fn fetch_leaf_index(
-    program: &anchor_client::Program<Rc<Keypair>>,
-    signature: &Signature,
-) -> Result<u64> {
-    let rpc = program.rpc();
+fn fetch_leaf_index(rpc: &RpcClient, signature: &Signature) -> Result<u64> {
     let config = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
         commitment: Some(anchor_client::CommitmentConfig::confirmed()),
