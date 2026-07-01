@@ -48,6 +48,73 @@ pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
+/// Lowercase-hex encode, matching the identity file format. Kept inline
+/// to avoid a `hex` dependency in this browser-only crate.
+fn to_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        out.push(char::from_digit((b & 0x0f) as u32, 16).unwrap());
+    }
+    out
+}
+
+/// A freshly generated tidex6 identity — the exact v3 fields the CLI's
+/// `identity.json` carries. `mlkemPublic` is the addressable public key
+/// (share it freely). Everything else stays with the owner; `mlkemSecret`
+/// opens `/receive` and `/accountant`.
+#[wasm_bindgen]
+pub struct Identity {
+    spending_key: String,
+    viewing_key: String,
+    mlkem_public: String,
+    mlkem_secret: String,
+}
+
+#[wasm_bindgen]
+impl Identity {
+    #[wasm_bindgen(getter, js_name = spendingKey)]
+    pub fn spending_key(&self) -> String {
+        self.spending_key.clone()
+    }
+    #[wasm_bindgen(getter, js_name = viewingKey)]
+    pub fn viewing_key(&self) -> String {
+        self.viewing_key.clone()
+    }
+    #[wasm_bindgen(getter, js_name = mlkemPublic)]
+    pub fn mlkem_public(&self) -> String {
+        self.mlkem_public.clone()
+    }
+    #[wasm_bindgen(getter, js_name = mlkemSecret)]
+    pub fn mlkem_secret(&self) -> String {
+        self.mlkem_secret.clone()
+    }
+}
+
+/// Generate a fresh tidex6 identity entirely in the browser: a random
+/// `SpendingKey`, its derived `ViewingKey`, and a post-quantum ML-KEM-768
+/// keypair (ADR-014). Byte-for-byte the same shape `tidex6 keygen`
+/// produces. Nothing touches the network — the WASM sandbox has no
+/// fetch/XHR, verifiable via `WebAssembly.Module.imports(...)`.
+#[wasm_bindgen(js_name = generateIdentity)]
+pub fn generate_identity() -> Result<Identity, JsError> {
+    use tidex6_core::keys::SpendingKey;
+
+    let spending_key =
+        SpendingKey::random().map_err(|e| JsError::new(&format!("spending key: {e}")))?;
+    let viewing_key = spending_key
+        .derive_viewing_key()
+        .map_err(|e| JsError::new(&format!("viewing key: {e}")))?;
+    let (mlkem_public, mlkem_secret) = tidex6_core::pqc::keygen();
+
+    Ok(Identity {
+        spending_key: to_hex(spending_key.as_bytes()),
+        viewing_key: to_hex(viewing_key.as_bytes()),
+        mlkem_public: to_hex(mlkem_public.as_bytes()),
+        mlkem_secret: to_hex(mlkem_secret.as_bytes()),
+    })
+}
+
 /// Parsed deposit note. `secret` and `nullifier` are 32-byte
 /// big-endian field elements; `denominationLamports` is a `u64` cast
 /// to `f64` so JS BigInt is not required (every supported
