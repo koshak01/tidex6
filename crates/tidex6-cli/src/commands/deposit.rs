@@ -1,14 +1,12 @@
 //! `tidex6 deposit` — put a fresh `DepositNote` into the shielded pool
 //! and seal it for a stealth recipient (ADR-014).
 //!
-//! Thin wrapper around `tidex6_client::PrivatePool::deposit`. The note
-//! is encrypted to the recipient's ML-KEM public key and stored in the
-//! on-chain memo account; the recipient scans the chain and withdraws
-//! it themselves — it is never handed over. The note IS saved locally
-//! for the depositor, because the depositor needs its `secret` /
-//! `nullifier` to `refund` if the deposit is never claimed.
+//! Thin wrapper around `tidex6_client::PrivatePool::deposit`. The note's
+//! spend material is encrypted to the recipient's ML-KEM public key and
+//! stored in the on-chain memo account; the recipient scans the chain and
+//! withdraws it themselves — it is never handed over and never saved.
+//! Fire-and-forget: nothing to keep locally.
 
-use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -50,20 +48,16 @@ pub struct DepositArgs {
     #[arg(long)]
     pub memo: String,
 
-    /// Revoke window in days. After this many days, if the note was
-    /// never withdrawn, you can `tidex6 refund` it. `0` (default) makes
-    /// the deposit irrevocable.
+    /// Revoke window in days, recorded on-chain with the deposit. `0`
+    /// (default) makes the deposit irrevocable. Note-free reclaim of an
+    /// unclaimed deposit (via a depositor-self envelope slot) is a
+    /// roadmap item; today the window is just stored.
     #[arg(long, default_value_t = 0)]
     pub revoke_after_days: u32,
 
     /// Optional custom Solana fee-payer keypair path.
     #[arg(long)]
     pub keypair: Option<PathBuf>,
-
-    /// Where to write the local note file (kept by the depositor for a
-    /// possible refund). Defaults to `~/.tidex6/notes/<prefix>.note`.
-    #[arg(long)]
-    pub note_out: Option<PathBuf>,
 
     /// Identity file for the default auditor key. Defaults to
     /// `~/.tidex6/identity.json`.
@@ -133,40 +127,18 @@ pub fn run(args: DepositArgs) -> Result<()> {
     let outcome = builder.send()?;
 
     let signature = outcome.signature;
-    let note = outcome.note;
     let leaf_index = outcome.leaf_index;
 
-    println!("  commitment   : {}", note.commitment().to_hex());
+    println!("  commitment   : {}", outcome.note.commitment().to_hex());
     println!("  signature    : {signature}");
     println!("  explorer     : {}", explorer_url(&signature, &cluster));
     println!("  leaf index   : {leaf_index}");
     println!("  memo account : {}", outcome.memo_account);
-
-    // Save the note locally — the depositor needs it to `refund`.
-    let note_text = note.to_text();
-    let note_path = match args.note_out {
-        Some(path) => path,
-        None => default_note_path(&note.commitment().to_hex())?,
-    };
-    if let Some(parent) = note_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create notes directory {}", parent.display()))?;
-    }
-    fs::write(&note_path, &note_text)
-        .with_context(|| format!("write note file to {}", note_path.display()))?;
     println!();
-    println!("Note saved locally (for a possible refund): {}", note_path.display());
-    println!("The recipient does NOT need it — they find this payment by scanning the");
-    println!("chain with their ML-KEM key. Nothing was handed over.");
+    println!("Done. Nothing to save — the recipient finds this payment by scanning the");
+    println!("chain with their ML-KEM key (`tidex6 receive`). Nothing was handed over.");
 
     Ok(())
-}
-
-/// `~/.tidex6/notes/<commitment_prefix>.note`.
-fn default_note_path(commitment_hex: &str) -> Result<PathBuf> {
-    let home = std::env::var("HOME").context("HOME environment variable is not set")?;
-    let prefix = &commitment_hex[..commitment_hex.len().min(12)];
-    Ok(PathBuf::from(format!("{home}/.tidex6/notes/{prefix}.note")))
 }
 
 /// Resolve the auditor ML-KEM public key for this deposit.

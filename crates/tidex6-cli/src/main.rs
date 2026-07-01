@@ -1,15 +1,17 @@
 //! `tidex6` — command-line interface for the tidex6 privacy
 //! framework.
 //!
-//! Three subcommands wrap the existing offchain crypto primitives
-//! and the onchain verifier program into a user-facing experience:
+//! The subcommands wrap the offchain crypto primitives and the onchain
+//! verifier into a note-free stealth experience: you deposit sealed for a
+//! recipient's ML-KEM public key, and the recipient scans the chain with
+//! their own secret and withdraws. Nothing is ever handed over.
 //!
 //! ```text
 //! tidex6 keygen [--out <file>] [--force]
-//! tidex6 keygen print-auditor-pk [--identity <file>]
-//! tidex6 deposit --amount <0.1|0.5|1|10> [--auditor <pk>] [--memo <text>]
-//!                [--note-out <file>]
-//! tidex6 withdraw --note <file> --to <pubkey> [--leaf-index <n>]
+//! tidex6 keygen print-mlkem-pk [--identity <file>]
+//! tidex6 deposit --amount <0.1|0.5|1|10> --recipient <mlkem-pk>
+//!                [--auditor <pk>] [--memo <text>]
+//! tidex6 receive --identity <file> --to <pubkey>
 //! tidex6 accountant scan [--identity <file>] [--amount <d>]
 //!                        [--format table|json|csv] [--output <file>]
 //! ```
@@ -44,13 +46,10 @@ enum Command {
     /// write them to a JSON identity file.
     Keygen(commands::keygen::KeygenArgs),
 
-    /// Put a fresh `DepositNote` into the shielded pool for a
-    /// given denomination and save the note to a file.
+    /// Deposit SOL into the shielded pool, sealed for a stealth
+    /// recipient's ML-KEM key. Nothing is handed over — the recipient
+    /// scans and withdraws with `receive`.
     Deposit(commands::deposit::DepositArgs),
-
-    /// Redeem a previously-generated `DepositNote` by proving
-    /// knowledge of its preimage in zero knowledge.
-    Withdraw(commands::withdraw::WithdrawArgs),
 
     /// Read every Shielded Memo addressed to this identity's
     /// auditor secret key and render the result as a ledger.
@@ -59,10 +58,6 @@ enum Command {
     /// Stealth receipt: scan the chain with your ML-KEM key, find
     /// payments addressed to you, and withdraw them — no note needed.
     Receive(commands::receive::ReceiveArgs),
-
-    /// 30-day revoke: reclaim a never-withdrawn deposit using the note
-    /// you kept locally.
-    Refund(commands::refund::RefundArgs),
 }
 
 fn main() -> Result<()> {
@@ -70,9 +65,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Keygen(args) => commands::keygen::run(args),
         Command::Deposit(args) => commands::deposit::run(args),
-        Command::Withdraw(args) => commands::withdraw::run(args),
         Command::Accountant(args) => commands::accountant::run(args),
         Command::Receive(args) => commands::receive::run(args),
-        Command::Refund(args) => commands::refund::run(args),
     }
 }
