@@ -340,7 +340,10 @@ mod tests {
     #[test]
     fn random_garbage_rejected() {
         let err = DepositNote::from_text("totally random not a note").unwrap_err();
-        assert!(matches!(err, NoteError::InvalidHex | NoteError::LenMismatch { .. }));
+        assert!(matches!(
+            err,
+            NoteError::InvalidHex | NoteError::LenMismatch { .. }
+        ));
     }
 
     /// Wrong-length hex is rejected.

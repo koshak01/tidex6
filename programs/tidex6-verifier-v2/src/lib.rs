@@ -86,7 +86,13 @@ pub mod tidex6_verifier_v2 {
         revoke_window: i64,
         memo_chunk: Vec<u8>,
     ) -> Result<()> {
-        pool::handle_deposit(context, commitment, memo_total_len, revoke_window, memo_chunk)
+        pool::handle_deposit(
+            context,
+            commitment,
+            memo_total_len,
+            revoke_window,
+            memo_chunk,
+        )
     }
 
     /// Append the next chunk of the ML-KEM envelope to a memo account

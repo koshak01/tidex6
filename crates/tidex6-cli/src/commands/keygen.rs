@@ -146,7 +146,10 @@ fn run_generate(out: Option<PathBuf>, force: bool) -> Result<()> {
         "  viewing key  : {}",
         ViewingKey::from_bytes(hex_to_bytes_32(&identity.viewing_key)?)
     );
-    println!("  ML-KEM pk    : {}…", &identity.mlkem_public[..32.min(identity.mlkem_public.len())]);
+    println!(
+        "  ML-KEM pk    : {}…",
+        &identity.mlkem_public[..32.min(identity.mlkem_public.len())]
+    );
     println!();
     println!("The spending key controls every deposit you make. Keep this file safe.");
     println!("The ML-KEM public key (full value via `tidex6 keygen print-mlkem-pk`) is what");
@@ -196,7 +199,10 @@ fn bytes_to_hex(bytes: &[u8; 32]) -> String {
 fn hex_to_bytes_32(hex: &str) -> Result<[u8; 32]> {
     let stripped = hex.strip_prefix("0x").unwrap_or(hex);
     if stripped.len() != 64 {
-        return Err(anyhow!("expected 64 hex characters, got {}", stripped.len()));
+        return Err(anyhow!(
+            "expected 64 hex characters, got {}",
+            stripped.len()
+        ));
     }
     let bytes = hex::decode(stripped).context("decode hex")?;
     bytes

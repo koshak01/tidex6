@@ -13,9 +13,9 @@
 //! `0` = irrevocable): if the note is never withdrawn within it, the
 //! depositor can `refund`.
 
+use anchor_client::Instruction;
 use anchor_client::anchor_lang::prelude::Pubkey;
 use anchor_client::anchor_lang::system_program;
-use anchor_client::Instruction;
 use anyhow::{Context, Result, anyhow};
 use solana_keypair::Keypair;
 use solana_rpc_client::rpc_client::RpcClient;
@@ -126,8 +126,9 @@ impl<'a> DepositBuilder<'a> {
             .ok_or_else(|| anyhow!("deposit requires .to_recipient(ml_kem_pubkey)"))?;
 
         if let Some(ref text) = self.memo_plaintext {
-            validate_memo_charset(text)
-                .with_context(|| "memo contains an unsupported character (Latin + Cyrillic only)")?;
+            validate_memo_charset(text).with_context(
+                || "memo contains an unsupported character (Latin + Cyrillic only)",
+            )?;
         }
         let memo_bytes: Vec<u8> = self
             .memo_plaintext

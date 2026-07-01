@@ -352,7 +352,9 @@ impl<'a> WithdrawBuilder<'a> {
                 // what the onchain verifier reduces. fee = 0.
                 program
                     .request()
-                    .instruction(ComputeBudgetInstruction::set_compute_unit_limit(WITHDRAW_CU_LIMIT))
+                    .instruction(ComputeBudgetInstruction::set_compute_unit_limit(
+                        WITHDRAW_CU_LIMIT,
+                    ))
                     .instruction(ComputeBudgetInstruction::set_compute_unit_price(
                         WITHDRAW_PRIORITY_FEE_MICROLAMPORTS,
                     ))
@@ -464,7 +466,9 @@ impl PrivatePool {
                 anyhow!("commitment not found in pool history — note not yet on-chain")
             })?;
         let leaf_index = record.leaf_index;
-        let proof = tree.proof(leaf_index).context("build merkle proof for leaf")?;
+        let proof = tree
+            .proof(leaf_index)
+            .context("build merkle proof for leaf")?;
 
         if proof.siblings.len() != WITHDRAW_TREE_DEPTH {
             return Err(anyhow!(
@@ -515,7 +519,9 @@ impl PrivatePool {
 
         let signature = program
             .request()
-            .instruction(ComputeBudgetInstruction::set_compute_unit_limit(WITHDRAW_CU_LIMIT))
+            .instruction(ComputeBudgetInstruction::set_compute_unit_limit(
+                WITHDRAW_CU_LIMIT,
+            ))
             .instruction(ComputeBudgetInstruction::set_compute_unit_price(
                 WITHDRAW_PRIORITY_FEE_MICROLAMPORTS,
             ))

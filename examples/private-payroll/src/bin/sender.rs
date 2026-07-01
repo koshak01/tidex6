@@ -171,7 +171,10 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
     // Save the note locally — Lena keeps it ONLY for a possible refund.
     fs::write(&args.note_out, note.to_text())
         .with_context(|| format!("write note to {}", args.note_out.display()))?;
-    println!("Note saved locally (for a refund only): {}", args.note_out.display());
+    println!(
+        "Note saved locally (for a refund only): {}",
+        args.note_out.display()
+    );
     println!("  → the parents do NOT need it; they scan the chain themselves.");
 
     // Append to Lena's local scan file.

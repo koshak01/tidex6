@@ -29,9 +29,9 @@
 //! and the legacy `Sent` response transparently — both mean
 //! "successfully accepted by the queue".
 
+pub mod client;
 pub mod ipc;
 pub mod types;
-pub mod client;
 
 pub use client::NotifierClient;
 pub use types::{NotifierCommand, NotifierResponse};

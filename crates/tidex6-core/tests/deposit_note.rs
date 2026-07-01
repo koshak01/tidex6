@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use tidex6_core::note::{Denomination, DepositNote, NoteError, NOTE_TEXT_LEN};
+use tidex6_core::note::{Denomination, DepositNote, NOTE_TEXT_LEN, NoteError};
 use tidex6_core::types::{Commitment, Nullifier, Secret};
 
 /// The four denominations have the expected lamport values, tags,

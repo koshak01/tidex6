@@ -163,7 +163,10 @@ fn render_table(rows: &[LedgerRow]) -> String {
             &row.commitment_hex[..row.commitment_hex.len().min(16)],
         ));
     }
-    out.push_str(&format!("\n{} entries decoded for this auditor.\n", rows.len()));
+    out.push_str(&format!(
+        "\n{} entries decoded for this auditor.\n",
+        rows.len()
+    ));
     out
 }
 

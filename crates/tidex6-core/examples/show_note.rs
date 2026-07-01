@@ -5,7 +5,11 @@ use tidex6_core::note::{Denomination, DepositNote};
 
 fn main() {
     println!("=== Three example v3 notes ===\n");
-    for denom in [Denomination::OneTenthSol, Denomination::OneSol, Denomination::TenSol] {
+    for denom in [
+        Denomination::OneTenthSol,
+        Denomination::OneSol,
+        Denomination::TenSol,
+    ] {
         let note = DepositNote::random(denom).unwrap();
         let text = note.to_text();
         println!("{}  ({} chars)", denom, text.len());

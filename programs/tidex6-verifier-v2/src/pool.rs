@@ -386,10 +386,13 @@ pub fn handle_refund(
     nullifier_hash: [u8; FIELD_ELEMENT_BYTES],
 ) -> Result<()> {
     // 1. Ownership: Poseidon(secret, nullifier) == commitment (ADR-001).
-    let computed_commitment =
-        hashv(Parameters::Bn254X5, Endianness::BigEndian, &[&secret, &nullifier])
-            .map_err(|_| Tidex6VerifierError::PoseidonSyscallFailed)?
-            .to_bytes();
+    let computed_commitment = hashv(
+        Parameters::Bn254X5,
+        Endianness::BigEndian,
+        &[&secret, &nullifier],
+    )
+    .map_err(|_| Tidex6VerifierError::PoseidonSyscallFailed)?
+    .to_bytes();
     require!(
         computed_commitment == commitment,
         Tidex6VerifierError::RefundCommitmentMismatch
@@ -397,10 +400,9 @@ pub fn handle_refund(
 
     // 2. nullifier_hash == Poseidon(nullifier): ties the blocked PDA to
     //    this exact note so a depositor cannot block someone else's.
-    let computed_nullifier_hash =
-        hashv(Parameters::Bn254X5, Endianness::BigEndian, &[&nullifier])
-            .map_err(|_| Tidex6VerifierError::PoseidonSyscallFailed)?
-            .to_bytes();
+    let computed_nullifier_hash = hashv(Parameters::Bn254X5, Endianness::BigEndian, &[&nullifier])
+        .map_err(|_| Tidex6VerifierError::PoseidonSyscallFailed)?
+        .to_bytes();
     require!(
         computed_nullifier_hash == nullifier_hash,
         Tidex6VerifierError::RefundNullifierMismatch

@@ -82,9 +82,13 @@ pub fn run(args: DepositArgs) -> Result<()> {
         <solana_keypair::Keypair as Signer>::pubkey(&payer)
     };
 
-    let recipient_pqc = parse_mlkem_pk(&args.recipient)
-        .context("invalid --recipient ML-KEM public key")?;
-    let auditor_pqc = resolve_auditor_pk(args.auditor.as_deref(), args.no_auditor, args.identity.clone())?;
+    let recipient_pqc =
+        parse_mlkem_pk(&args.recipient).context("invalid --recipient ML-KEM public key")?;
+    let auditor_pqc = resolve_auditor_pk(
+        args.auditor.as_deref(),
+        args.no_auditor,
+        args.identity.clone(),
+    )?;
     let revoke_window_secs = (args.revoke_after_days as i64) * 86_400;
 
     println!("tidex6 deposit (stealth, ML-KEM)");
@@ -100,10 +104,17 @@ pub fn run(args: DepositArgs) -> Result<()> {
         Some(next) => println!("  pool status  : initialised, next_leaf_index = {next}"),
         None => println!("  pool status  : not initialised, init_pool will run first"),
     }
-    println!("  recipient pk : {}…", &args.recipient[..16.min(args.recipient.len())]);
+    println!(
+        "  recipient pk : {}…",
+        &args.recipient[..16.min(args.recipient.len())]
+    );
     println!(
         "  auditor      : {}",
-        if auditor_pqc.is_some() { "yes (amount+memo slot)" } else { "none" }
+        if auditor_pqc.is_some() {
+            "yes (amount+memo slot)"
+        } else {
+            "none"
+        }
     );
     println!(
         "  revoke       : {}",
@@ -113,7 +124,11 @@ pub fn run(args: DepositArgs) -> Result<()> {
             format!("after {} days", args.revoke_after_days)
         }
     );
-    println!("  memo         : \"{}\" ({} bytes)", args.memo, args.memo.len());
+    println!(
+        "  memo         : \"{}\" ({} bytes)",
+        args.memo,
+        args.memo.len()
+    );
     println!("Sending deposit via PrivatePool::deposit...");
 
     let mut builder = pool

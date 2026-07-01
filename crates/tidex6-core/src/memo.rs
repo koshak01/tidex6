@@ -683,7 +683,9 @@ impl MemoEnvelope {
 
         let wrap_auditor = if auditor_present {
             let mut wa = [0u8; ENVELOPE_WRAP_AUDITOR_LEN];
-            wa.copy_from_slice(&bytes[wrap_recipient_end..wrap_recipient_end + ENVELOPE_WRAP_AUDITOR_LEN]);
+            wa.copy_from_slice(
+                &bytes[wrap_recipient_end..wrap_recipient_end + ENVELOPE_WRAP_AUDITOR_LEN],
+            );
             Some(wa)
         } else {
             None
@@ -754,8 +756,10 @@ pub fn placeholder_envelope_for_anonymous() -> Result<Vec<u8>, MemoError> {
             .map_err(|err: rand::rngs::SysError| MemoError::Rand(err.to_string()))?;
     }
 
-    Ok(MemoEnvelope::encrypt_for_recipient_only(&padding, &fake_secret, &fake_nullifier)?
-        .to_bytes())
+    Ok(
+        MemoEnvelope::encrypt_for_recipient_only(&padding, &fake_secret, &fake_nullifier)?
+            .to_bytes(),
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1067,9 +1071,9 @@ mod tests {
 
     use super::{
         ENVELOPE_HEADER_LEN, ENVELOPE_MAX_LEN, ENVELOPE_MIN_LEN, ENVELOPE_VERSION_V1,
-        ENVELOPE_WRAP_AUDITOR_LEN, ENVELOPE_WRAP_RECIPIENT_LEN, MemoEnvelope,
-        PADDED_PLAINTEXT_LEN, PLAINTEXT_LEN_PREFIX, pad_plaintext_for_envelope,
-        placeholder_envelope_for_anonymous, unpad_envelope_plaintext, validate_memo_charset,
+        ENVELOPE_WRAP_AUDITOR_LEN, ENVELOPE_WRAP_RECIPIENT_LEN, MemoEnvelope, PADDED_PLAINTEXT_LEN,
+        PLAINTEXT_LEN_PREFIX, pad_plaintext_for_envelope, placeholder_envelope_for_anonymous,
+        unpad_envelope_plaintext, validate_memo_charset,
     };
 
     fn fresh_secrets() -> ([u8; 32], [u8; 32]) {
@@ -1151,8 +1155,7 @@ mod tests {
     fn envelope_no_auditor_slot_returns_none() {
         let (secret, nullifier) = fresh_secrets();
         let auditor_sk = AuditorSecretKey::random().unwrap();
-        let env =
-            MemoEnvelope::encrypt_for_recipient_only(b"hi", &secret, &nullifier).unwrap();
+        let env = MemoEnvelope::encrypt_for_recipient_only(b"hi", &secret, &nullifier).unwrap();
         assert!(env.decrypt_with_auditor(&auditor_sk).unwrap().is_none());
     }
 
@@ -1161,8 +1164,7 @@ mod tests {
     fn envelope_wire_roundtrip_recipient_only() {
         let (secret, nullifier) = fresh_secrets();
         let plaintext = b"hello world";
-        let env =
-            MemoEnvelope::encrypt_for_recipient_only(plaintext, &secret, &nullifier).unwrap();
+        let env = MemoEnvelope::encrypt_for_recipient_only(plaintext, &secret, &nullifier).unwrap();
         let bytes = env.to_bytes();
         assert!(bytes.len() >= ENVELOPE_MIN_LEN);
         assert!(bytes.len() <= ENVELOPE_MAX_LEN);
@@ -1251,11 +1253,11 @@ mod tests {
     fn envelope_layout_constants_stable() {
         assert_eq!(ENVELOPE_HEADER_LEN, 4);
         assert_eq!(ENVELOPE_WRAP_RECIPIENT_LEN, IV_LEN + TAG_LEN + 32);
+        assert_eq!(ENVELOPE_WRAP_AUDITOR_LEN, POINT_LEN + IV_LEN + TAG_LEN + 32);
         assert_eq!(
-            ENVELOPE_WRAP_AUDITOR_LEN,
-            POINT_LEN + IV_LEN + TAG_LEN + 32
+            PADDED_PLAINTEXT_LEN,
+            PLAINTEXT_LEN_PREFIX + MAX_PLAINTEXT_LEN
         );
-        assert_eq!(PADDED_PLAINTEXT_LEN, PLAINTEXT_LEN_PREFIX + MAX_PLAINTEXT_LEN);
     }
 
     /// Every recipient-only envelope has the same byte length on the
@@ -1287,14 +1289,10 @@ mod tests {
         let (secret, nullifier) = fresh_secrets();
         let auditor_sk = AuditorSecretKey::random().unwrap();
         let auditor_pk = auditor_sk.public_key();
-        let a = MemoEnvelope::encrypt_for_recipient_and_auditor(
-            b"x",
-            &secret,
-            &nullifier,
-            &auditor_pk,
-        )
-        .unwrap()
-        .to_bytes();
+        let a =
+            MemoEnvelope::encrypt_for_recipient_and_auditor(b"x", &secret, &nullifier, &auditor_pk)
+                .unwrap()
+                .to_bytes();
         let b = MemoEnvelope::encrypt_for_recipient_and_auditor(
             &vec![b'y'; MAX_PLAINTEXT_LEN],
             &secret,
@@ -1366,12 +1364,9 @@ mod tests {
     #[test]
     fn envelope_padded_roundtrip_short_text() {
         let (secret, nullifier) = fresh_secrets();
-        let envelope = MemoEnvelope::encrypt_for_recipient_only(
-            "Аренда март".as_bytes(),
-            &secret,
-            &nullifier,
-        )
-        .unwrap();
+        let envelope =
+            MemoEnvelope::encrypt_for_recipient_only("Аренда март".as_bytes(), &secret, &nullifier)
+                .unwrap();
         let recovered = envelope.decrypt_with_note(&secret, &nullifier).unwrap();
         assert_eq!(recovered, "Аренда март".as_bytes());
     }

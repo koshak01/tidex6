@@ -164,8 +164,10 @@ pub fn keygen() -> (PqcPublicKey, PqcSecretKey) {
 /// A fresh KEM encapsulation and a fresh nonce are produced per call, so
 /// two seals of the same plaintext under the same key differ.
 pub fn seal(recipient_pub: &PqcPublicKey, plaintext: &[u8]) -> Result<Vec<u8>, PqcError> {
-    let encoded = Array::try_from(recipient_pub.0.as_slice())
-        .map_err(|_| PqcError::BadPublicKey { got: recipient_pub.0.len() })?;
+    let encoded =
+        Array::try_from(recipient_pub.0.as_slice()).map_err(|_| PqcError::BadPublicKey {
+            got: recipient_pub.0.len(),
+        })?;
     let ek = Ek::from_bytes(&encoded);
 
     let (kem_ct, shared) = ek
@@ -190,12 +192,16 @@ pub fn seal(recipient_pub: &PqcPublicKey, plaintext: &[u8]) -> Result<Vec<u8>, P
 /// Returns [`PqcError::Decrypt`] on an authentication-tag mismatch,
 /// which is the "not addressed to me" signal a scanner uses to skip.
 pub fn open(recipient_secret: &PqcSecretKey, envelope: &[u8]) -> Result<Vec<u8>, PqcError> {
-    let encoded = Array::try_from(recipient_secret.0.as_slice())
-        .map_err(|_| PqcError::BadSecretKey { got: recipient_secret.0.len() })?;
+    let encoded =
+        Array::try_from(recipient_secret.0.as_slice()).map_err(|_| PqcError::BadSecretKey {
+            got: recipient_secret.0.len(),
+        })?;
     let dk = Dk::from_bytes(&encoded);
 
     if envelope.len() < ENVELOPE_MIN_LEN {
-        return Err(PqcError::EnvelopeTooShort { got: envelope.len() });
+        return Err(PqcError::EnvelopeTooShort {
+            got: envelope.len(),
+        });
     }
     let kem_ct_bytes = &envelope[..ML_KEM_768_CT_LEN];
     let nonce_bytes = &envelope[ML_KEM_768_CT_LEN..ML_KEM_768_CT_LEN + NONCE_LEN];

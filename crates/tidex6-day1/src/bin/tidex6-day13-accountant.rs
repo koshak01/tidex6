@@ -53,7 +53,10 @@ fn main() -> Result<()> {
     // Fresh ML-KEM keypair, in memory only. The recipient slot and the
     // auditor slot are both sealed to this key for the test.
     let (mlkem_public, mlkem_secret) = pqc::keygen();
-    println!("ML-KEM pk     : {}…", &hex::encode(mlkem_public.as_bytes())[..32]);
+    println!(
+        "ML-KEM pk     : {}…",
+        &hex::encode(mlkem_public.as_bytes())[..32]
+    );
     println!();
 
     let pool = PrivatePool::connect(cluster.clone(), TEST_DENOMINATION)?;

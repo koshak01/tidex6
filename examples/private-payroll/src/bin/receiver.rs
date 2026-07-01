@@ -116,8 +116,8 @@ fn run_receive(args: ReceiveArgs) -> Result<()> {
 }
 
 fn load_mlkem_secret(path: &PathBuf) -> Result<PqcSecretKey> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("read identity {}", path.display()))?;
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("read identity {}", path.display()))?;
     let identity: Identity =
         serde_json::from_str(&raw).context("parse identity JSON (need mlkem_secret)")?;
     let bytes = hex::decode(identity.mlkem_secret.trim()).context("decode mlkem_secret hex")?;

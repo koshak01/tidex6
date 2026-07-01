@@ -93,11 +93,7 @@ pub mod tidex6_tip_jar {
     /// memo envelope; the program forwards them into
     /// `tidex6_verifier::deposit` via CPI and emits a public
     /// `TipEvent` for indexers and creator-side UIs.
-    pub fn tip(
-        ctx: Context<Tip>,
-        commitment: [u8; 32],
-        memo_payload: Vec<u8>,
-    ) -> Result<()> {
+    pub fn tip(ctx: Context<Tip>, commitment: [u8; 32], memo_payload: Vec<u8>) -> Result<()> {
         // CpiContext::new wants the program's Pubkey (its on-chain
         // address), not the AccountInfo — anchor-lang 1.0.0 signature.
         let cpi_program_id = ctx.accounts.tidex6_verifier_program.key();

@@ -27,7 +27,10 @@ use tidex6_client::{AccountantScanner, Denomination, PrivatePool};
 use tidex6_core::pqc::PqcSecretKey;
 
 #[derive(Parser, Debug)]
-#[command(name = "accountant", about = "Kai — private payroll accountant (v2 on-chain).")]
+#[command(
+    name = "accountant",
+    about = "Kai — private payroll accountant (v2 on-chain)."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -161,8 +164,8 @@ fn print_summary(transfers: &[Transfer]) {
 }
 
 fn load_mlkem_secret(path: &PathBuf) -> Result<PqcSecretKey> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("read identity {}", path.display()))?;
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("read identity {}", path.display()))?;
     let identity: Identity =
         serde_json::from_str(&raw).context("parse identity JSON (need mlkem_secret)")?;
     let bytes = hex::decode(identity.mlkem_secret.trim()).context("decode mlkem_secret hex")?;

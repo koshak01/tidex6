@@ -165,8 +165,8 @@ pub fn parse_note(note_text: &str) -> Result<ParsedNote, JsError> {
 pub fn commitment(secret: &Uint8Array, nullifier: &Uint8Array) -> Result<Uint8Array, JsError> {
     let s = to_field_bytes(secret, "secret")?;
     let n = to_field_bytes(nullifier, "nullifier")?;
-    let h = poseidon::hash_pair(&s, &n)
-        .map_err(|e| JsError::new(&format!("poseidon failed: {e}")))?;
+    let h =
+        poseidon::hash_pair(&s, &n).map_err(|e| JsError::new(&format!("poseidon failed: {e}")))?;
     Ok(Uint8Array::from(&h[..]))
 }
 
@@ -177,8 +177,7 @@ pub fn commitment(secret: &Uint8Array, nullifier: &Uint8Array) -> Result<Uint8Ar
 #[wasm_bindgen(js_name = nullifierHash)]
 pub fn nullifier_hash(nullifier: &Uint8Array) -> Result<Uint8Array, JsError> {
     let n = to_field_bytes(nullifier, "nullifier")?;
-    let h = poseidon::hash(&[&n])
-        .map_err(|e| JsError::new(&format!("poseidon failed: {e}")))?;
+    let h = poseidon::hash(&[&n]).map_err(|e| JsError::new(&format!("poseidon failed: {e}")))?;
     Ok(Uint8Array::from(&h[..]))
 }
 
@@ -201,13 +200,21 @@ pub struct GeneratedNote {
 #[wasm_bindgen]
 impl GeneratedNote {
     #[wasm_bindgen(getter)]
-    pub fn secret(&self) -> Uint8Array { Uint8Array::from(&self.secret[..]) }
+    pub fn secret(&self) -> Uint8Array {
+        Uint8Array::from(&self.secret[..])
+    }
     #[wasm_bindgen(getter)]
-    pub fn nullifier(&self) -> Uint8Array { Uint8Array::from(&self.nullifier[..]) }
+    pub fn nullifier(&self) -> Uint8Array {
+        Uint8Array::from(&self.nullifier[..])
+    }
     #[wasm_bindgen(getter)]
-    pub fn commitment(&self) -> Uint8Array { Uint8Array::from(&self.commitment[..]) }
+    pub fn commitment(&self) -> Uint8Array {
+        Uint8Array::from(&self.commitment[..])
+    }
     #[wasm_bindgen(getter, js_name = noteText)]
-    pub fn note_text(&self) -> String { self.note_text.clone() }
+    pub fn note_text(&self) -> String {
+        self.note_text.clone()
+    }
 }
 
 /// Generate a fresh deposit note (random secret + nullifier) for the
@@ -293,11 +300,17 @@ pub struct RecipientSlot {
 #[wasm_bindgen]
 impl RecipientSlot {
     #[wasm_bindgen(getter)]
-    pub fn secret(&self) -> Uint8Array { Uint8Array::from(&self.secret[..]) }
+    pub fn secret(&self) -> Uint8Array {
+        Uint8Array::from(&self.secret[..])
+    }
     #[wasm_bindgen(getter)]
-    pub fn nullifier(&self) -> Uint8Array { Uint8Array::from(&self.nullifier[..]) }
+    pub fn nullifier(&self) -> Uint8Array {
+        Uint8Array::from(&self.nullifier[..])
+    }
     #[wasm_bindgen(getter)]
-    pub fn memo(&self) -> String { self.memo.clone() }
+    pub fn memo(&self) -> String {
+        self.memo.clone()
+    }
 }
 
 /// Auditor view of a decrypted memo slot — amount + memo, cannot spend.
@@ -310,9 +323,13 @@ pub struct AuditorSlot {
 #[wasm_bindgen]
 impl AuditorSlot {
     #[wasm_bindgen(getter, js_name = denominationLamports)]
-    pub fn denomination(&self) -> f64 { self.denomination }
+    pub fn denomination(&self) -> f64 {
+        self.denomination
+    }
     #[wasm_bindgen(getter)]
-    pub fn memo(&self) -> String { self.memo.clone() }
+    pub fn memo(&self) -> String {
+        self.memo.clone()
+    }
 }
 
 /// Try to decrypt a memo envelope as the recipient. Returns the slot if

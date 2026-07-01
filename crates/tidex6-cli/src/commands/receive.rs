@@ -75,7 +75,10 @@ pub fn run(args: ReceiveArgs) -> Result<()> {
         println!("No payments addressed to you were found.");
         return Ok(());
     }
-    println!("Found {} payment(s) for you. Withdrawing each...", entries.len());
+    println!(
+        "Found {} payment(s) for you. Withdrawing each...",
+        entries.len()
+    );
 
     for entry in entries {
         let denomination = denom_from_lamports(entry.denomination)?;
@@ -97,7 +100,10 @@ pub fn run(args: ReceiveArgs) -> Result<()> {
         let pool = PrivatePool::connect(cluster.clone(), denomination)?;
         let outcome = pool.withdraw(&payer).note(note).to(recipient).send()?;
         println!("  signature  : {}", outcome.signature);
-        println!("  explorer   : {}", explorer_url(&outcome.signature, &cluster));
+        println!(
+            "  explorer   : {}",
+            explorer_url(&outcome.signature, &cluster)
+        );
     }
 
     println!();
