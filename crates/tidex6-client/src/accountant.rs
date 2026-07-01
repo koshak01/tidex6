@@ -130,6 +130,13 @@ pub struct MemoEnvelope {
     pub commitment_hex: String,
     pub denomination: u64,
     pub envelope_hex: String,
+    /// base58 of the original depositor — only they may reclaim (refund).
+    pub depositor: String,
+    /// Per-deposit revoke window in seconds (`0` = irrevocable). The
+    /// depositor may reclaim once `created_ts + revoke_window` has passed.
+    pub revoke_window: i64,
+    /// Unix timestamp the deposit was created (for the reclaim countdown).
+    pub created_ts: i64,
 }
 
 /// List every finalized memo envelope of the v2 program — raw bytes, no
@@ -151,6 +158,9 @@ pub fn list_memo_envelopes(rpc: &RpcClient, program_id: Pubkey) -> Result<Vec<Me
             commitment_hex: hex::encode(memo.commitment),
             denomination: memo.denomination,
             envelope_hex: hex::encode(&memo.data),
+            depositor: memo.depositor.to_string(),
+            revoke_window: memo.revoke_window,
+            created_ts: memo.created_ts,
         });
     }
     Ok(out)

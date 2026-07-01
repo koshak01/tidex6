@@ -481,6 +481,56 @@ impl PrivatePool {
             .collect();
         Ok(DepositPlan { transactions })
     }
+
+    /// Build the instruction recipe for a **refund** (ADR-014 revoke).
+    /// The depositor reclaims a deposit that was never withdrawn once its
+    /// `revoke_window` has elapsed. The browser recovers `secret` +
+    /// `nullifier` by scanning the envelope with its own ML-KEM key, then
+    /// turns this recipe into a Phantom-signed transaction — the reclaimed
+    /// SOL and the memo-account rent return to the depositor. Reuses
+    /// [`DepositPlan`] as a generic single-transaction plan.
+    ///
+    /// `nullifier_hash` is passed in (the browser computes it via the wasm
+    /// prover); the on-chain program re-checks `Poseidon(nullifier) ==
+    /// nullifier_hash`, so a wrong value simply fails on-chain.
+    pub fn build_refund_plan(
+        &self,
+        depositor_pubkey: Pubkey,
+        commitment: [u8; 32],
+        secret: [u8; 32],
+        nullifier: [u8; 32],
+        nullifier_hash: [u8; 32],
+    ) -> Result<DepositPlan> {
+        // Signer is never used — we only call `.instructions()`; the
+        // depositor pubkey is carried in the account fields.
+        let throwaway = Keypair::new();
+        let program = self.program_handle(&throwaway)?;
+
+        let memo_account = self.memo_pda(&commitment);
+        let (nullifier_pda, _bump) =
+            Pubkey::find_program_address(&[b"nullifier", &nullifier_hash], &self.program_id());
+
+        let ixs = program
+            .request()
+            .accounts(verifier_accounts::Refund {
+                pool: self.pool_pda(),
+                vault: self.vault_pda(),
+                memo: memo_account,
+                nullifier: nullifier_pda,
+                depositor: depositor_pubkey,
+                system_program: system_program::ID,
+            })
+            .args(verifier_instruction::Refund {
+                commitment,
+                secret,
+                nullifier,
+                nullifier_hash,
+            })
+            .instructions();
+
+        let transactions = vec![ixs.iter().map(ix_to_recipe).collect()];
+        Ok(DepositPlan { transactions })
+    }
 }
 
 /// Convert an Anchor-built [`Instruction`] into a browser-rebuildable
