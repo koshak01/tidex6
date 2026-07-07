@@ -22,6 +22,7 @@
 | [ADR-012](ADR-012-opaque-note-envelope-memo.md) | Opaque note format and envelope-encrypted memo | Superseded by ADR-014 for the new pool |
 | [ADR-013](ADR-013-browser-side-proof-generation.md) | Browser-side proof generation via WebAssembly | Accepted |
 | [ADR-014](ADR-014-mlkem-memo-account.md) | Post-quantum ML-KEM memo in a dedicated account, new verifier | Accepted — mainnet CSDD31Zm…, supersedes ADR-012 for the new pool |
+| [ADR-015](ADR-015-confidential-amounts-two-layer.md) | Confidential amounts: CT-wrapped asset (wUSDC) + amount-in-circuit pool | Proposed |
 
 ## Format
 

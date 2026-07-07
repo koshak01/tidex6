@@ -1,0 +1,71 @@
+# tidex6-ct-lab — экспериментальный спайк Token-2022 Confidential Mint-Burn
+#
+# НЕ входит в workspace (см. exclude в корневом Cargo.toml): тянет свежие
+# spl-token-2022 / spl-token-client, чьи solana-* версии конфликтуют с
+# пинами основной линии (anchor 1.0.x / solana-sdk 4.0).
+#
+# ВАЖНО: используем модульные solana-крейты (solana-keypair, solana-signer,
+# solana-rpc-client, ...) в версиях, которых требует spl-token-client 0.19.1.
+# Монолитные solana-sdk / solana-client сюда добавлять НЕЛЬЗЯ — они тянут
+# solana-transaction 4.x, а клиент собран на 3.x (несовместимые типы
+# Transaction → 13 ошибок компиляции).
+#
+# Запуск: cargo run --manifest-path crates/tidex6-ct-lab/Cargo.toml
+#
+# Цель спайка: подтвердить на mainnet wrap-механику wUSDC —
+# минт с ConfidentialTransferMint + ConfidentialMintBurn, конфиденциальный
+# mint (скрытый supply), apply, конфиденциальный burn. Референс плумбинга:
+# _analysis/copilot/repos/gacha-sol + _analysis/copilot/GACHA_CT_BLUEPRINT.md
+
+[package]
+name = "tidex6-ct-lab"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "tidex6_ct_lab"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+# Unified-клиент: пул-крипта (commitment/nullifier/дерево) + Groth16-прувер.
+# Чистые arkworks/light-poseidon — solana не тянут, конфликта с CT-версиями нет.
+tidex6-core = { path = "../tidex6-core" }
+tidex6-circuits = { path = "../tidex6-circuits" }
+ark-groth16 = "0.5"
+ark-serialize = "0.5"
+ark-std = "0.5"
+solana-commitment-config = "3"
+solana-keypair = "3"
+solana-pubkey = "3"
+# =4.0.0-rc.0 прибиты намеренно: spl-token-client 0.19.1 опубликован под
+# rc-линейку, где Transaction ещё из solana-transaction 3.x. Stable
+# solana-rpc-client 4.1.x переехал на solana-transaction 4.x → у клиента
+# 13 ошибок типов. Пины снять, когда выйдет spl-token-client под stable 4.x.
+solana-rpc-client = "=4.0.0-rc.0"
+solana-rpc-client-api = "=4.0.0-rc.0"
+solana-cli-output = "=4.0.0-rc.0"
+solana-signer = "3"
+# Hand-rolled пул-инструкции (без anchor-client): сборка/подпись/отправка сырых tx.
+solana-instruction = "3"
+solana-transaction = "3"
+solana-message = "3"
+solana-hash = "3"
+solana-signature = "3"
+# Получение истории пула (реплей deposit-логов) без anchor-индексера.
+solana-transaction-status-client-types = "=4.0.0-rc.0"
+sha2 = "0.10"
+solana-zk-sdk = "7"
+spl-token-2022 = { version = "11", features = ["no-entrypoint"] }
+spl-token-client = "0.19"
+spl-token-confidential-transfer-proof-generation = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
+bytemuck = "1.25.0"
+solana-zk-elgamal-proof-interface = "0.1"
+spl-token = "9"
+
+[profile.release]
+opt-level = 2

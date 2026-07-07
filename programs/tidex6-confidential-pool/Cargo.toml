@@ -1,0 +1,46 @@
+[package]
+name = "tidex6-confidential-pool"
+description = "tidex6 confidential pool (ADR-015, Stage 2): hidden-amount commitments (Poseidon(secret,nullifier,amount)), USDC token-vault, JoinSplit transfer_note. Forked from verifier-v2."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "tidex6_confidential_pool"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "1.0.2"
+anchor-spl = "1.0.2"
+solana-poseidon = { workspace = true }
+groth16-solana = { workspace = true }
+# bytemuck is pulled in by the `#[account(zero_copy)]` macro expansion
+# so the PoolState struct can implement Pod + Zeroable. Anchor does
+# not re-export it at the path the macro generates, so we depend on
+# it directly.
+bytemuck = { version = "1", features = ["derive"] }
+# On-chain security.txt — tells the world how to contact the
+# developer if a vulnerability is found. Shows as a green checkmark
+# on Solscan program pages.
+solana-security-txt = "1.1"
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-machete]
+# bytemuck is pulled in by Anchor's `#[account(zero_copy)]` proc-macro
+# expansion at crate::pool::PoolState. cargo-machete cannot see
+# macro-generated references, so it reports bytemuck as unused. It
+# is required for the PoolState layout; do not remove.
+ignored = ["bytemuck"]

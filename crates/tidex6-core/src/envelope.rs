@@ -4,9 +4,11 @@
 //! It carries an independent [`crate::pqc`] seal per reader, and **what
 //! is sealed differs by capability**:
 //!
-//! - **recipient** slot — `secret ‖ nullifier ‖ memo`. Enough to scan
-//!   the chain, recover the note and withdraw it — the stealth model
-//!   where the note is never handed over.
+//! - **recipient** slot (v2) — `secret ‖ nullifier ‖ denomination ‖ memo`.
+//!   Enough to scan the chain, recover the note, learn the amount and
+//!   withdraw it — the stealth model where the note is never handed over.
+//!   v1 recipient slots omit the denomination (fixed-denomination pools
+//!   where the amount was public); they still parse, with `denomination = 0`.
 //! - **auditor** slot — `denomination ‖ memo`. The auditor sees the
 //!   amount and the memo but **cannot spend** (no `secret`/`nullifier`).
 //!
@@ -30,8 +32,13 @@ use thiserror::Error;
 
 use crate::pqc::{self, PqcError, PqcPublicKey, PqcSecretKey};
 
-/// Envelope wire-format version currently emitted.
-pub const ENVELOPE_VERSION: u8 = 1;
+/// Envelope wire-format version currently emitted. v2 adds the denomination
+/// to the recipient slot (hidden-amount pools — the recipient must learn the
+/// amount to withdraw). v1 is still accepted on read (`denomination = 0`).
+pub const ENVELOPE_VERSION: u8 = 2;
+
+/// Legacy version — recipient slot without the denomination.
+const ENVELOPE_VERSION_LEGACY: u8 = 1;
 
 /// Slot kind: the recipient's spend-capable slot.
 pub const SLOT_KIND_RECIPIENT: u8 = 0;
@@ -42,8 +49,11 @@ pub const SLOT_KIND_AUDITOR: u8 = 1;
 /// Length of the note `secret` / `nullifier` field, bytes.
 const FIELD_LEN: usize = 32;
 
-/// Recipient payload minimum: `secret(32) ‖ nullifier(32)`.
+/// Recipient payload minimum (v1): `secret(32) ‖ nullifier(32)`.
 const RECIPIENT_PREFIX_LEN: usize = FIELD_LEN * 2;
+
+/// Recipient payload minimum (v2): `secret(32) ‖ nullifier(32) ‖ denom(8)`.
+const RECIPIENT_PREFIX_LEN_V2: usize = FIELD_LEN * 2 + 8;
 
 /// Auditor payload minimum: `denomination(8)`.
 const AUDITOR_PREFIX_LEN: usize = 8;
@@ -86,6 +96,9 @@ pub enum EnvelopeError {
 pub struct RecipientView {
     pub secret: [u8; FIELD_LEN],
     pub nullifier: [u8; FIELD_LEN],
+    /// Amount sealed for the recipient (v2). `0` for legacy v1 slots, where
+    /// the amount was public on the fixed-denomination pool.
+    pub denomination: u64,
     pub memo: Vec<u8>,
 }
 
@@ -137,10 +150,12 @@ pub fn build(
         });
     }
 
-    // Recipient slot: secret ‖ nullifier ‖ memo.
-    let mut recipient_payload = Vec::with_capacity(RECIPIENT_PREFIX_LEN + memo.len());
+    // Recipient slot (v2): secret ‖ nullifier ‖ denomination ‖ memo — the
+    // recipient must learn the amount to withdraw on a hidden-amount pool.
+    let mut recipient_payload = Vec::with_capacity(RECIPIENT_PREFIX_LEN_V2 + memo.len());
     recipient_payload.extend_from_slice(secret);
     recipient_payload.extend_from_slice(nullifier);
+    recipient_payload.extend_from_slice(&denomination.to_be_bytes());
     recipient_payload.extend_from_slice(memo);
     let recipient_slot = pqc::seal(recipient_pub, &recipient_payload)?;
 
@@ -177,6 +192,9 @@ pub fn open_as_recipient(
     envelope: &[u8],
     recipient_secret: &PqcSecretKey,
 ) -> Result<Option<RecipientView>, EnvelopeError> {
+    // Version selects the recipient payload layout: v2 seals the denomination
+    // between the nullifier and the memo; v1 has none (amount was public).
+    let is_v2 = envelope.first().copied() == Some(ENVELOPE_VERSION);
     for (kind, slot) in parse_slots(envelope)? {
         if kind != SLOT_KIND_RECIPIENT {
             continue;
@@ -190,10 +208,24 @@ pub fn open_as_recipient(
                 secret.copy_from_slice(&payload[..FIELD_LEN]);
                 let mut nullifier = [0u8; FIELD_LEN];
                 nullifier.copy_from_slice(&payload[FIELD_LEN..RECIPIENT_PREFIX_LEN]);
-                let memo = payload[RECIPIENT_PREFIX_LEN..].to_vec();
+                let (denomination, memo_start) = if is_v2 {
+                    if payload.len() < RECIPIENT_PREFIX_LEN_V2 {
+                        return Err(EnvelopeError::RecipientPayloadTooShort { got: payload.len() });
+                    }
+                    let d = u64::from_be_bytes(
+                        payload[RECIPIENT_PREFIX_LEN..RECIPIENT_PREFIX_LEN_V2]
+                            .try_into()
+                            .expect("slice is 8 bytes"),
+                    );
+                    (d, RECIPIENT_PREFIX_LEN_V2)
+                } else {
+                    (0u64, RECIPIENT_PREFIX_LEN)
+                };
+                let memo = payload[memo_start..].to_vec();
                 return Ok(Some(RecipientView {
                     secret,
                     nullifier,
+                    denomination,
                     memo,
                 }));
             }
@@ -239,7 +271,7 @@ fn parse_slots(envelope: &[u8]) -> Result<Vec<(u8, &[u8])>, EnvelopeError> {
     if envelope.len() < 2 {
         return Err(EnvelopeError::Truncated);
     }
-    if envelope[0] != ENVELOPE_VERSION {
+    if envelope[0] != ENVELOPE_VERSION && envelope[0] != ENVELOPE_VERSION_LEGACY {
         return Err(EnvelopeError::UnknownVersion(envelope[0]));
     }
     let count = envelope[1] as usize;

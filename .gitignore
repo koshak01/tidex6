@@ -67,3 +67,9 @@ synapse.toml
 # to the tidex6-web static dir, not checked in to the source tree.
 crates/tidex6-prover-wasm/pkg/
 _analysis/
+
+# node (snarkjs в _ceremony) — не коммитим, стек Rust/WASM
+node_modules/
+
+# snarkjs-эксперимент церемонии (node, большие .ptau/.zkey) — ушли на Rust/WASM
+_ceremony/

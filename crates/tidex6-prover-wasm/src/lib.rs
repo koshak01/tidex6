@@ -28,7 +28,7 @@ use js_sys::Uint8Array;
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_circuits::withdraw::{WithdrawWitness, prove_withdraw as prove_withdraw_inner};
 use tidex6_core::envelope;
-use tidex6_core::note::{Denomination, DepositNote};
+use tidex6_core::note::DepositNote;
 use tidex6_core::poseidon;
 use tidex6_core::pqc::{PqcPublicKey, PqcSecretKey};
 use wasm_bindgen::prelude::*;
@@ -217,18 +217,25 @@ impl GeneratedNote {
     }
 }
 
-/// Generate a fresh deposit note (random secret + nullifier) for the
-/// given denomination, entirely in the browser.
+/// Generate a fresh deposit note (random secret + nullifier), entirely in
+/// the browser. Hidden-amount pool: the amount is **arbitrary** and is NOT
+/// part of the commitment (`commitment = Poseidon(secret, nullifier)`,
+/// ADR-001) — no fixed-denomination check. The amount is sealed into the
+/// ML-KEM envelope by `buildEnvelope`, not into the note. The
+/// `denomination` argument is accepted for call-site symmetry and ignored.
 #[wasm_bindgen(js_name = generateNote)]
-pub fn generate_note(denomination_lamports: f64) -> Result<GeneratedNote, JsError> {
-    let denom = denom_from_lamports(denomination_lamports as u64)?;
-    let note = DepositNote::random(denom)
-        .map_err(|e| JsError::new(&format!("note generation failed: {e}")))?;
+pub fn generate_note(_denomination: f64) -> Result<GeneratedNote, JsError> {
+    use tidex6_core::types::{Commitment, Nullifier, Secret};
+    let secret = Secret::random().map_err(|e| JsError::new(&format!("secret: {e}")))?;
+    let nullifier = Nullifier::random().map_err(|e| JsError::new(&format!("nullifier: {e}")))?;
+    let commitment = Commitment::derive(&secret, &nullifier)
+        .map_err(|e| JsError::new(&format!("commitment: {e}")))?;
     Ok(GeneratedNote {
-        secret: *note.secret().as_bytes(),
-        nullifier: *note.nullifier().as_bytes(),
-        commitment: *note.commitment().as_bytes(),
-        note_text: note.to_text(),
+        secret: *secret.as_bytes(),
+        nullifier: *nullifier.as_bytes(),
+        commitment: *commitment.as_bytes(),
+        // Stealth model: nothing is handed over, so no note-text backup.
+        note_text: String::new(),
     })
 }
 
@@ -272,18 +279,6 @@ pub fn build_envelope(
     Ok(Uint8Array::from(envelope.as_slice()))
 }
 
-fn denom_from_lamports(lamports: u64) -> Result<Denomination, JsError> {
-    match lamports {
-        100_000_000 => Ok(Denomination::OneTenthSol),
-        500_000_000 => Ok(Denomination::HalfSol),
-        1_000_000_000 => Ok(Denomination::OneSol),
-        10_000_000_000 => Ok(Denomination::TenSol),
-        other => Err(JsError::new(&format!(
-            "unsupported denomination: {other} lamports (use 0.1 / 0.5 / 1 / 10 SOL)"
-        ))),
-    }
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Client-side scan: decrypt a memo envelope locally — secret never leaves the tab
 // ──────────────────────────────────────────────────────────────────────────────
@@ -294,6 +289,7 @@ fn denom_from_lamports(lamports: u64) -> Result<Denomination, JsError> {
 pub struct RecipientSlot {
     secret: [u8; FIELD_BYTES],
     nullifier: [u8; FIELD_BYTES],
+    denomination: f64,
     memo: String,
 }
 
@@ -306,6 +302,12 @@ impl RecipientSlot {
     #[wasm_bindgen(getter)]
     pub fn nullifier(&self) -> Uint8Array {
         Uint8Array::from(&self.nullifier[..])
+    }
+    /// Amount sealed for the recipient (base units, e.g. 1_000_000 = 1 token).
+    /// `0` for legacy v1 envelopes where the amount was public.
+    #[wasm_bindgen(getter, js_name = denominationLamports)]
+    pub fn denomination(&self) -> f64 {
+        self.denomination
     }
     #[wasm_bindgen(getter)]
     pub fn memo(&self) -> String {
@@ -347,6 +349,7 @@ pub fn decrypt_recipient_slot(
         Ok(Some(v)) => Ok(Some(RecipientSlot {
             secret: v.secret,
             nullifier: v.nullifier,
+            denomination: v.denomination as f64,
             memo: String::from_utf8_lossy(&v.memo).into_owned(),
         })),
         Ok(None) => Ok(None),
@@ -483,6 +486,35 @@ pub fn prove_withdraw(
     out.extend_from_slice(&proof_c);
     debug_assert_eq!(out.len(), PROOF_TOTAL_BYTES);
 
+    Ok(Uint8Array::from(out.as_slice()))
+}
+
+/// Внести вклад в trusted-setup церемонию целиком в браузере (Путь A,
+/// Rust-native — замена snarkjs `zKey.contribute`).
+///
+/// Вход — байты `CeremonyState` (скачанные с сервера). Свежая случайность
+/// берётся из браузерного CSPRNG (`thread_rng` → getrandom/js →
+/// crypto.getRandomValues) и НИКОГДА не покидает вкладку — на сервер уходит
+/// только результат. Выход — новый `CeremonyState` для загрузки.
+#[wasm_bindgen]
+pub fn ceremony_contribute(state_bytes: &Uint8Array, name: &str) -> Result<Uint8Array, JsError> {
+    use tidex6_circuits::mpc::{contribute_state, CeremonyState};
+
+    let bytes = uint8array_to_vec(state_bytes);
+    let mut state = CeremonyState::from_bytes(&bytes)
+        .map_err(|e| JsError::new(&format!("failed to deserialize ceremony state: {e}")))?;
+
+    let clean_name: String = if name.trim().is_empty() {
+        "anonymous".to_string()
+    } else {
+        name.chars().filter(|c| !c.is_control()).take(64).collect()
+    };
+
+    // Браузерный CSPRNG — контрибьюторская «toxic waste», локальна.
+    let mut rng = rand::thread_rng();
+    contribute_state(&mut state, clean_name, &mut rng);
+
+    let out = state.to_bytes();
     Ok(Uint8Array::from(out.as_slice()))
 }
 

@@ -1,0 +1,45 @@
+# tidex6-confidential — крипто-ядро Этапа 2 (скрытая произвольная сумма).
+#
+# Boевые Groth16-схемы с суммой внутри commitment:
+#   - WithdrawCircuit: вывод ноты, commitment = Poseidon(secret, nullifier, amount),
+#     range(amount) < 2^64, exact recipient/relayer binding (фикс GAP2), relayer_fee
+#     (ADR-011). amount на границе публичен (settle); полное скрытие границы —
+#     через CT-слой (wUSDC) + G-bind, следующий шаг.
+#   - TransferCircuit: JoinSplit 1->2 со ВСЕМИ суммами приватными (conservation +
+#     range). Внутренние переводы полностью конфиденциальны — на цепи только два
+#     opaque-commitment'а, ни одной суммы.
+#
+# Перенесено и доработано из tidex6-phase2/tidex6-conf-guard-lab. Схема пула
+# (Poseidon-нота арности 3) валидна: Day-1 гейт эквивалентности off/on-chain
+# для арности 3 зелёный (tidex6-core/tests/poseidon_equivalence.rs).
+#
+# VK — dev single-contributor (для разработки); прод требует церемонии
+# (ceremony.tidex6.com). Immutability снята — редеплой свободен до финала.
+
+[package]
+name = "tidex6-confidential"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+ark-bn254.workspace = true
+ark-ff.workspace = true
+ark-groth16.workspace = true
+ark-r1cs-std.workspace = true
+ark-relations.workspace = true
+ark-serialize.workspace = true
+ark-snark = "0.5"
+ark-std = { version = "0.5", features = ["std"] }
+groth16-solana.workspace = true
+tidex6-circuits = { path = "../tidex6-circuits" }
+tidex6-core = { path = "../tidex6-core" }
+
+[dev-dependencies]
+rand = "0.8"
+
+[lints]
+workspace = true

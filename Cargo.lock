@@ -356,6 +356,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "anchor-spl"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f698a45d424351ff695df413adcb3fa603f2c791a0b4a937ebcd2e93a052c77"
+dependencies = [
+ "anchor-lang",
+ "spl-associated-token-account-interface",
+ "spl-pod",
+ "spl-token-2022-interface",
+ "spl-token-group-interface",
+ "spl-token-interface",
+ "spl-token-metadata-interface",
+]
+
+[[package]]
 name = "anchor-syn"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4928,6 +4943,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-groth16",
+ "ark-poly 0.5.0",
  "ark-r1cs-std",
  "ark-relations",
  "ark-serialize 0.5.0",
@@ -4935,6 +4951,8 @@ dependencies = [
  "ark-std 0.5.0",
  "groth16-solana",
  "light-poseidon 0.4.0",
+ "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tidex6-core",
 ]
@@ -4985,6 +5003,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-confidential"
+version = "2.5.20"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "ark-snark",
+ "ark-std 0.5.0",
+ "groth16-solana",
+ "rand 0.8.6",
+ "tidex6-circuits",
+ "tidex6-core",
+]
+
+[[package]]
 name = "tidex6-confidential-amount-demo"
 version = "2.5.20"
 dependencies = [
@@ -5010,6 +5046,18 @@ version = "2.5.20"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
+]
+
+[[package]]
+name = "tidex6-confidential-pool"
+version = "2.5.20"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "bytemuck",
+ "groth16-solana",
+ "solana-poseidon",
+ "solana-security-txt",
 ]
 
 [[package]]
@@ -5129,6 +5177,35 @@ dependencies = [
 
 [[package]]
 name = "tidex6-verifier-v2"
+version = "2.5.20"
+dependencies = [
+ "anchor-lang",
+ "bytemuck",
+ "groth16-solana",
+ "solana-poseidon",
+ "solana-security-txt",
+]
+
+[[package]]
+name = "tidex6-wusdc-cli"
+version = "2.5.20"
+dependencies = [
+ "anchor-client",
+ "anchor-lang",
+ "anyhow",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "solana-keypair",
+ "solana-signature",
+ "tidex6-circuits",
+ "tidex6-core",
+ "tidex6-indexer",
+ "tidex6-wusdc-pool",
+]
+
+[[package]]
+name = "tidex6-wusdc-pool"
 version = "2.5.20"
 dependencies = [
  "anchor-lang",

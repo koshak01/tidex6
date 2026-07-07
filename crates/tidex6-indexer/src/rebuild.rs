@@ -95,9 +95,17 @@ pub enum IndexerError {
 pub struct PoolIndexer {
     rpc_url: String,
     pool_pda: Pubkey,
+    /// Bare deposit-log prefix (без `Program log: `), например
+    /// `tidex6-v2-deposit:` (верификатор) или `tidex6-wpool-deposit:`
+    /// (wUSDC-пул). Один и тот же формат `<leaf>:<commitment>:<root>`,
+    /// разные программы → разный префикс.
+    deposit_prefix: String,
 }
 
 impl PoolIndexer {
+    /// Дефолтный префикс лога депозита верификатора.
+    pub const DEFAULT_DEPOSIT_PREFIX: &'static str = "tidex6-v2-deposit:";
+
     /// Construct an indexer for a specific pool. The indexer uses
     /// its own RPC client (configured with `confirmed` commitment)
     /// so it does not share state with anchor-client's program
@@ -106,7 +114,15 @@ impl PoolIndexer {
         Self {
             rpc_url: rpc_url.into(),
             pool_pda,
+            deposit_prefix: Self::DEFAULT_DEPOSIT_PREFIX.to_string(),
         }
+    }
+
+    /// Задать префикс лога депозита (для пула с другим форматом лога,
+    /// напр. `tidex6-wpool-deposit:`). Возвращает self для цепочки.
+    pub fn with_deposit_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.deposit_prefix = prefix.into();
+        self
     }
 
     fn rpc(&self) -> RpcClient {
@@ -219,7 +235,7 @@ impl PoolIndexer {
             _ => return Ok(None),
         };
 
-        let Some(parsed) = parse_deposit_log(logs) else {
+        let Some(parsed) = parse_deposit_log(logs, &self.deposit_prefix) else {
             return Ok(None);
         };
 
@@ -303,11 +319,11 @@ struct ParsedDepositLog {
 /// deposit). Accepts both the legacy 3-field and the current
 /// 4-field variant so a single indexer pass can consume pool
 /// histories that straddle the redeploy cut-over.
-fn parse_deposit_log(logs: &[String]) -> Option<ParsedDepositLog> {
-    const PREFIX: &str = "Program log: tidex6-v2-deposit:";
+fn parse_deposit_log(logs: &[String], bare_prefix: &str) -> Option<ParsedDepositLog> {
+    let prefix = format!("Program log: {bare_prefix}");
 
     for line in logs {
-        let Some(payload) = line.strip_prefix(PREFIX) else {
+        let Some(payload) = line.strip_prefix(prefix.as_str()) else {
             continue;
         };
         let parts: Vec<&str> = payload.split(':').collect();
@@ -360,7 +376,7 @@ mod tests {
             ),
             "Program 77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42 consumed 42 CU".to_string(),
         ];
-        let parsed = parse_deposit_log(&logs).expect("legacy deposit log must parse");
+        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX).expect("legacy deposit log must parse");
         assert_eq!(parsed.leaf_index, 7);
         assert_eq!(parsed.commitment, [0xaa; 32]);
         assert_eq!(parsed.root, [0xbb; 32]);
@@ -383,7 +399,7 @@ mod tests {
             "b".repeat(64),
             memo_hex,
         )];
-        let parsed = parse_deposit_log(&logs).expect("v2 deposit log must parse");
+        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX).expect("v2 deposit log must parse");
         assert_eq!(parsed.leaf_index, 3);
         let decoded = BASE64
             .decode(parsed.memo_base64.expect("memo must be present"))
@@ -394,6 +410,6 @@ mod tests {
     #[test]
     fn parse_deposit_log_missing_returns_none() {
         let logs = vec!["Program log: Instruction: InitPool".to_string()];
-        assert!(parse_deposit_log(&logs).is_none());
+        assert!(parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX).is_none());
     }
 }

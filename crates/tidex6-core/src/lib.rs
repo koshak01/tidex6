@@ -25,6 +25,7 @@ pub mod envelope;
 pub mod keys;
 pub mod memo;
 pub mod merkle;
+pub mod network;
 pub mod note;
 pub mod poseidon;
 pub mod pqc;

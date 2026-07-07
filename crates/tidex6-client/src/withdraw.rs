@@ -27,8 +27,7 @@ use anyhow::{Context, Result, anyhow};
 use ark_bn254::Bn254;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
-use ark_std::rand::SeedableRng;
-use ark_std::rand::rngs::StdRng;
+use ark_std::rand::thread_rng;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
@@ -313,10 +312,13 @@ impl<'a> WithdrawBuilder<'a> {
             relayer_fee: &relayer_fee_placeholder,
         };
 
-        // Deterministic prover RNG for reproducibility. The proof
-        // is still zero-knowledge because the witness itself
-        // contains fresh secret material from the depositor.
-        let mut rng = StdRng::seed_from_u64(0xc1_10_0b_a5_u64);
+        // Prover RNG MUST come from OS entropy (CSPRNG). Groth16's
+        // zero-knowledge rests on the blinding factors r, s being
+        // uniformly random and secret — a fixed seed makes every
+        // proof's blinding predictable and voids the ZK guarantee,
+        // which is the whole point of this privacy path. Fresh
+        // witness material does NOT compensate for deterministic r, s.
+        let mut rng = thread_rng();
         let (proof, _public_inputs) =
             prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut rng).context("prove")?;
 

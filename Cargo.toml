@@ -20,11 +20,20 @@ exclude = [
     # Keeping it in workspace members would force every host build
     # to compile WASM-only deps and fail.
     "crates/tidex6-prover-wasm",
+    # Token-2022 CT lab: experimental mainnet spike on fresh
+    # spl-token-2022 / spl-token-client crates whose solana-* versions
+    # conflict with the workspace pins. Built and run standalone:
+    # `cargo run --manifest-path crates/tidex6-ct-lab/Cargo.toml`
+    "crates/tidex6-ct-lab",
+    # wasm-only feasibility-проба CT-крипто в браузере.
+    "crates/tidex6-ct-wasm-probe",
 ]
 members = [
     "crates/tidex6-circuits",
     "crates/tidex6-cli",
     "crates/tidex6-client",
+    "crates/tidex6-confidential",
+    "crates/tidex6-wusdc-cli",
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "crates/tidex6-indexer",
@@ -34,9 +43,11 @@ members = [
     "examples/private-payroll",
     "programs/tidex6-caller",
     "programs/tidex6-confidential-amounts",
+    "programs/tidex6-confidential-pool",
     "programs/tidex6-tip-jar",
     "programs/tidex6-verifier",
     "programs/tidex6-verifier-v2",
+    "programs/tidex6-wusdc-pool",
 ]
 
 [workspace.package]

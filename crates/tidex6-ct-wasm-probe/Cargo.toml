@@ -1,0 +1,19 @@
+# tidex6-ct-wasm-probe — feasibility-проба: компилятся ли CT-крипто
+# (Token-2022 Confidential Transfer: ElGamal curve25519 + Bulletproofs
+# range-proof) в wasm32? От этого зависит, будет ли wrap/cashout в браузере.
+# Собирать: cargo build --manifest-path .../Cargo.toml --target wasm32-unknown-unknown
+# ВНЕ workspace (wasm-only, как tidex6-prover-wasm).
+
+[package]
+name = "tidex6-ct-wasm-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+solana-zk-sdk = "7"
+spl-token-confidential-transfer-proof-generation = "0.6"
+getrandom = { version = "0.2", features = ["js"] }

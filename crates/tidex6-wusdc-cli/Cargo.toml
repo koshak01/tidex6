@@ -1,0 +1,31 @@
+# tidex6-wusdc-cli — клиент к verify-only wUSDC-пулу (init / deposit / withdraw).
+#
+# On-chain вызовы (anchor-client) + Groth16-proof (tidex6-circuits). CT-часть
+# (перемещение wUSDC релеером) — отдельно в tidex6-ct-lab (несовместимые
+# solana-версии). Здесь только Groth16-слой пула (связь).
+
+[package]
+name = "tidex6-wusdc-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anchor-client = { workspace = true }
+anchor-lang = { workspace = true }
+tidex6-wusdc-pool = { path = "../../programs/tidex6-wusdc-pool", features = ["no-entrypoint", "cpi"] }
+tidex6-core = { path = "../tidex6-core" }
+tidex6-circuits = { path = "../tidex6-circuits" }
+tidex6-indexer = { path = "../tidex6-indexer" }
+anyhow = { workspace = true }
+solana-keypair = "3"
+ark-groth16 = "0.5"
+ark-serialize = "0.5"
+ark-std = "0.5"
+solana-signature = "3"
+
+[lints]
+workspace = true
