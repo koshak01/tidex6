@@ -38,17 +38,21 @@ fn symbols() -> (&'static str, &'static str) {
     }
 }
 
-fn usdc_mint() -> &'static str {
-    crate::config::active_network()
-        .asset(crate::config::active_asset())
-        .and_then(|a| a.underlying_mint)
-        .expect("underlying mint for active network/asset in registry")
+// Минты: сперва config-оверрайд (per-окружение, под оператора машины), иначе
+// дефолт из реестра tidex6-core::network.
+fn usdc_mint() -> String {
+    let net = crate::config::active_network();
+    let asset = crate::config::active_asset();
+    crate::config::mint_underlying(net, asset)
+        .or_else(|| net.asset(asset).and_then(|a| a.underlying_mint).map(str::to_string))
+        .expect("underlying mint (config override or registry)")
 }
-fn wusdc_mint() -> &'static str {
-    crate::config::active_network()
-        .asset(crate::config::active_asset())
-        .and_then(|a| a.wrapped_mint)
-        .expect("wrapped mint for active network/asset in registry")
+fn wusdc_mint() -> String {
+    let net = crate::config::active_network();
+    let asset = crate::config::active_asset();
+    crate::config::mint_wrapped(net, asset)
+        .or_else(|| net.asset(asset).and_then(|a| a.wrapped_mint).map(str::to_string))
+        .expect("wrapped mint (config override or registry)")
 }
 const DECIMALS: u8 = 6;
 

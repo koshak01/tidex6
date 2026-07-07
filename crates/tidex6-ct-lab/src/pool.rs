@@ -105,10 +105,12 @@ fn parse_memo_account(data: &[u8], disc: &[u8; 8]) -> Option<MemoRecord> {
 /// Пул-программа — из единого реестра по активным сети+активу
 /// (config.network/asset). wUSDT-пул — другой program-id, PDA изолированы.
 fn program_id() -> Pubkey {
-    crate::config::active_network()
-        .asset(crate::config::active_asset())
-        .and_then(|a| a.pool_program)
-        .expect("pool for active network/asset in registry")
+    let net = crate::config::active_network();
+    let asset = crate::config::active_asset();
+    // Config-оверрайд пула per-окружение, иначе дефолт реестра.
+    crate::config::mint_pool(net, asset)
+        .or_else(|| net.asset(asset).and_then(|a| a.pool_program).map(str::to_string))
+        .expect("pool program (config override or registry)")
         .parse()
         .expect("pool program id")
 }

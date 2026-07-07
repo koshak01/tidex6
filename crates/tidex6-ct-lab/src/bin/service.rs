@@ -61,6 +61,9 @@ async fn main() -> Result<()> {
     let dev = load_backend(tidex6_core::network::Network::Devnet, &config)?;
     let mainnet = load_backend(tidex6_core::network::Network::Mainnet, &config)?;
     tidex6_ct_lab::config::set_active_asset(config.asset());
+    // Минты per-окружение: config перекрывает реестр (оператор машины ≠ автор
+    // хардкод-минтов; каждый со своими минтами).
+    tidex6_ct_lab::config::set_mint_overrides(config.mints.clone());
     println!("dev  rpc: {}", dev.rpc.url().split('?').next().unwrap_or(""));
     println!("main rpc: {}", mainnet.rpc.url().split('?').next().unwrap_or(""));
 

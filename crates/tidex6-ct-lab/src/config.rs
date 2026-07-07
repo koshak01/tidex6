@@ -1,6 +1,7 @@
 //! Конфиг сервиса: ~/.tidex6-wusdc/config.toml (вместо env). Хранит allowlist
 //! кошельков и режим авто-мувера. Создаётся с дефолтом при отсутствии.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -38,6 +39,32 @@ pub struct Config {
     /// "closed" — безопасно; devnet всегда открыт.
     #[serde(default = "default_mainnet_policy")]
     pub mainnet_policy: String,
+    /// Оверрайд минтов ПО ОКРУЖЕНИЮ. Минты привязаны к оператору (кто создал —
+    /// тот и mint/supply-authority). У каждой машины свой оператор (локально
+    /// Cs9F, на сервере ED1HHG) → свои минты. Ключ = `<moniker>_<asset>`, напр.
+    /// `devnet_wusdc` / `mainnet-beta_wusdt`. Если для окружения не задано —
+    /// фоллбэк на реестр `tidex6-core::network` (дефолты).
+    #[serde(default)]
+    pub mints: HashMap<String, MintSet>,
+}
+
+/// Оверрайд минтов одного (сеть,актив): все три поля опциональны, незаданные
+/// падают на реестр.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MintSet {
+    pub underlying: Option<String>,
+    pub wrapped: Option<String>,
+    pub pool: Option<String>,
+}
+
+/// Ключ оверрайда минтов: `<moniker>_<asset-symbol>` (e.g. `devnet_wusdc`).
+pub fn mint_key(net: Network, asset: Asset) -> String {
+    let sym = match asset {
+        Asset::Wusdt => "wusdt",
+        Asset::Wusdc => "wusdc",
+        Asset::Sol => "sol",
+    };
+    format!("{}_{sym}", net.info().moniker)
 }
 
 fn default_mainnet_policy() -> String {
@@ -66,8 +93,48 @@ impl Default for Config {
             rpc_mainnet: None,
             rpc_devnet: None,
             mainnet_policy: default_mainnet_policy(),
+            mints: HashMap::new(),
         }
     }
+}
+
+/// Оверрайды минтов из конфига (заполняется на старте сервиса). Минты
+/// per-окружение: реестр — дефолт, config.toml перекрывает под оператора машины.
+static MINT_OVERRIDES: RwLock<Option<HashMap<String, MintSet>>> = RwLock::new(None);
+
+/// Установить оверрайды минтов (один раз на старте из Config).
+pub fn set_mint_overrides(mints: HashMap<String, MintSet>) {
+    if let Ok(mut m) = MINT_OVERRIDES.write() {
+        *m = Some(mints);
+    }
+}
+
+fn mint_field<F>(net: Network, asset: Asset, pick: F) -> Option<String>
+where
+    F: Fn(&MintSet) -> Option<String>,
+{
+    let key = mint_key(net, asset);
+    MINT_OVERRIDES
+        .read()
+        .ok()?
+        .as_ref()?
+        .get(&key)
+        .and_then(pick)
+}
+
+/// underlying-минт из конфига (None → фоллбэк на реестр у вызывающего).
+pub fn mint_underlying(net: Network, asset: Asset) -> Option<String> {
+    mint_field(net, asset, |s| s.underlying.clone())
+}
+
+/// wrapped-минт (wUSDC/wUSDT) из конфига.
+pub fn mint_wrapped(net: Network, asset: Asset) -> Option<String> {
+    mint_field(net, asset, |s| s.wrapped.clone())
+}
+
+/// pool-program из конфига.
+pub fn mint_pool(net: Network, asset: Asset) -> Option<String> {
+    mint_field(net, asset, |s| s.pool.clone())
 }
 
 /// Активная сеть — per-request (один сервис держит оба бэкенда и выбирает по
