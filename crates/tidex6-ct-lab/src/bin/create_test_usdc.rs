@@ -14,7 +14,9 @@ use solana_keypair::{write_keypair_file, Keypair};
 use solana_signer::Signer;
 use spl_token_client::client::{ProgramRpcClient, ProgramRpcClientSendTransaction};
 use spl_token_client::token::Token;
+use tidex6_ct_lab::config::Config;
 use tidex6_ct_lab::flow;
+use tidex6_core::network::Network;
 
 /// decimals как у настоящего USDC.
 const DECIMALS: u8 = 6;
@@ -23,14 +25,16 @@ const MINT_AMOUNT: u64 = 100_000 * 1_000_000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (rpc, payer) = flow::rpc_from_config().context("solana config")?;
-    let net = tidex6_core::network::Network::from_rpc_url(&rpc.url());
+    // RPC+keypair из wusdc-config (rpc_devnet + keypair-devnet.json), НЕ из
+    // solana CLI — на проде тот настроен на mainnet и занят боевым сервисом.
+    // test-USDC — только devnet (реального Circle-USDC на devnet нет).
+    let config = Config::load().context("config.toml")?;
+    let net = Network::Devnet;
+    let (rpc, payer) =
+        flow::rpc_for_network(net, config.rpc_override(net)).context("devnet rpc/keypair")?;
     println!("payer:   {}", payer.pubkey());
     println!("rpc:     {}", rpc.url().split('?').next().unwrap_or(""));
     println!("network: {net:?}");
-    if net == tidex6_core::network::Network::Mainnet {
-        anyhow::bail!("refusing to create a TEST USDC mint on mainnet — switch `solana config` to devnet");
-    }
 
     // Mint keypair — сохраняем по сети, не затираем существующий.
     let home = std::env::var("HOME").context("нет $HOME")?;

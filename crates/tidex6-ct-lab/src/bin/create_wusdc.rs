@@ -14,10 +14,9 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use solana_commitment_config::CommitmentConfig;
-use solana_keypair::{read_keypair_file, write_keypair_file, Keypair};
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use solana_keypair::{write_keypair_file, Keypair};
 use solana_signer::Signer;
+use tidex6_ct_lab::flow;
 use solana_zk_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair};
 use spl_token_client::{
     client::{ProgramRpcClient, ProgramRpcClientSendTransaction},
@@ -32,20 +31,17 @@ const SUPPLY_AE_MSG: &[u8] = b"tidex6-wusdc-supply-ae-v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (json_rpc_url, keypair_path) = load_cli_config()?;
-    let payer = read_keypair_file(&keypair_path)
-        .map_err(|e| anyhow::anyhow!("keypair не прочитан: {e}"))?;
+    // RPC+keypair из wusdc-config (rpc_devnet + keypair-devnet.json), НЕ solana
+    // CLI — на проде CLI занят боевым mainnet-сервисом. Дефолт devnet; mainnet
+    // wUSDC создаётся отдельно. Первый арг (опц.) = метка актива (wusdt).
+    let config = tidex6_ct_lab::config::Config::load().context("config.toml")?;
+    let net = tidex6_core::network::Network::Devnet;
+    let (rpc_client, payer) =
+        flow::rpc_for_network(net, config.rpc_override(net)).context("devnet rpc/keypair")?;
     println!("payer:  {}", payer.pubkey());
-    println!("rpc:    {}", json_rpc_url.split('?').next().unwrap_or(""));
-    // Сеть определяем по RPC (что реально указано в `solana config`),
-    // а не по config.toml — убирает рассинхрон.
-    let net = tidex6_core::network::Network::from_rpc_url(&json_rpc_url);
+    println!("rpc:    {}", rpc_client.url().split('?').next().unwrap_or(""));
     println!("network: {net:?}");
 
-    let rpc_client = Arc::new(RpcClient::new_with_commitment(
-        json_rpc_url,
-        CommitmentConfig::confirmed(),
-    ));
     let program_client = Arc::new(ProgramRpcClient::new(
         rpc_client.clone(),
         ProgramRpcClientSendTransaction,
@@ -134,18 +130,4 @@ async fn main() -> Result<()> {
     println!("tx:      {out:?}");
     println!("Solscan: https://solscan.io/token/{}", mint_keypair.pubkey());
     Ok(())
-}
-
-/// Читает json_rpc_url и keypair_path из ~/.config/solana/cli/config.yml.
-fn load_cli_config() -> Result<(String, String)> {
-    let home = std::env::var("HOME").context("нет $HOME")?;
-    let raw = std::fs::read_to_string(format!("{home}/.config/solana/cli/config.yml"))
-        .context("не прочитан ~/.config/solana/cli/config.yml")?;
-    let field = |name: &str| -> Result<String> {
-        raw.lines()
-            .find_map(|line| line.strip_prefix(&format!("{name}: ")))
-            .map(|v| v.trim().to_owned())
-            .with_context(|| format!("в конфиге CLI нет поля {name}"))
-    };
-    Ok((field("json_rpc_url")?, field("keypair_path")?))
 }
