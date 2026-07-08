@@ -15,8 +15,17 @@ use tidex6_ct_lab::{config, flow, pool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (rpc, payer) = flow::rpc_from_config().context("solana config")?;
-    config::set_active_network(tidex6_core::network::Network::from_rpc_url(&rpc.url()));
+    // Сеть — из env TIDEX6_NET (mainnet|devnet), дефолт devnet. RPC+keypair из
+    // wusdc-config (rpc_<net> + keypair-<moniker>.json), НЕ solana CLI — payer
+    // = оператор сети. Мин-оверрайды из config, чтобы pool_pda взял верный пул.
+    let cfg = config::Config::load().context("config.toml")?;
+    let net = match std::env::var("TIDEX6_NET").ok().as_deref() {
+        Some("mainnet") | Some("mainnet-beta") => tidex6_core::network::Network::Mainnet,
+        _ => tidex6_core::network::Network::Devnet,
+    };
+    let (rpc, payer) = flow::rpc_for_network(net, cfg.rpc_override(net)).context("rpc/keypair")?;
+    config::set_active_network(net);
+    config::set_mint_overrides(cfg.mints.clone());
 
     let mint_arg = std::env::args()
         .nth(1)
@@ -27,7 +36,7 @@ async fn main() -> Result<()> {
     let asset = match std::env::args().nth(2) {
         Some(a) => tidex6_core::network::Asset::from_symbol(&a)
             .context("bad asset arg (use wusdc|wusdt)")?,
-        None => config::Config::load().context("config.toml")?.asset(),
+        None => cfg.asset(),
     };
     config::set_active_asset(asset);
     println!("asset:    {asset:?}");
