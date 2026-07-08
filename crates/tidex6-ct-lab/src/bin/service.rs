@@ -287,20 +287,27 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
         // JSON-массив финализированных memo (публичные байты) — расшифровка
         // слотов в браузере ключом ML-KEM. Сумма скрыта (внутри конверта).
         "memo_accounts" => {
-            let memos = pool::fetch_memo_accounts(rpc).await.context("memo scan")?;
+            // Скан ОБОИХ пулов (wUSDC + wUSDT): получатель/аудитор находит все
+            // свои платежи одним ключом, без выбора актива. Каждый конверт помечен
+            // своим активом — чтобы вывод пошёл в правильный пул.
             let mut items = Vec::new();
-            for m in &memos {
-                if !m.is_finalized {
-                    continue;
+            for a in [Asset::Wusdc, Asset::Wusdt] {
+                tidex6_ct_lab::config::set_active_asset(a);
+                let sym = if a == Asset::Wusdt { "wusdt" } else { "wusdc" };
+                let memos = pool::fetch_memo_accounts(rpc).await.context("memo scan")?;
+                for m in &memos {
+                    if !m.is_finalized {
+                        continue;
+                    }
+                    items.push(format!(
+                        "{{\"commitment_hex\":\"{}\",\"envelope_hex\":\"{}\",\"depositor\":\"{}\",\"revoke_window\":{},\"created_ts\":{},\"asset\":\"{sym}\"}}",
+                        hexs(&m.commitment),
+                        hexs(&m.data),
+                        m.depositor,
+                        m.revoke_window,
+                        m.created_ts
+                    ));
                 }
-                items.push(format!(
-                    "{{\"commitment_hex\":\"{}\",\"envelope_hex\":\"{}\",\"depositor\":\"{}\",\"revoke_window\":{},\"created_ts\":{}}}",
-                    hexs(&m.commitment),
-                    hexs(&m.data),
-                    m.depositor,
-                    m.revoke_window,
-                    m.created_ts
-                ));
             }
             Ok(format!("[{}]", items.join(",")))
         }
