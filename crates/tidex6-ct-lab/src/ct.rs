@@ -106,8 +106,22 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
 
     let usdc = token(pc.clone(), &spl_token::id(), &usdc_mint, payer);
     let payer_usdc = usdc.get_associated_token_address(&payer.pubkey());
-    usdc.create_associated_token_account(&vault.pubkey()).await.ok();
     let vault_usdc = usdc.get_associated_token_address(&vault.pubkey());
+    // Создать vault-ATA если её нет + ДОЖДАТЬСЯ видимости на RPC. Helius
+    // балансирует ноды — свежесозданный аккаунт может не сразу отразиться, и
+    // немедленный transfer падает InvalidAccountData (на проде vault свежий).
+    // Ошибку создания пробрасываем (не глотаем `.ok()` — иначе теряем причину).
+    if usdc.get_account_info(&vault_usdc).await.is_err() {
+        usdc.create_associated_token_account(&vault.pubkey())
+            .await
+            .map_err(|e| anyhow!("create vault ATA: {e}"))?;
+        for _ in 0..20 {
+            if usdc.get_account_info(&vault_usdc).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
     writeln!(out, "[1/3] transfer {u} → vault…")?;
     usdc.transfer(&payer_usdc, &vault_usdc, &payer.pubkey(), amount, &[payer])
         .await
@@ -122,6 +136,14 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
     writeln!(out, "[2/3] configuring confidential {w} account (if needed)…")?;
     wusdc.create_associated_token_account(&payer.pubkey()).await.ok();
     let owner_ata = wusdc.get_associated_token_address(&payer.pubkey());
+    // Дождаться видимости свежесозданной ATA на RPC (Helius node-lag) — иначе
+    // reallocate ниже падает InvalidAccountData (на проде owner_ata свежий).
+    for _ in 0..20 {
+        if wusdc.get_account_info(&owner_ata).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
     if wusdc
         .get_account_info(&owner_ata)
         .await
