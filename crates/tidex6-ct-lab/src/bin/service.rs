@@ -64,8 +64,14 @@ async fn main() -> Result<()> {
     // Минты per-окружение: config перекрывает реестр (оператор машины ≠ автор
     // хардкод-минтов; каждый со своими минтами).
     tidex6_ct_lab::config::set_mint_overrides(config.mints.clone());
-    println!("dev  rpc: {}", dev.rpc.url().split('?').next().unwrap_or(""));
-    println!("main rpc: {}", mainnet.rpc.url().split('?').next().unwrap_or(""));
+    println!(
+        "dev  rpc: {}",
+        dev.rpc.url().split('?').next().unwrap_or("")
+    );
+    println!(
+        "main rpc: {}",
+        mainnet.rpc.url().split('?').next().unwrap_or("")
+    );
 
     let path = socket_path()?;
     let _ = std::fs::remove_file(&path);
@@ -108,18 +114,16 @@ async fn main() -> Result<()> {
 }
 
 /// Диспетчер: сеть+актив из запроса (чипы) → выбор бэкенда → allowlist → op.
-async fn handle(
-    dev: &Backend,
-    mainnet: &Backend,
-    config: &Config,
-    req: &str,
-) -> Result<String> {
+async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) -> Result<String> {
     use tidex6_core::network::{Asset, Network};
     let op = field_str(req, "op").context("missing op")?;
 
     // Health-readout (редко нужен UI — чипы сами источник истины).
     if op == "network" {
-        return Ok(format!("both|{}", format!("{:?}", config.asset()).to_lowercase()));
+        return Ok(format!(
+            "both|{}",
+            format!("{:?}", config.asset()).to_lowercase()
+        ));
     }
 
     // Сеть из запроса (чип Dev/Main) → выбор живого бэкенда + active_network.
@@ -209,8 +213,9 @@ async fn handle(
             );
 
             let _ = writeln!(out, "\n━━━━ 3/5 · withdraw (fresh address) ━━━━");
-            let (wsig, recipient, payout_path, amt) =
-                flow::withdraw(rpc, payer, &note_path).await.context("withdraw")?;
+            let (wsig, recipient, payout_path, amt) = flow::withdraw(rpc, payer, &note_path)
+                .await
+                .context("withdraw")?;
             let _ = writeln!(
                 out,
                 "withdraw ok ({} tokens)\nrecipient (fresh): {recipient}\ntx: {wsig}\nSolscan: https://solscan.io/tx/{wsig}",
@@ -226,7 +231,10 @@ async fn handle(
                 .map(|nh8| format!("recipient-{nh8}.json"))
                 .context("recipient file from payout path")?;
 
-            let _ = writeln!(out, "\n━━━━ 4/5 · configure recipient + confidential payout ━━━━");
+            let _ = writeln!(
+                out,
+                "\n━━━━ 4/5 · configure recipient + confidential payout ━━━━"
+            );
             out.push_str(
                 &ct::configure_recipient(rpc.clone(), payer, &recipient_file)
                     .await
@@ -264,9 +272,10 @@ async fn handle(
             let _ = writeln!(out, "━━ wrap (confidential backing) ━━");
             out.push_str(&ct::wrap(rpc.clone(), payer, amount).await.context("wrap")?);
             let _ = writeln!(out, "\n━━ deposit (commitment + ML-KEM memo) ━━");
-            let (sig, commit_hex) = flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
-                .await
-                .context("deposit")?;
+            let (sig, commit_hex) =
+                flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
+                    .await
+                    .context("deposit")?;
             let _ = writeln!(
                 out,
                 "deposit ok\ncommitment: {commit_hex}\nmemo: {} bytes\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}",
@@ -311,6 +320,38 @@ async fn handle(
                 "{{\"root_hex\":\"{root}\",\"siblings_concat_hex\":\"{siblings}\",\"indices\":[{idx_json}]}}"
             ))
         }
+        // Проверка «уже получено»: браузер после decrypt шлёт список
+        // nullifier_hash (hex, через запятую). Для каждого — существует ли
+        // nullifier PDA (создаётся при выводе) = ноту уже вывели. Один batch
+        // RPC-запрос (get_multiple_accounts) на весь список.
+        "nullifiers_spent" => {
+            let list = field_str(req, "nullifier_hashes").unwrap_or_default();
+            let mut nhs: Vec<String> = Vec::new();
+            let mut pdas: Vec<solana_pubkey::Pubkey> = Vec::new();
+            for h in list.split(',') {
+                let h = h.trim();
+                if h.is_empty() {
+                    continue;
+                }
+                let nh = hex32(h).context("nullifier_hash: 32-byte hex")?;
+                pdas.push(pool::nullifier_pda(&nh));
+                nhs.push(h.to_lowercase());
+            }
+            let mut items = Vec::new();
+            if !pdas.is_empty() {
+                let accounts = rpc
+                    .get_multiple_accounts(&pdas)
+                    .await
+                    .context("get_multiple_accounts (nullifier PDAs)")?;
+                for (nh, acc) in nhs.iter().zip(accounts.iter()) {
+                    items.push(format!(
+                        "{{\"nullifier_hash\":\"{nh}\",\"spent\":{}}}",
+                        acc.is_some()
+                    ));
+                }
+            }
+            Ok(format!("[{}]", items.join(",")))
+        }
         // Браузерный withdraw: Groth16-пруф построен в табе (WASM). Сервер шлёт
         // withdraw-ix (пруф+nullifier) и выплачивает сумму на свежий адрес (CT
         // burn у оператора + vault → recipient).
@@ -320,8 +361,7 @@ async fn handle(
                 config.mainnet_gate(amount)?;
             }
             let recipient = field_str(req, "recipient").context("missing recipient")?;
-            let recipient: solana_pubkey::Pubkey =
-                recipient.parse().context("recipient pubkey")?;
+            let recipient: solana_pubkey::Pubkey = recipient.parse().context("recipient pubkey")?;
             let proof_a = hex_fixed::<64>(&field_str(req, "proof_a").context("proof_a")?)
                 .context("proof_a: 64-byte hex")?;
             let proof_b = hex_fixed::<128>(&field_str(req, "proof_b").context("proof_b")?)
@@ -334,11 +374,10 @@ async fn handle(
                 .context("nullifier_hash: 32-byte hex")?;
 
             let mut out = String::new();
-            let sig = flow::withdraw_browser(
-                rpc, payer, &recipient, proof_a, proof_b, proof_c, root, nh,
-            )
-            .await
-            .context("pool withdraw")?;
+            let sig =
+                flow::withdraw_browser(rpc, payer, &recipient, proof_a, proof_b, proof_c, root, nh)
+                    .await
+                    .context("pool withdraw")?;
             use std::fmt::Write as _;
             let _ = writeln!(
                 out,
@@ -448,7 +487,9 @@ fn field_num(json: &str, key: &str) -> Option<u64> {
     for needle in [format!("\"{key}\":"), format!("\"{key}\": ")] {
         if let Some(p) = json.find(&needle) {
             let rest = json[p + needle.len()..].trim_start();
-            let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
             if let Ok(v) = rest[..end].parse() {
                 return Some(v);
             }
