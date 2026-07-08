@@ -103,6 +103,11 @@ aes-gcm = "0.10"
 sha2 = "0.10"
 base64 = "0.22"
 
+# X25519 view-tag: a cheap classical Diffie-Hellman tag layered over the
+# ML-KEM envelope so a scanner filters ~255/256 foreign envelopes with one
+# scalar-mult instead of a full ML-KEM decapsulation. Pure-Rust, wasm-safe.
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
+
 # Anchor client and ecosystem — used by the Day-1 validation harness and
 # by any future Rust-based integrator code. Version pinned to match the
 # onchain anchor-lang version. Min 1.0.2: 1.0.0/1.0.1 carry

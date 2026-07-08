@@ -30,3 +30,4 @@ pub mod note;
 pub mod poseidon;
 pub mod pqc;
 pub mod types;
+pub mod viewtag;

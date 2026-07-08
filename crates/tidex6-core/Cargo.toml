@@ -49,6 +49,12 @@ rand = { version = "0.10", default-features = false, features = ["std", "std_rng
 ml-kem = "0.2"
 chacha20poly1305 = "0.10"
 
+# X25519 view-tag over the ML-KEM envelope (roadmap A4): a cheap classical
+# ECDH tag so a scanner skips ~255/256 foreign envelopes with one scalar-mult
+# instead of a full ML-KEM decapsulation. The X25519 secret is derived from
+# the ML-KEM secret, so the user still keeps a single secret.
+x25519-dalek = { workspace = true }
+
 [dev-dependencies]
 # solana-poseidon is a dev-dependency here because tidex6-core is a
 # pure-primitives library and must not pull in Solana machinery at the
