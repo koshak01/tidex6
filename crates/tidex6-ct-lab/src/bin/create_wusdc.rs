@@ -16,12 +16,12 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use solana_keypair::{write_keypair_file, Keypair};
 use solana_signer::Signer;
-use tidex6_ct_lab::flow;
 use solana_zk_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair};
 use spl_token_client::{
     client::{ProgramRpcClient, ProgramRpcClientSendTransaction},
     token::{ExtensionInitializationParams, Token},
 };
+use tidex6_ct_lab::flow;
 
 /// decimals wUSDC = decimals USDC.
 const DECIMALS: u8 = 6;
@@ -39,7 +39,10 @@ async fn main() -> Result<()> {
     let (rpc_client, payer) =
         flow::rpc_for_network(net, config.rpc_override(net)).context("devnet rpc/keypair")?;
     println!("payer:  {}", payer.pubkey());
-    println!("rpc:    {}", rpc_client.url().split('?').next().unwrap_or(""));
+    println!(
+        "rpc:    {}",
+        rpc_client.url().split('?').next().unwrap_or("")
+    );
     println!("network: {net:?}");
 
     let program_client = Arc::new(ProgramRpcClient::new(
@@ -85,15 +88,19 @@ async fn main() -> Result<()> {
     println!("network:  {:?} ({})", net, net.info().moniker);
     println!("asset:    {label}");
     println!("mint keypair saved: {mint_path}");
-    println!(">>> {} MINT: {} <<<", label.to_uppercase(), mint_keypair.pubkey());
+    println!(
+        ">>> {} MINT: {} <<<",
+        label.to_uppercase(),
+        mint_keypair.pubkey()
+    );
 
     // Детерминированные supply-ключи из подписи кошелька.
     let supply_sig = payer.sign_message(SUPPLY_ELGAMAL_MSG);
     let supply_elgamal = ElGamalKeypair::new_from_signature_legacy(&supply_sig)
         .map_err(|e| anyhow::anyhow!("supply ElGamal: {e}"))?;
     let ae_sig = payer.sign_message(SUPPLY_AE_MSG);
-    let mint_ae = AeKey::new_from_signature_legacy(&ae_sig)
-        .map_err(|e| anyhow::anyhow!("supply AE: {e}"))?;
+    let mint_ae =
+        AeKey::new_from_signature_legacy(&ae_sig).map_err(|e| anyhow::anyhow!("supply AE: {e}"))?;
 
     let token = Token::new(
         program_client,
@@ -103,7 +110,10 @@ async fn main() -> Result<()> {
         Arc::new(payer.insecure_clone()),
     );
 
-    println!("\nсоздаю {}-mint (CT + ConfidentialMintBurn, decimals {DECIMALS})…", label.to_uppercase());
+    println!(
+        "\nсоздаю {}-mint (CT + ConfidentialMintBurn, decimals {DECIMALS})…",
+        label.to_uppercase()
+    );
     let out = token
         .create_mint(
             &payer.pubkey(),
@@ -128,6 +138,9 @@ async fn main() -> Result<()> {
     println!("mint:    {}", mint_keypair.pubkey());
     println!("keypair: {mint_path}");
     println!("tx:      {out:?}");
-    println!("Solscan: https://solscan.io/token/{}", mint_keypair.pubkey());
+    println!(
+        "Solscan: https://solscan.io/token/{}",
+        mint_keypair.pubkey()
+    );
     Ok(())
 }

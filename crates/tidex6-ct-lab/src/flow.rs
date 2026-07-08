@@ -77,7 +77,9 @@ pub async fn deposit(
         REVOKE_WINDOW,
         &[0u8; MEMO_LEN as usize],
     );
-    let sig = pool::send_ix(rpc, payer, ix).await.context("deposit send")?;
+    let sig = pool::send_ix(rpc, payer, ix)
+        .await
+        .context("deposit send")?;
 
     let dir = tidex6_dir()?;
     let note_path = format!("{dir}/note-{}.json", hex(&commitment_bytes[..8]));
@@ -110,13 +112,19 @@ pub async fn deposit_browser(
     let total_len = envelope.len() as u32;
     let first = &envelope[..envelope.len().min(MEMO_CHUNK)];
     let ix = pool::build_deposit_ix(&payer.pubkey(), commitment, total_len, revoke_window, first);
-    let sig = pool::send_ix(rpc, payer, ix).await.context("deposit send")?;
+    let sig = pool::send_ix(rpc, payer, ix)
+        .await
+        .context("deposit send")?;
 
     let mut offset = first.len();
     while offset < envelope.len() {
         let end = (offset + MEMO_CHUNK).min(envelope.len());
-        let ix =
-            pool::build_append_memo_ix(&payer.pubkey(), commitment, offset as u32, &envelope[offset..end]);
+        let ix = pool::build_append_memo_ix(
+            &payer.pubkey(),
+            commitment,
+            offset as u32,
+            &envelope[offset..end],
+        );
         pool::send_ix(rpc, payer, ix)
             .await
             .context("append_memo send")?;
@@ -189,7 +197,8 @@ pub async fn withdraw(
         relayer_fee: &relayer_fee_bytes,
     };
     let (groth_proof, _pi) =
-        prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut thread_rng()).context("prove")?;
+        prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut thread_rng())
+            .context("prove")?;
     let Groth16SolanaBytes {
         proof_a,
         proof_b,
@@ -208,7 +217,9 @@ pub async fn withdraw(
         nh_bytes,
         0,
     );
-    let sig = pool::send_ix(rpc, payer, ix).await.context("withdraw send")?;
+    let sig = pool::send_ix(rpc, payer, ix)
+        .await
+        .context("withdraw send")?;
 
     // Payout-запрос (recipient, amount).
     let dir = tidex6_dir()?;
@@ -219,7 +230,12 @@ pub async fn withdraw(
     );
     write_owner_only_trunc(&payout_path, payout_json.as_bytes()).context("payout")?;
 
-    Ok((sig, recipient.pubkey().to_string(), payout_path, amount_micro))
+    Ok((
+        sig,
+        recipient.pubkey().to_string(),
+        payout_path,
+        amount_micro,
+    ))
 }
 
 /// Путь Меркла для браузерного withdraw: реконструирует дерево из on-chain
@@ -229,7 +245,9 @@ pub async fn merkle_path_for(
     rpc: &RpcClient,
     commitment: [u8; 32],
 ) -> Result<(String, String, Vec<u8>)> {
-    let history = pool::fetch_deposit_history(rpc).await.context("история пула")?;
+    let history = pool::fetch_deposit_history(rpc)
+        .await
+        .context("история пула")?;
     let mut tree = MerkleTree::new(WITHDRAW_TREE_DEPTH).context("tree")?;
     let mut my_leaf = None;
     for (_leaf, commit) in &history {
@@ -358,7 +376,9 @@ fn parse_amount_field(note: &str) -> Option<u64> {
     let needle = "\"amount\": ";
     let start = note.find(needle)? + needle.len();
     let rest = &note[start..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 

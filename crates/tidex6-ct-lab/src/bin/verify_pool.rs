@@ -47,18 +47,10 @@ async fn main() -> Result<()> {
     println!("дискриминатор: {}", hex(&ix.data[..8]));
 
     let blockhash = rpc.get_latest_blockhash().await.context("blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&payer.pubkey()),
-        &[&payer],
-        blockhash,
-    );
+    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[&payer], blockhash);
 
     println!("\nсимулирую (без коммита)…");
-    let sim = rpc
-        .simulate_transaction(&tx)
-        .await
-        .context("simulate")?;
+    let sim = rpc.simulate_transaction(&tx).await.context("simulate")?;
 
     if let Some(err) = &sim.value.err {
         println!("\n❌ СИМУЛЯЦИЯ ОТКЛОНЕНА: {err:?}");

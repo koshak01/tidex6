@@ -33,11 +33,11 @@ use solana_zk_sdk::encryption::{
 use spl_token_2022::extension::{
     confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions,
 };
+use spl_token_client::zk_proofs::confidential_transfer::TransferAccountInfo;
 use spl_token_client::{
     client::{ProgramRpcClient, ProgramRpcClientSendTransaction},
     token::{ProofAccountWithCiphertext, Token},
 };
-use spl_token_client::zk_proofs::confidential_transfer::TransferAccountInfo;
 use spl_token_confidential_transfer_proof_generation::transfer::TransferProofData;
 
 const WUSDC_MINT: &str = "CckZq2kKW5yZwNjNmLwrGDDpHB7NsU2u3Zdhk3K6ZLbv";
@@ -169,13 +169,7 @@ async fn pay_one(
         ciphertext_validity_proof_data_with_ciphertext,
         range_proof_data,
     } = TransferAccountInfo::new(relayer_ct)
-        .generate_split_transfer_proof_data(
-            p.amount,
-            relayer_elgamal,
-            relayer_ae,
-            &dest_pk,
-            None,
-        )
+        .generate_split_transfer_proof_data(p.amount, relayer_elgamal, relayer_ae, &dest_pk, None)
         .map_err(|e| anyhow::anyhow!("transfer proof: {e}"))?;
 
     let (eq, val, range) = (Keypair::new(), Keypair::new(), Keypair::new());
@@ -239,8 +233,8 @@ fn scan_payouts() -> Result<Vec<Payout>> {
             continue;
         }
         let raw = std::fs::read_to_string(&path).context("читать payout")?;
-        let recipient_str = json_str(&raw, "recipient")
-            .with_context(|| format!("нет recipient в {name}"))?;
+        let recipient_str =
+            json_str(&raw, "recipient").with_context(|| format!("нет recipient в {name}"))?;
         let amount = json_num(&raw, "amount").with_context(|| format!("нет amount в {name}"))?;
         let recipient: Pubkey = recipient_str
             .parse()
@@ -271,7 +265,9 @@ fn json_num(json: &str, field: &str) -> Option<u64> {
     let needle = format!("\"{field}\": ");
     let start = json.find(&needle)? + needle.len();
     let rest = &json[start..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 

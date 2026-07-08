@@ -14,9 +14,9 @@ use solana_keypair::{write_keypair_file, Keypair};
 use solana_signer::Signer;
 use spl_token_client::client::{ProgramRpcClient, ProgramRpcClientSendTransaction};
 use spl_token_client::token::Token;
+use tidex6_core::network::Network;
 use tidex6_ct_lab::config::Config;
 use tidex6_ct_lab::flow;
-use tidex6_core::network::Network;
 
 /// decimals как у настоящего USDC.
 const DECIMALS: u8 = 6;
@@ -47,7 +47,10 @@ async fn main() -> Result<()> {
         .to_lowercase();
     let mint_path = format!("{dir}/test-{sym}-mint-{}.json", net.info().moniker);
     if std::path::Path::new(&mint_path).exists() {
-        anyhow::bail!("test-{} mint keypair already exists: {mint_path} — remove it to recreate", sym.to_uppercase());
+        anyhow::bail!(
+            "test-{} mint keypair already exists: {mint_path} — remove it to recreate",
+            sym.to_uppercase()
+        );
     }
     let mint_keypair = Keypair::new();
     write_keypair_file(&mint_keypair, &mint_path)
@@ -85,7 +88,16 @@ async fn main() -> Result<()> {
 
     println!("\n═══ test-{} создан ═══", sym.to_uppercase());
     println!("mint keypair: {mint_path}");
-    println!(">>> TEST-{} MINT: {} <<<", sym.to_uppercase(), mint_keypair.pubkey());
-    println!("minted {} {} → {}", MINT_AMOUNT / 1_000_000, sym.to_uppercase(), ata);
+    println!(
+        ">>> TEST-{} MINT: {} <<<",
+        sym.to_uppercase(),
+        mint_keypair.pubkey()
+    );
+    println!(
+        "minted {} {} → {}",
+        MINT_AMOUNT / 1_000_000,
+        sym.to_uppercase(),
+        ata
+    );
     Ok(())
 }

@@ -40,9 +40,7 @@ use spl_token_client::{
     token::{ExtensionInitializationParams, ProofAccountWithCiphertext, Token},
     zk_proofs::confidential_mint_burn::{BurnAccountInfo, SupplyAccountInfo},
 };
-use spl_token_confidential_transfer_proof_generation::{
-    burn::BurnProofData, mint::MintProofData,
-};
+use spl_token_confidential_transfer_proof_generation::{burn::BurnProofData, mint::MintProofData};
 
 /// 1000 wUSDC при decimals = 6.
 const MINT_AMOUNT: u64 = 1_000_000_000;
@@ -250,7 +248,10 @@ async fn main() -> Result<()> {
     // ── 5. Конфиденциальный burn ────────────────────────────────────────
     println!("\n[5/5] конфиденциальный burn {BURN_AMOUNT} базовых единиц…");
     {
-        let account_info = token.get_account_info(&alice_ata).await.context("account info")?;
+        let account_info = token
+            .get_account_info(&alice_ata)
+            .await
+            .context("account info")?;
         let ct_ext = account_info
             .get_extension::<ConfidentialTransferAccount>()
             .context("нет CT extension")?;
@@ -389,7 +390,10 @@ async fn print_state(
     let mint_burn = mint_info
         .get_extension::<ConfidentialMintBurn>()
         .context("нет ConfidentialMintBurn")?;
-    println!("supply (шифр на цепи):      {:?}", mint_burn.confidential_supply);
+    println!(
+        "supply (шифр на цепи):      {:?}",
+        mint_burn.confidential_supply
+    );
     let supply_plain: Option<u64> = mint_ae.decrypt(&mint_burn.decryptable_supply.try_into()?);
     println!("supply (видит эмитент):     {supply_plain:?} базовых единиц");
 

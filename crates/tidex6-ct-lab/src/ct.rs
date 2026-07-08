@@ -44,14 +44,22 @@ fn usdc_mint() -> String {
     let net = crate::config::active_network();
     let asset = crate::config::active_asset();
     crate::config::mint_underlying(net, asset)
-        .or_else(|| net.asset(asset).and_then(|a| a.underlying_mint).map(str::to_string))
+        .or_else(|| {
+            net.asset(asset)
+                .and_then(|a| a.underlying_mint)
+                .map(str::to_string)
+        })
         .expect("underlying mint (config override or registry)")
 }
 fn wusdc_mint() -> String {
     let net = crate::config::active_network();
     let asset = crate::config::active_asset();
     crate::config::mint_wrapped(net, asset)
-        .or_else(|| net.asset(asset).and_then(|a| a.wrapped_mint).map(str::to_string))
+        .or_else(|| {
+            net.asset(asset)
+                .and_then(|a| a.wrapped_mint)
+                .map(str::to_string)
+        })
         .expect("wrapped mint (config override or registry)")
 }
 const DECIMALS: u8 = 6;
@@ -133,8 +141,14 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
     let owner_elgamal = elgamal_from(payer, b"tidex6-wusdc-alice-elgamal-v1")?;
     let owner_ae = ae_from(payer, b"tidex6-wusdc-alice-ae-v1")?;
 
-    writeln!(out, "[2/3] configuring confidential {w} account (if needed)…")?;
-    wusdc.create_associated_token_account(&payer.pubkey()).await.ok();
+    writeln!(
+        out,
+        "[2/3] configuring confidential {w} account (if needed)…"
+    )?;
+    wusdc
+        .create_associated_token_account(&payer.pubkey())
+        .await
+        .ok();
     let owner_ata = wusdc.get_associated_token_address(&payer.pubkey());
     // Дождаться видимости свежесозданной ATA на RPC (Helius node-lag) — иначе
     // reallocate ниже падает InvalidAccountData (на проде owner_ata свежий).
@@ -148,16 +162,31 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
         .get_account_info(&owner_ata)
         .await
         .ok()
-        .and_then(|a| a.get_extension::<ConfidentialTransferAccount>().ok().map(|_| ()))
+        .and_then(|a| {
+            a.get_extension::<ConfidentialTransferAccount>()
+                .ok()
+                .map(|_| ())
+        })
         .is_none()
     {
         wusdc
-            .reallocate(&owner_ata, &payer.pubkey(), &[ExtensionType::ConfidentialTransferAccount], &[payer])
+            .reallocate(
+                &owner_ata,
+                &payer.pubkey(),
+                &[ExtensionType::ConfidentialTransferAccount],
+                &[payer],
+            )
             .await
             .context("reallocate")?;
         wusdc
             .confidential_transfer_configure_token_account(
-                &owner_ata, &payer.pubkey(), None, None, &owner_elgamal, &owner_ae, &[payer],
+                &owner_ata,
+                &payer.pubkey(),
+                None,
+                None,
+                &owner_elgamal,
+                &owner_ae,
+                &[payer],
             )
             .await
             .context("configure")?;
@@ -174,14 +203,26 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
             ciphertext_validity_proof_data_with_ciphertext,
             range_proof_data,
         } = SupplyAccountInfo::new(supply_ext)
-            .generate_split_mint_proof_data(amount, &supply_elgamal, &mint_ae, owner_elgamal.pubkey(), None)
+            .generate_split_mint_proof_data(
+                amount,
+                &supply_elgamal,
+                &mint_ae,
+                owner_elgamal.pubkey(),
+                None,
+            )
             .map_err(|e| anyhow!("mint proof: {e}"))?;
         let (eq, val, range) = (Keypair::new(), Keypair::new(), Keypair::new());
         // 3 proof-context аккаунта — ПАРАЛЛЕЛЬНО (независимы) вместо последовательно.
         // Ускоряет CT-операцию: 3 подтверждения идут разом, не по очереди.
         let (r_eq, r_val, r_range) = tokio::join!(
             create_ctx(&wusdc, payer, &eq, &equality_proof_data, false),
-            create_ctx(&wusdc, payer, &val, &ciphertext_validity_proof_data_with_ciphertext.proof_data, false),
+            create_ctx(
+                &wusdc,
+                payer,
+                &val,
+                &ciphertext_validity_proof_data_with_ciphertext.proof_data,
+                false
+            ),
             create_ctx(&wusdc, payer, &range, &range_proof_data, true),
         );
         r_eq?;
@@ -194,8 +235,18 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
         };
         wusdc
             .confidential_transfer_mint(
-                &payer.pubkey(), &owner_ata, Some(&eq.pubkey()), Some(&val_ct), Some(&range.pubkey()),
-                amount, &supply_elgamal, owner_elgamal.pubkey(), None, &mint_ae, None, &[payer],
+                &payer.pubkey(),
+                &owner_ata,
+                Some(&eq.pubkey()),
+                Some(&val_ct),
+                Some(&range.pubkey()),
+                amount,
+                &supply_elgamal,
+                owner_elgamal.pubkey(),
+                None,
+                &mint_ae,
+                None,
+                &[payer],
             )
             .await
             .context("confidential mint")?;
@@ -203,7 +254,12 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
     }
     wusdc
         .confidential_transfer_apply_pending_balance(
-            &owner_ata, &payer.pubkey(), None, owner_elgamal.secret(), &owner_ae, &[payer],
+            &owner_ata,
+            &payer.pubkey(),
+            None,
+            owner_elgamal.secret(),
+            &owner_ae,
+            &[payer],
         )
         .await
         .context("apply")?;
@@ -224,7 +280,12 @@ pub async fn configure_recipient(
     let recipient_path = crate::flow::safe_tidex6_file(recipient_path, "recipient-")?;
     let recipient = read_keypair_file(&recipient_path).map_err(|e| anyhow!("recipient: {e}"))?;
     let wusdc_mint: Pubkey = wusdc_mint().parse()?;
-    let wusdc = token(program_client(rpc), &spl_token_2022::id(), &wusdc_mint, payer);
+    let wusdc = token(
+        program_client(rpc),
+        &spl_token_2022::id(),
+        &wusdc_mint,
+        payer,
+    );
 
     let recipient_elgamal = elgamal_from(&recipient, b"tidex6-wusdc-alice-elgamal-v1")?;
     let recipient_ae = ae_from(&recipient, b"tidex6-wusdc-alice-ae-v1")?;
@@ -238,16 +299,30 @@ pub async fn configure_recipient(
         }
     }
     writeln!(out, "[1/3] creating ATA…")?;
-    wusdc.create_associated_token_account(&recipient.pubkey()).await.ok();
+    wusdc
+        .create_associated_token_account(&recipient.pubkey())
+        .await
+        .ok();
     writeln!(out, "[2/3] reallocate…")?;
     wusdc
-        .reallocate(&ata, &recipient.pubkey(), &[ExtensionType::ConfidentialTransferAccount], &[payer, &recipient])
+        .reallocate(
+            &ata,
+            &recipient.pubkey(),
+            &[ExtensionType::ConfidentialTransferAccount],
+            &[payer, &recipient],
+        )
         .await
         .context("reallocate получателя")?;
     writeln!(out, "[3/3] configure…")?;
     wusdc
         .confidential_transfer_configure_token_account(
-            &ata, &recipient.pubkey(), None, None, &recipient_elgamal, &recipient_ae, &[payer, &recipient],
+            &ata,
+            &recipient.pubkey(),
+            None,
+            None,
+            &recipient_elgamal,
+            &recipient_ae,
+            &[payer, &recipient],
         )
         .await
         .context("configure recipient")?;
@@ -260,7 +335,12 @@ pub async fn mover(rpc: Arc<RpcClient>, payer: &Keypair) -> Result<String> {
     let mut out = String::new();
     let (_, w) = symbols();
     let wusdc_mint: Pubkey = wusdc_mint().parse()?;
-    let wusdc = token(program_client(rpc), &spl_token_2022::id(), &wusdc_mint, payer);
+    let wusdc = token(
+        program_client(rpc),
+        &spl_token_2022::id(),
+        &wusdc_mint,
+        payer,
+    );
     let relayer_elgamal = elgamal_from(payer, b"tidex6-wusdc-alice-elgamal-v1")?;
     let relayer_ae = ae_from(payer, b"tidex6-wusdc-alice-ae-v1")?;
     let relayer_ata = wusdc.get_associated_token_address(&payer.pubkey());
@@ -274,7 +354,17 @@ pub async fn mover(rpc: Arc<RpcClient>, payer: &Keypair) -> Result<String> {
     let mut paid = 0usize;
     for (path, recipient, amount) in &payouts {
         writeln!(out, "\n── {recipient} ({} {w})", *amount as f64 / 1e6)?;
-        match pay_one(&wusdc, payer, &relayer_elgamal, &relayer_ae, &relayer_ata, recipient, *amount).await {
+        match pay_one(
+            &wusdc,
+            payer,
+            &relayer_elgamal,
+            &relayer_ae,
+            &relayer_ata,
+            recipient,
+            *amount,
+        )
+        .await
+        {
             Ok(sig) => {
                 writeln!(out, "   paid. tx: {sig}")?;
                 let done = format!("{}.done", path.to_string_lossy());
@@ -311,7 +401,10 @@ async fn pay_one(
         .try_into()
         .map_err(|e| anyhow!("ElGamal-pubkey получателя: {e}"))?;
 
-    let relayer_info = wusdc.get_account_info(relayer_ata).await.context("relayer info")?;
+    let relayer_info = wusdc
+        .get_account_info(relayer_ata)
+        .await
+        .context("relayer info")?;
     let relayer_ct = relayer_info
         .get_extension::<ConfidentialTransferAccount>()
         .context("нет CT у релеера")?;
@@ -326,7 +419,13 @@ async fn pay_one(
     // 3 proof-context аккаунта — ПАРАЛЛЕЛЬНО (независимы).
     let (r_eq, r_val, r_range) = tokio::join!(
         create_ctx(wusdc, payer, &eq, &equality_proof_data, false),
-        create_ctx(wusdc, payer, &val, &ciphertext_validity_proof_data_with_ciphertext.proof_data, false),
+        create_ctx(
+            wusdc,
+            payer,
+            &val,
+            &ciphertext_validity_proof_data_with_ciphertext.proof_data,
+            false
+        ),
         create_ctx(wusdc, payer, &range, &range_proof_data, true),
     );
     r_eq?;
@@ -339,8 +438,19 @@ async fn pay_one(
     };
     let sig = wusdc
         .confidential_transfer_transfer(
-            relayer_ata, &recipient_ata, &payer.pubkey(), Some(&eq.pubkey()), Some(&val_ct),
-            Some(&range.pubkey()), amount, None, relayer_elgamal, relayer_ae, &dest_pk, None, &[payer],
+            relayer_ata,
+            &recipient_ata,
+            &payer.pubkey(),
+            Some(&eq.pubkey()),
+            Some(&val_ct),
+            Some(&range.pubkey()),
+            amount,
+            None,
+            relayer_elgamal,
+            relayer_ae,
+            &dest_pk,
+            None,
+            &[payer],
         )
         .await
         .context("confidential transfer")?;
@@ -377,11 +487,7 @@ fn scan_payouts() -> Result<Vec<(std::path::PathBuf, Pubkey, u64)>> {
 }
 
 // ── cashout: получатель → USDC на основной кошелёк ────────────────────
-pub async fn cashout(
-    rpc: Arc<RpcClient>,
-    payer: &Keypair,
-    recipient_path: &str,
-) -> Result<String> {
+pub async fn cashout(rpc: Arc<RpcClient>, payer: &Keypair, recipient_path: &str) -> Result<String> {
     let mut out = String::new();
     let recipient_path = crate::flow::safe_tidex6_file(recipient_path, "recipient-")?;
     let recipient = read_keypair_file(&recipient_path).map_err(|e| anyhow!("recipient: {e}"))?;
@@ -397,7 +503,12 @@ pub async fn cashout(
     let usdc = token(pc.clone(), &spl_token::id(), &usdc_mint, payer);
     let vault_usdc = usdc.get_associated_token_address(&vault.pubkey());
     let payer_usdc = usdc.get_associated_token_address(&payer.pubkey());
-    let vault_bal = usdc.get_account_info(&vault_usdc).await.context("vault USDC info")?.base.amount;
+    let vault_bal = usdc
+        .get_account_info(&vault_usdc)
+        .await
+        .context("vault USDC info")?
+        .base
+        .amount;
     if vault_bal < amount {
         bail!(
             "vault undercollateralized: {} USDC < {} — not burning.",
@@ -415,28 +526,50 @@ pub async fn cashout(
     writeln!(out, "[1/3] apply pending balance…")?;
     wusdc
         .confidential_transfer_apply_pending_balance(
-            &recipient_ata, &recipient.pubkey(), None, recipient_elgamal.secret(), &recipient_ae, &[&recipient],
+            &recipient_ata,
+            &recipient.pubkey(),
+            None,
+            recipient_elgamal.secret(),
+            &recipient_ae,
+            &[&recipient],
         )
         .await
         .context("apply pending")?;
 
     writeln!(out, "[2/3] confidential burn…")?;
     {
-        let account_info = wusdc.get_account_info(&recipient_ata).await.context("wUSDC info")?;
-        let ct = account_info.get_extension::<ConfidentialTransferAccount>().context("нет CT")?;
+        let account_info = wusdc
+            .get_account_info(&recipient_ata)
+            .await
+            .context("wUSDC info")?;
+        let ct = account_info
+            .get_extension::<ConfidentialTransferAccount>()
+            .context("нет CT")?;
         let BurnProofData {
             equality_proof_data,
             ciphertext_validity_proof_data_with_ciphertext,
             range_proof_data,
         } = BurnAccountInfo::new(ct)
-            .generate_split_burn_proof_data(amount, &recipient_elgamal, &recipient_ae, supply_elgamal.pubkey(), None)
+            .generate_split_burn_proof_data(
+                amount,
+                &recipient_elgamal,
+                &recipient_ae,
+                supply_elgamal.pubkey(),
+                None,
+            )
             .map_err(|e| anyhow!("burn proof: {e}"))?;
         let (eq, val, range) = (Keypair::new(), Keypair::new(), Keypair::new());
         // 3 proof-context аккаунта — ПАРАЛЛЕЛЬНО (независимы) вместо последовательно.
         // Ускоряет CT-операцию: 3 подтверждения идут разом, не по очереди.
         let (r_eq, r_val, r_range) = tokio::join!(
             create_ctx(&wusdc, payer, &eq, &equality_proof_data, false),
-            create_ctx(&wusdc, payer, &val, &ciphertext_validity_proof_data_with_ciphertext.proof_data, false),
+            create_ctx(
+                &wusdc,
+                payer,
+                &val,
+                &ciphertext_validity_proof_data_with_ciphertext.proof_data,
+                false
+            ),
             create_ctx(&wusdc, payer, &range, &range_proof_data, true),
         );
         r_eq?;
@@ -449,8 +582,18 @@ pub async fn cashout(
         };
         wusdc
             .confidential_transfer_burn(
-                &recipient.pubkey(), &recipient_ata, Some(&eq.pubkey()), Some(&val_ct), Some(&range.pubkey()),
-                amount, &recipient_elgamal, supply_elgamal.pubkey(), None, &recipient_ae, None, &[&recipient],
+                &recipient.pubkey(),
+                &recipient_ata,
+                Some(&eq.pubkey()),
+                Some(&val_ct),
+                Some(&range.pubkey()),
+                amount,
+                &recipient_elgamal,
+                supply_elgamal.pubkey(),
+                None,
+                &recipient_ae,
+                None,
+                &[&recipient],
             )
             .await
             .context("confidential burn")?;
@@ -462,7 +605,11 @@ pub async fn cashout(
         .await
         .context("vault USDC → wallet")?;
     let usdc_bal = usdc.get_account_info(&payer_usdc).await?.base.amount;
-    writeln!(out, "\n══════ CASHOUT DONE ══════\n{u} on wallet: {} {u}", usdc_bal as f64 / 1e6)?;
+    writeln!(
+        out,
+        "\n══════ CASHOUT DONE ══════\n{u} on wallet: {} {u}",
+        usdc_bal as f64 / 1e6
+    )?;
     Ok(out)
 }
 
@@ -482,7 +629,11 @@ pub async fn cashout_to_address(
     let usdc_mint: Pubkey = usdc_mint().parse()?;
     let wusdc_mint: Pubkey = wusdc_mint().parse()?;
     let pc = program_client(rpc);
-    writeln!(out, "cashing out: {} {w} → {u} to {recipient}", amount as f64 / 1e6)?;
+    writeln!(
+        out,
+        "cashing out: {} {w} → {u} to {recipient}",
+        amount as f64 / 1e6
+    )?;
 
     let vault = read_keypair_file(format!("{}/vault-keypair.json", dir()?))
         .map_err(|e| anyhow!("vault keypair: {e}"))?;
@@ -524,7 +675,10 @@ pub async fn cashout_to_address(
 
     writeln!(out, "[2/3] confidential burn {w}…")?;
     {
-        let account_info = wusdc.get_account_info(&owner_ata).await.context("wUSDC info")?;
+        let account_info = wusdc
+            .get_account_info(&owner_ata)
+            .await
+            .context("wUSDC info")?;
         let ct = account_info
             .get_extension::<ConfidentialTransferAccount>()
             .context("нет CT у оператора")?;
@@ -533,12 +687,24 @@ pub async fn cashout_to_address(
             ciphertext_validity_proof_data_with_ciphertext,
             range_proof_data,
         } = BurnAccountInfo::new(ct)
-            .generate_split_burn_proof_data(amount, &owner_elgamal, &owner_ae, supply_elgamal.pubkey(), None)
+            .generate_split_burn_proof_data(
+                amount,
+                &owner_elgamal,
+                &owner_ae,
+                supply_elgamal.pubkey(),
+                None,
+            )
             .map_err(|e| anyhow!("burn proof: {e}"))?;
         let (eq, val, range) = (Keypair::new(), Keypair::new(), Keypair::new());
         let (r_eq, r_val, r_range) = tokio::join!(
             create_ctx(&wusdc, payer, &eq, &equality_proof_data, false),
-            create_ctx(&wusdc, payer, &val, &ciphertext_validity_proof_data_with_ciphertext.proof_data, false),
+            create_ctx(
+                &wusdc,
+                payer,
+                &val,
+                &ciphertext_validity_proof_data_with_ciphertext.proof_data,
+                false
+            ),
             create_ctx(&wusdc, payer, &range, &range_proof_data, true),
         );
         r_eq?;
@@ -551,8 +717,18 @@ pub async fn cashout_to_address(
         };
         wusdc
             .confidential_transfer_burn(
-                &payer.pubkey(), &owner_ata, Some(&eq.pubkey()), Some(&val_ct), Some(&range.pubkey()),
-                amount, &owner_elgamal, supply_elgamal.pubkey(), None, &owner_ae, None, &[payer],
+                &payer.pubkey(),
+                &owner_ata,
+                Some(&eq.pubkey()),
+                Some(&val_ct),
+                Some(&range.pubkey()),
+                amount,
+                &owner_elgamal,
+                supply_elgamal.pubkey(),
+                None,
+                &owner_ae,
+                None,
+                &[payer],
             )
             .await
             .context("confidential burn")?;
@@ -562,11 +738,21 @@ pub async fn cashout_to_address(
     writeln!(out, "[3/3] vault → recipient {u}…")?;
     usdc.create_associated_token_account(recipient).await.ok();
     let recipient_usdc = usdc.get_associated_token_address(recipient);
-    usdc.transfer(&vault_usdc, &recipient_usdc, &vault.pubkey(), amount, &[&vault])
-        .await
-        .context("vault USDC → recipient")?;
+    usdc.transfer(
+        &vault_usdc,
+        &recipient_usdc,
+        &vault.pubkey(),
+        amount,
+        &[&vault],
+    )
+    .await
+    .context("vault USDC → recipient")?;
     let recip_bal = usdc.get_account_info(&recipient_usdc).await?.base.amount;
-    writeln!(out, "\n══════ PAYOUT DONE ══════\n{recipient}: {} {u}", recip_bal as f64 / 1e6)?;
+    writeln!(
+        out,
+        "\n══════ PAYOUT DONE ══════\n{recipient}: {} {u}",
+        recip_bal as f64 / 1e6
+    )?;
     Ok(out)
 }
 
@@ -578,7 +764,10 @@ fn amount_from_sibling_payout(recipient_path: &str) -> Result<u64> {
         .context("имя ключа не recipient-<nh8>.json")?
         .to_owned();
     let d = dir()?;
-    for name in [format!("payout-{nh8}.json"), format!("payout-{nh8}.json.done")] {
+    for name in [
+        format!("payout-{nh8}.json"),
+        format!("payout-{nh8}.json.done"),
+    ] {
         if let Ok(raw) = std::fs::read_to_string(format!("{d}/{name}")) {
             if let Some(v) = json_num(&raw, "amount") {
                 return Ok(v);
@@ -589,13 +778,25 @@ fn amount_from_sibling_payout(recipient_path: &str) -> Result<u64> {
 }
 
 // ── общие CT-хелперы ──────────────────────────────────────────────────
-async fn create_ctx<ZK, U>(token: &TokenClient, payer: &Keypair, ctx: &Keypair, proof: &ZK, split: bool) -> Result<()>
+async fn create_ctx<ZK, U>(
+    token: &TokenClient,
+    payer: &Keypair,
+    ctx: &Keypair,
+    proof: &ZK,
+    split: bool,
+) -> Result<()>
 where
     ZK: bytemuck::Pod + solana_zk_elgamal_proof_interface::proof_data::ZkProofData<U>,
     U: bytemuck::Pod,
 {
     token
-        .confidential_transfer_create_context_state_account(&ctx.pubkey(), &payer.pubkey(), proof, split, &[ctx])
+        .confidential_transfer_create_context_state_account(
+            &ctx.pubkey(),
+            &payer.pubkey(),
+            proof,
+            split,
+            &[ctx],
+        )
         .await
         .context("create context")?;
     Ok(())
@@ -604,7 +805,12 @@ where
 async fn close_ctxs(token: &TokenClient, payer: &Keypair, ctxs: &[&Keypair]) -> Result<()> {
     for c in ctxs {
         token
-            .confidential_transfer_close_context_state_account(&c.pubkey(), &payer.pubkey(), &payer.pubkey(), &[payer])
+            .confidential_transfer_close_context_state_account(
+                &c.pubkey(),
+                &payer.pubkey(),
+                &payer.pubkey(),
+                &[payer],
+            )
             .await
             .context("close context")?;
     }
@@ -615,7 +821,8 @@ async fn close_ctxs(token: &TokenClient, payer: &Keypair, ctxs: &[&Keypair]) -> 
 // on-chain балансы; новый KDF вывел бы ДРУГИЕ ключи и всё сломал.
 #[allow(deprecated)]
 fn elgamal_from(signer: &Keypair, msg: &[u8]) -> Result<ElGamalKeypair> {
-    ElGamalKeypair::new_from_signature_legacy(&signer.sign_message(msg)).map_err(|e| anyhow!("elgamal: {e}"))
+    ElGamalKeypair::new_from_signature_legacy(&signer.sign_message(msg))
+        .map_err(|e| anyhow!("elgamal: {e}"))
 }
 
 #[allow(deprecated)]
@@ -634,6 +841,8 @@ fn json_num(json: &str, key: &str) -> Option<u64> {
     let needle = format!("\"{key}\": ");
     let start = json.find(&needle)? + needle.len();
     let rest = &json[start..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }

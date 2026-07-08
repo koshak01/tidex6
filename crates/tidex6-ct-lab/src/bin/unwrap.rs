@@ -75,7 +75,10 @@ async fn main() -> Result<()> {
 
     println!("\n[1/2] конфид-burn {amount_usdc} wUSDC…");
     {
-        let account_info = wusdc.get_account_info(&owner_ata).await.context("wUSDC info")?;
+        let account_info = wusdc
+            .get_account_info(&owner_ata)
+            .await
+            .context("wUSDC info")?;
         let ct = account_info
             .get_extension::<ConfidentialTransferAccount>()
             .context("нет CT")?;
@@ -196,7 +199,8 @@ fn elgamal_from(signer: &Keypair, msg: &[u8]) -> Result<ElGamalKeypair> {
 }
 
 fn ae_from(signer: &Keypair, msg: &[u8]) -> Result<AeKey> {
-    AeKey::new_from_signature_legacy(&signer.sign_message(msg)).map_err(|e| anyhow::anyhow!("ae: {e}"))
+    AeKey::new_from_signature_legacy(&signer.sign_message(msg))
+        .map_err(|e| anyhow::anyhow!("ae: {e}"))
 }
 
 fn load_cli_config() -> Result<(String, String)> {

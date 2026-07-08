@@ -205,13 +205,18 @@ fn amount_from_sibling_payout(recipient_path: &str) -> Result<u64> {
         .to_owned();
     let home = std::env::var("HOME").context("нет $HOME")?;
     let dir = format!("{home}/.tidex6-wusdc");
-    for name in [format!("payout-{nh8}.json"), format!("payout-{nh8}.json.done")] {
+    for name in [
+        format!("payout-{nh8}.json"),
+        format!("payout-{nh8}.json.done"),
+    ] {
         let path = format!("{dir}/{name}");
         if let Ok(raw) = std::fs::read_to_string(&path) {
             let needle = "\"amount\": ";
             if let Some(start) = raw.find(needle) {
                 let rest = &raw[start + needle.len()..];
-                let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+                let end = rest
+                    .find(|c: char| !c.is_ascii_digit())
+                    .unwrap_or(rest.len());
                 if let Ok(v) = rest[..end].parse::<u64>() {
                     return Ok(v);
                 }

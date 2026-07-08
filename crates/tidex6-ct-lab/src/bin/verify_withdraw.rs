@@ -53,7 +53,9 @@ async fn main() -> Result<()> {
     let mut tree = MerkleTree::new(WITHDRAW_TREE_DEPTH).context("tree")?;
     let mut my_leaf = None;
     for (leaf, commit) in &history {
-        let (idx, _) = tree.insert(Commitment::from_bytes(*commit)).context("insert")?;
+        let (idx, _) = tree
+            .insert(Commitment::from_bytes(*commit))
+            .context("insert")?;
         if *commit == commitment.to_bytes() {
             my_leaf = Some(idx);
         }
@@ -94,7 +96,8 @@ async fn main() -> Result<()> {
     };
     println!("строю Groth16-доказательство…");
     let (groth_proof, _pi) =
-        prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut thread_rng()).context("prove")?;
+        prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut thread_rng())
+            .context("prove")?;
     let Groth16SolanaBytes {
         proof_a,
         proof_b,
@@ -121,8 +124,7 @@ async fn main() -> Result<()> {
         hex(&ix.data[..8])
     );
     let blockhash = rpc.get_latest_blockhash().await.context("blockhash")?;
-    let tx =
-        Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[&payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[&payer], blockhash);
 
     println!("симулирую…");
     let sim = rpc.simulate_transaction(&tx).await.context("simulate")?;
@@ -142,7 +144,10 @@ async fn main() -> Result<()> {
 fn parse_hex(note: &str, field: &str) -> Result<[u8; 32]> {
     let needle = format!("\"{field}\": \"");
     let start = note.find(&needle).ok_or_else(|| anyhow!("нет {field}"))? + needle.len();
-    let end = note[start..].find('"').ok_or_else(|| anyhow!("{field} не закрыто"))? + start;
+    let end = note[start..]
+        .find('"')
+        .ok_or_else(|| anyhow!("{field} не закрыто"))?
+        + start;
     let hex_str = &note[start..end];
     if hex_str.len() != 64 {
         return Err(anyhow!("{field}: 64 hex"));

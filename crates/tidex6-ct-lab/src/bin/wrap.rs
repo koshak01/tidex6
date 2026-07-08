@@ -51,8 +51,7 @@ async fn main() -> Result<()> {
     require(amount > 0, "сумма должна быть > 0")?;
 
     let (json_rpc_url, keypair_path) = load_cli_config()?;
-    let payer = read_keypair_file(&keypair_path)
-        .map_err(|e| anyhow::anyhow!("keypair: {e}"))?;
+    let payer = read_keypair_file(&keypair_path).map_err(|e| anyhow::anyhow!("keypair: {e}"))?;
     let usdc_mint: Pubkey = USDC_MINT.parse()?;
     let wusdc_mint: Pubkey = WUSDC_MINT.parse()?;
     println!("кошелёк:    {}", payer.pubkey());
@@ -121,7 +120,11 @@ async fn main() -> Result<()> {
         .get_account_info(&owner_ata)
         .await
         .ok()
-        .and_then(|a| a.get_extension::<ConfidentialTransferAccount>().ok().map(|_| ()))
+        .and_then(|a| {
+            a.get_extension::<ConfidentialTransferAccount>()
+                .ok()
+                .map(|_| ())
+        })
         .is_none()
     {
         wusdc
@@ -274,7 +277,8 @@ fn elgamal_from(signer: &Keypair, msg: &[u8]) -> Result<ElGamalKeypair> {
 }
 
 fn ae_from(signer: &Keypair, msg: &[u8]) -> Result<AeKey> {
-    AeKey::new_from_signature_legacy(&signer.sign_message(msg)).map_err(|e| anyhow::anyhow!("ae: {e}"))
+    AeKey::new_from_signature_legacy(&signer.sign_message(msg))
+        .map_err(|e| anyhow::anyhow!("ae: {e}"))
 }
 
 fn require(cond: bool, msg: &str) -> Result<()> {

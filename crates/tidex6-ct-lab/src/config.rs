@@ -150,7 +150,10 @@ pub fn set_active_network(net: Network) {
 
 /// Активная сеть (дефолт Mainnet).
 pub fn active_network() -> Network {
-    ACTIVE_NETWORK.read().map(|n| *n).unwrap_or(Network::Mainnet)
+    ACTIVE_NETWORK
+        .read()
+        .map(|n| *n)
+        .unwrap_or(Network::Mainnet)
 }
 
 /// Активный актив (wUSDC / wUSDT) — определяет пул + минты из реестра.
@@ -214,7 +217,10 @@ impl Config {
              # Mainnet policy during the ceremony/demo: \"closed\" (mainnet blocked),\n\
              # \"cap_1\" (max 1 token per op), \"open\" (no limit). Devnet is always open.\n\
              mainnet_policy = \"{}\"\n",
-            self.admins.first().map(String::as_str).unwrap_or(DEFAULT_ADMIN),
+            self.admins
+                .first()
+                .map(String::as_str)
+                .unwrap_or(DEFAULT_ADMIN),
             self.auto_mover,
             self.network,
             self.asset,

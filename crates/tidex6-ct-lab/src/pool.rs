@@ -109,7 +109,11 @@ fn program_id() -> Pubkey {
     let asset = crate::config::active_asset();
     // Config-оверрайд пула per-окружение, иначе дефолт реестра.
     crate::config::mint_pool(net, asset)
-        .or_else(|| net.asset(asset).and_then(|a| a.pool_program).map(str::to_string))
+        .or_else(|| {
+            net.asset(asset)
+                .and_then(|a| a.pool_program)
+                .map(str::to_string)
+        })
         .expect("pool program (config override or registry)")
         .parse()
         .expect("pool program id")
@@ -357,12 +361,7 @@ pub async fn send_ix(rpc: &RpcClient, payer: &Keypair, ix: Instruction) -> Resul
         .get_latest_blockhash()
         .await
         .context("latest blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&payer.pubkey()),
-        &[payer],
-        blockhash,
-    );
+    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[payer], blockhash);
     let sig = rpc
         .send_and_confirm_transaction(&tx)
         .await

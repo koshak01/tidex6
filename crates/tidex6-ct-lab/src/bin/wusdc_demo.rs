@@ -117,7 +117,10 @@ async fn main() -> Result<()> {
     println!("  Alice ATA: {alice_ata}");
 
     // ── 2. Конфид-минт 10 wUSDC → Alice ──────────────────────────────
-    println!("\n[2/5] конфид-минт {} wUSDC → Alice…", MINT_AMOUNT / 1_000_000);
+    println!(
+        "\n[2/5] конфид-минт {} wUSDC → Alice…",
+        MINT_AMOUNT / 1_000_000
+    );
     {
         let mint_info = token.get_mint_info().await.context("mint info")?;
         let supply_ext = mint_info
@@ -220,7 +223,10 @@ async fn main() -> Result<()> {
     );
     let transfer_sig;
     {
-        let account_info = token.get_account_info(&alice_ata).await.context("Alice info")?;
+        let account_info = token
+            .get_account_info(&alice_ata)
+            .await
+            .context("Alice info")?;
         let ct_ext = account_info
             .get_extension::<ConfidentialTransferAccount>()
             .context("нет CT")?;
@@ -359,7 +365,8 @@ fn elgamal_from(signer: &Keypair, msg: &[u8]) -> Result<ElGamalKeypair> {
 }
 
 fn ae_from(signer: &Keypair, msg: &[u8]) -> Result<AeKey> {
-    AeKey::new_from_signature_legacy(&signer.sign_message(msg)).map_err(|e| anyhow::anyhow!("ae: {e}"))
+    AeKey::new_from_signature_legacy(&signer.sign_message(msg))
+        .map_err(|e| anyhow::anyhow!("ae: {e}"))
 }
 
 fn load_cli_config() -> Result<(String, String)> {
