@@ -138,6 +138,23 @@ pub fn nullifier_pda(nullifier_hash: &[u8; 32]) -> Pubkey {
     Pubkey::find_program_address(&[b"nullifier", nullifier_hash], &program_id()).0
 }
 
+/// Число депозитов пула = `PoolState.next_leaf_index` (публичная метрика).
+/// Layout PoolState (Anchor zero-copy): 8 discriminator + 32 mint +
+/// 8 next_leaf_index(u64 LE) → смещение 40. Лёгкий getAccountInfo (не
+/// getProgramAccounts). 0, если пул не инициализирован / короткие данные.
+pub async fn deposit_count(rpc: &RpcClient) -> Result<u64> {
+    let acc = rpc
+        .get_account(&pool_pda())
+        .await
+        .context("get pool account")?;
+    let bytes: [u8; 8] = acc
+        .data
+        .get(40..48)
+        .and_then(|s| s.try_into().ok())
+        .context("pool data too short for next_leaf_index")?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
 /// Инструкция `deposit(commitment, memo_total_len, revoke_window, memo_chunk)`.
 /// Аккаунты (порядок Deposit): pool(w), memo(w,init), payer(s,w), system.
 /// Инструкция `init_pool(mint)` — создаёт PoolState PDA. Аккаунты (порядок

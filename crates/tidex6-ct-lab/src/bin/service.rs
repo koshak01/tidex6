@@ -304,6 +304,28 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             }
             Ok(format!("[{}]", items.join(",")))
         }
+        // Публичная метрика для главной: число депозитов = PoolState.next_leaf_index.
+        // Считаем обе сети × оба актива (лёгкий getAccountInfo на pool PDA, не gPA).
+        "stats" => {
+            let mut items = Vec::new();
+            for (net_name, be) in [("mainnet", mainnet), ("devnet", dev)] {
+                let n = if net_name == "mainnet" {
+                    Network::Mainnet
+                } else {
+                    Network::Devnet
+                };
+                tidex6_ct_lab::config::set_active_network(n);
+                for a in [Asset::Wusdc, Asset::Wusdt] {
+                    tidex6_ct_lab::config::set_active_asset(a);
+                    let count = pool::deposit_count(&be.rpc).await.unwrap_or(0);
+                    let sym = if a == Asset::Wusdt { "wusdt" } else { "wusdc" };
+                    items.push(format!(
+                        "{{\"network\":\"{net_name}\",\"asset\":\"{sym}\",\"count\":{count}}}"
+                    ));
+                }
+            }
+            Ok(format!("[{}]", items.join(",")))
+        }
         // Путь Меркла для браузерного withdraw (по commitment из скана).
         "merkle_path" => {
             let commitment = field_str(req, "commitment").context("missing commitment")?;
