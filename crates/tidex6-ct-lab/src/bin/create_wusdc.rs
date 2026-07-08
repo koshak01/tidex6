@@ -31,13 +31,17 @@ const SUPPLY_AE_MSG: &[u8] = b"tidex6-wusdc-supply-ae-v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // RPC+keypair из wusdc-config (rpc_devnet + keypair-devnet.json), НЕ solana
-    // CLI — на проде CLI занят боевым mainnet-сервисом. Дефолт devnet; mainnet
-    // wUSDC создаётся отдельно. Первый арг (опц.) = метка актива (wusdt).
+    // RPC+keypair из wusdc-config (rpc_<net> + keypair-<moniker>.json), НЕ solana
+    // CLI. Сеть — из env TIDEX6_NET (mainnet|devnet), дефолт devnet. Первый арг
+    // (опц.) = метка актива (wusdt). Для mainnet underlying — реальный USDC/USDT
+    // (Circle/Tether); создаётся только этот wrapped Token-2022 CT-mint.
     let config = tidex6_ct_lab::config::Config::load().context("config.toml")?;
-    let net = tidex6_core::network::Network::Devnet;
+    let net = match std::env::var("TIDEX6_NET").ok().as_deref() {
+        Some("mainnet") | Some("mainnet-beta") => tidex6_core::network::Network::Mainnet,
+        _ => tidex6_core::network::Network::Devnet,
+    };
     let (rpc_client, payer) =
-        flow::rpc_for_network(net, config.rpc_override(net)).context("devnet rpc/keypair")?;
+        flow::rpc_for_network(net, config.rpc_override(net)).context("rpc/keypair")?;
     println!("payer:  {}", payer.pubkey());
     println!(
         "rpc:    {}",

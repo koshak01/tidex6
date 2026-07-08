@@ -138,15 +138,11 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
     let rpc = &backend.rpc;
     let payer = &backend.payer;
 
-    // Гейт по кошельку — ТОЛЬКО на mainnet (реальные деньги). Доступ = вайтлист
-    // ИЛИ разовое админ-одобрение (ws выставляет "approved":"true" для сессии,
-    // одобренной в Telegram). Сумма всё равно капится ниже (mainnet_gate).
-    // Devnet открыт: любой кошелёк, любые суммы.
+    // Кошелёк + флаг Telegram-одобрения. Гейт по ним применяется ТОЛЬКО к
+    // депозиту (Send) на mainnet — см. "deposit_browser". Withdraw/scan/refund
+    // на mainnet свободны (получить своё запрещать нельзя). Devnet открыт весь.
     let wallet = field_str(req, "wallet").unwrap_or_default();
     let approved = field_str(req, "approved").as_deref() == Some("true");
-    if net == Network::Mainnet && !config.is_admin(&wallet) && !approved {
-        anyhow::bail!("Mainnet needs approval. Click deposit on mainnet to request access — an admin approves it in Telegram.");
-    }
 
     // Per-request актив (чип USDC/USDT): override, если задан; иначе дефолт.
     if let Some(a) = field_str(req, "asset") {
@@ -259,7 +255,15 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
         "deposit_browser" => {
             use std::fmt::Write as _;
             let amount = field_num(req, "amount").unwrap_or(1_000_000);
+            // Гейт mainnet ТОЛЬКО на депозит (Send): белый кошелёк (admin) даёт
+            // сразу, иначе — разовое Telegram-одобрение; без него отказ. Плюс кап
+            // 1 токен (mainnet_gate). Devnet свободен.
             if net == Network::Mainnet {
+                if !config.is_admin(&wallet) && !approved {
+                    anyhow::bail!(
+                        "Mainnet deposit needs approval — an admin approves it in Telegram."
+                    );
+                }
                 config.mainnet_gate(amount)?;
             }
             let commitment = field_str(req, "commitment").context("missing commitment")?;
@@ -386,9 +390,8 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
         // burn у оператора + vault → recipient).
         "withdraw_browser" => {
             let amount = field_num(req, "amount").unwrap_or(0);
-            if net == Network::Mainnet {
-                config.mainnet_gate(amount)?;
-            }
+            // Withdraw на mainnet не гейтится и не капится — получить своё
+            // (уже задепонированное) запрещать нельзя. Гейт только на депозит.
             let recipient = field_str(req, "recipient").context("missing recipient")?;
             let recipient: solana_pubkey::Pubkey = recipient.parse().context("recipient pubkey")?;
             let proof_a = hex_fixed::<64>(&field_str(req, "proof_a").context("proof_a")?)
