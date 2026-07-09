@@ -107,7 +107,9 @@ impl Network {
                 symbol: "wUSDC",
                 decimals: 6,
                 underlying_mint: Some("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
-                wrapped_mint: Some("CckZq2kKW5yZwNjNmLwrGDDpHB7NsU2u3Zdhk3K6ZLbv"),
+                // Реальная Token-2022 CT-обёртка wUSDC на mainnet (совпадает
+                // с оператор-конфигом `mainnet-beta_wusdc.wrapped`).
+                wrapped_mint: Some("A1weSN5XnmTqjTR5YzdiriucEhFSnC7LgRq7VCnnBjLA"),
                 pool_program: Some("AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU"),
             }),
             (Network::Mainnet, Asset::Wusdt) => Some(AssetInfo {
@@ -116,8 +118,9 @@ impl Network {
                 decimals: 6,
                 // Реальный USDT (Tether) на Solana mainnet.
                 underlying_mint: Some("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"),
-                // TODO(usdt): создать Token-2022 CT-обёртку wUSDT на mainnet.
-                wrapped_mint: None,
+                // Token-2022 CT-обёртка wUSDT на mainnet (создана при сетапе #103,
+                // совпадает с оператор-конфигом `mainnet-beta_wusdt.wrapped`).
+                wrapped_mint: Some("9s3nhzm6PooPA86jgPgHvFNHgXxvmBDjw64wwdzG6EZ2"),
                 // Отдельный пул wUSDT (feature "wusdt", program keypair QGPY…).
                 pool_program: Some("QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2"),
             }),
