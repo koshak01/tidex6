@@ -30,7 +30,7 @@ use tidex6_circuits::withdraw::{prove_withdraw as prove_withdraw_inner, Withdraw
 use tidex6_core::envelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::poseidon;
-use tidex6_core::pqc::{PqcPublicKey, PqcSecretKey};
+use tidex6_core::pqc::PqcSecretKey;
 use wasm_bindgen::prelude::*;
 
 const DEPTH: usize = 20;
