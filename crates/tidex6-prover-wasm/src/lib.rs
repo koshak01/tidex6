@@ -25,8 +25,8 @@ use ark_bn254::Bn254;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use js_sys::Uint8Array;
-use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
-use tidex6_circuits::withdraw::{WithdrawWitness, prove_withdraw as prove_withdraw_inner};
+use tidex6_circuits::solana_bytes::{groth16_to_solana_bytes, Groth16SolanaBytes};
+use tidex6_circuits::withdraw::{prove_withdraw as prove_withdraw_inner, WithdrawWitness};
 use tidex6_core::envelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::poseidon;
@@ -106,11 +106,15 @@ pub fn generate_identity() -> Result<Identity, JsError> {
         .derive_viewing_key()
         .map_err(|e| JsError::new(&format!("viewing key: {e}")))?;
     let (mlkem_public, mlkem_secret) = tidex6_core::pqc::keygen();
+    // Публичный адрес = ML-KEM pk ‖ X25519 pk (X25519 деривится из ML-KEM
+    // secret). Пользователь раздаёт эту строку; X25519 нужен отправителю для
+    // view-tag. Секрет остаётся один (ML-KEM), X25519 регенерится при скане.
+    let address = tidex6_core::envelope::ReaderAddress::from_secret(mlkem_public, &mlkem_secret);
 
     Ok(Identity {
         spending_key: to_hex(spending_key.as_bytes()),
         viewing_key: to_hex(viewing_key.as_bytes()),
-        mlkem_public: to_hex(mlkem_public.as_bytes()),
+        mlkem_public: to_hex(&address.to_bytes()),
         mlkem_secret: to_hex(mlkem_secret.as_bytes()),
     })
 }
@@ -253,16 +257,18 @@ pub fn build_envelope(
     memo: &str,
     auditor_pub: &Uint8Array,
 ) -> Result<Uint8Array, JsError> {
-    let recipient = PqcPublicKey::from_bytes(&uint8array_to_vec(recipient_pub))
-        .map_err(|e| JsError::new(&format!("invalid recipient public key: {e}")))?;
+    // recipient_pub / auditor_pub — полные адреса `mlkem_pk ‖ x25519_pk`.
+    let recipient =
+        tidex6_core::envelope::ReaderAddress::from_bytes(&uint8array_to_vec(recipient_pub))
+            .map_err(|e| JsError::new(&format!("invalid recipient address: {e}")))?;
     let s = to_field_bytes(secret, "secret")?;
     let n = to_field_bytes(nullifier, "nullifier")?;
 
-    let auditors: Vec<PqcPublicKey> = if auditor_pub.length() == 0 {
+    let auditors: Vec<tidex6_core::envelope::ReaderAddress> = if auditor_pub.length() == 0 {
         Vec::new()
     } else {
-        let a = PqcPublicKey::from_bytes(&uint8array_to_vec(auditor_pub))
-            .map_err(|e| JsError::new(&format!("invalid auditor public key: {e}")))?;
+        let a = tidex6_core::envelope::ReaderAddress::from_bytes(&uint8array_to_vec(auditor_pub))
+            .map_err(|e| JsError::new(&format!("invalid auditor address: {e}")))?;
         vec![a]
     };
 

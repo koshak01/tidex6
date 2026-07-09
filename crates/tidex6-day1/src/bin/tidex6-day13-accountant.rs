@@ -20,8 +20,8 @@
 use std::collections::HashSet;
 
 use anchor_client::{Cluster, Signer};
-use anyhow::{Context, Result, anyhow};
-use solana_keypair::{Keypair, read_keypair_file};
+use anyhow::{anyhow, Context, Result};
+use solana_keypair::{read_keypair_file, Keypair};
 
 use tidex6_client::{AccountantScanner, PrivatePool};
 use tidex6_core::note::Denomination;
@@ -53,6 +53,8 @@ fn main() -> Result<()> {
     // Fresh ML-KEM keypair, in memory only. The recipient slot and the
     // auditor slot are both sealed to this key for the test.
     let (mlkem_public, mlkem_secret) = pqc::keygen();
+    let address =
+        tidex6_core::envelope::ReaderAddress::from_secret(mlkem_public.clone(), &mlkem_secret);
     println!(
         "ML-KEM pk     : {}…",
         &hex::encode(mlkem_public.as_bytes())[..32]
@@ -71,8 +73,8 @@ fn main() -> Result<()> {
     for (index, memo_text) in MEMO_PLAINTEXTS.iter().enumerate() {
         let outcome = pool
             .deposit(&payer)
-            .to_recipient(mlkem_public.clone())
-            .with_auditor(mlkem_public.clone())
+            .to_recipient(address.clone())
+            .with_auditor(address.clone())
             .with_memo(*memo_text)
             .revoke_after(0)
             .send()

@@ -9,14 +9,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use clap::Args;
 
 use tidex6_client::PrivatePool;
+use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::note::Denomination;
-use tidex6_core::pqc::PqcPublicKey;
 
-use crate::commands::keygen::{IdentityFile, parse_mlkem_pk, resolve_output_path};
+use crate::commands::keygen::{parse_mlkem_pk, resolve_output_path, IdentityFile};
 use crate::common::{detect_cluster, explorer_url, load_default_keypair};
 
 /// Arguments for `tidex6 deposit`.
@@ -167,7 +167,7 @@ fn resolve_auditor_pk(
     explicit_hex: Option<&str>,
     no_auditor: bool,
     identity_path: Option<PathBuf>,
-) -> Result<Option<PqcPublicKey>> {
+) -> Result<Option<ReaderAddress>> {
     if no_auditor {
         return Ok(None);
     }

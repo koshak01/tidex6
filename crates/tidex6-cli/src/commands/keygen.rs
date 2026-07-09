@@ -19,7 +19,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
@@ -127,12 +127,15 @@ fn run_generate(out: Option<PathBuf>, force: bool) -> Result<()> {
 
     // Post-quantum ML-KEM-768 keypair (ADR-014). Fresh per identity.
     let (mlkem_public, mlkem_secret) = pqc::keygen();
+    // Публичный адрес = ML-KEM pk ‖ X25519 pk (X25519 из ML-KEM secret) — то,
+    // что раздаётся отправителю; X25519 нужен для view-tag. Секрет остаётся один.
+    let address = tidex6_core::envelope::ReaderAddress::from_secret(mlkem_public, &mlkem_secret);
 
     let identity = IdentityFile {
         version: IdentityFile::CURRENT_VERSION,
         spending_key: bytes_to_hex(spending_key.as_bytes()),
         viewing_key: bytes_to_hex(viewing_key.as_bytes()),
-        mlkem_public: hex::encode(mlkem_public.as_bytes()),
+        mlkem_public: hex::encode(address.to_bytes()),
         mlkem_secret: hex::encode(mlkem_secret.as_bytes()),
     };
 
@@ -210,10 +213,10 @@ fn hex_to_bytes_32(hex: &str) -> Result<[u8; 32]> {
         .map_err(|_| anyhow!("decoded hex is not 32 bytes"))
 }
 
-/// Parse an ML-KEM public key from a hex string. Used by the deposit
-/// subcommand to validate `--recipient` / `--auditor` input.
-pub fn parse_mlkem_pk(input: &str) -> Result<tidex6_core::pqc::PqcPublicKey> {
-    let bytes = hex::decode(input.trim()).context("decode ML-KEM public key hex")?;
-    tidex6_core::pqc::PqcPublicKey::from_bytes(&bytes)
-        .map_err(|err| anyhow!("invalid ML-KEM public key: {err}"))
+/// Parse a reader public address (`mlkem_pk ‖ x25519_pk`) from a hex string.
+/// Used by the deposit subcommand to validate `--recipient` / `--auditor`.
+pub fn parse_mlkem_pk(input: &str) -> Result<tidex6_core::envelope::ReaderAddress> {
+    let bytes = hex::decode(input.trim()).context("decode reader address hex")?;
+    tidex6_core::envelope::ReaderAddress::from_bytes(&bytes)
+        .map_err(|err| anyhow!("invalid reader address: {err}"))
 }

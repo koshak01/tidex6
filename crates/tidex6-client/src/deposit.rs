@@ -13,21 +13,20 @@
 //! `0` = irrevocable): if the note is never withdrawn within it, the
 //! depositor can `refund`.
 
-use anchor_client::Instruction;
 use anchor_client::anchor_lang::prelude::Pubkey;
 use anchor_client::anchor_lang::system_program;
-use anyhow::{Context, Result, anyhow};
+use anchor_client::Instruction;
+use anyhow::{anyhow, Context, Result};
 use solana_keypair::Keypair;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_rpc_client_api::config::RpcTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::option_serializer::OptionSerializer;
+use solana_transaction_status::UiTransactionEncoding;
 
-use tidex6_core::envelope;
+use tidex6_core::envelope::{self, ReaderAddress};
 use tidex6_core::memo::validate_memo_charset;
 use tidex6_core::note::DepositNote;
-use tidex6_core::pqc::PqcPublicKey;
 use tidex6_verifier_v2::accounts as verifier_accounts;
 use tidex6_verifier_v2::instruction as verifier_instruction;
 
@@ -60,8 +59,8 @@ pub struct DepositBuilder<'a> {
     pool: &'a PrivatePool,
     payer: &'a Keypair,
     note: Option<DepositNote>,
-    recipient_pqc: Option<PqcPublicKey>,
-    auditor_pqcs: Vec<PqcPublicKey>,
+    recipient_pqc: Option<ReaderAddress>,
+    auditor_pqcs: Vec<ReaderAddress>,
     memo_plaintext: Option<String>,
     revoke_window_secs: i64,
 }
@@ -89,7 +88,7 @@ impl<'a> DepositBuilder<'a> {
     /// Required. The stealth recipient's ML-KEM-768 public key. The
     /// note's spend material is sealed for this key; the recipient
     /// scans the chain and withdraws themselves.
-    pub fn to_recipient(mut self, recipient_pqc: PqcPublicKey) -> Self {
+    pub fn to_recipient(mut self, recipient_pqc: ReaderAddress) -> Self {
         self.recipient_pqc = Some(recipient_pqc);
         self
     }
@@ -97,7 +96,7 @@ impl<'a> DepositBuilder<'a> {
     /// Add an auditor (or regulator) ML-KEM public key. Each gets an
     /// envelope slot carrying `denomination + memo` only — they can see
     /// but not spend. Call multiple times for multiple auditors.
-    pub fn with_auditor(mut self, auditor_pqc: PqcPublicKey) -> Self {
+    pub fn with_auditor(mut self, auditor_pqc: ReaderAddress) -> Self {
         self.auditor_pqcs.push(auditor_pqc);
         self
     }
@@ -126,9 +125,9 @@ impl<'a> DepositBuilder<'a> {
             .ok_or_else(|| anyhow!("deposit requires .to_recipient(ml_kem_pubkey)"))?;
 
         if let Some(ref text) = self.memo_plaintext {
-            validate_memo_charset(text).with_context(
-                || "memo contains an unsupported character (Latin + Cyrillic only)",
-            )?;
+            validate_memo_charset(text).with_context(|| {
+                "memo contains an unsupported character (Latin + Cyrillic only)"
+            })?;
         }
         let memo_bytes: Vec<u8> = self
             .memo_plaintext

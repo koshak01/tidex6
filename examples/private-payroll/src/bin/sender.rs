@@ -22,15 +22,15 @@ use std::fs;
 use std::path::PathBuf;
 
 use anchor_client::Cluster;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use solana_keypair::{Keypair, read_keypair_file};
+use solana_keypair::{read_keypair_file, Keypair};
 
 use tidex6_client::PrivatePool;
+use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::note::Denomination;
-use tidex6_core::pqc::PqcPublicKey;
 
 #[derive(Parser, Debug)]
 #[command(name = "sender", about = "Lena — private payroll sender (v2 stealth).")]
@@ -209,9 +209,9 @@ fn run_deposit(args: DepositArgs) -> Result<()> {
 }
 
 /// Parse an ML-KEM-768 public key from hex.
-fn parse_mlkem(input: &str) -> Result<PqcPublicKey> {
+fn parse_mlkem(input: &str) -> Result<ReaderAddress> {
     let bytes = hex::decode(input.trim()).context("decode ML-KEM public key hex")?;
-    PqcPublicKey::from_bytes(&bytes).map_err(|err| anyhow!("invalid ML-KEM public key: {err}"))
+    ReaderAddress::from_bytes(&bytes).map_err(|err| anyhow!("invalid ML-KEM public key: {err}"))
 }
 
 fn parse_denomination(input: &str) -> Result<Denomination> {
