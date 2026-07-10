@@ -294,18 +294,53 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             // платит сам), оставлен для обкатки/совместимости.
             if let Some(sig_str) = field_str(req, "payment_sig") {
                 use std::str::FromStr;
+                let sig_str = sig_str.trim().to_string();
                 let fee = config.fee_micro(amount);
                 let total = amount + fee;
+                // Anti-replay: один платёж = один депозит. Файл spent-payments
+                // хранит уже использованные sig; повтор — бесплатный депозит на
+                // ту же оплату. Money-критично.
+                let home = std::env::var("HOME").context("HOME")?;
+                let spent_path = format!("{home}/.tidex6-wusdc/spent-payments.txt");
+                let already = std::fs::read_to_string(&spent_path).unwrap_or_default();
+                if already.lines().any(|l| l.trim() == sig_str) {
+                    anyhow::bail!("this payment was already used for a deposit (replay rejected)");
+                }
                 let sig = solana_signature::Signature::from_str(&sig_str)
                     .context("payment_sig parse")?;
                 let mint: solana_pubkey::Pubkey =
                     ct::usdc_mint().parse().context("underlying mint")?;
-                pool::verify_token_payment(rpc, &sig, &payer.pubkey(), &mint, total)
-                    .await
-                    .context("verify payment")?;
+                // Отправитель = подключённый кошелёк; verify проверит, что платил
+                // именно он (не чужой перевод оператору).
+                let sender: solana_pubkey::Pubkey =
+                    wallet.parse().context("connected wallet pubkey")?;
+                // Депозит привязан к платежу через memo = commitment (anti-front-run).
+                let commitment_hex = field_str(req, "commitment").unwrap_or_default();
+                pool::verify_token_payment(
+                    rpc,
+                    &sig,
+                    &sender,
+                    &payer.pubkey(),
+                    &mint,
+                    total,
+                    &commitment_hex,
+                )
+                .await
+                .context("verify payment")?;
+                // Помечаем sig израсходованным СРАЗУ после verify (до wrap): даже
+                // если wrap ниже упадёт, оплата уже потрачена on-chain — повтор
+                // с тем же sig недопустим.
+                use std::io::Write as _;
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&spent_path)
+                {
+                    let _ = writeln!(f, "{sig_str}");
+                }
                 let _ = writeln!(
                     out,
-                    "payment verified: operator received {:.6} from the sender",
+                    "payment verified: {:.6} received from the connected wallet",
                     total as f64 / 1e6
                 );
             }

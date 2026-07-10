@@ -350,9 +350,11 @@ async fn fetch_and_parse_deposit(
 pub async fn verify_token_payment(
     rpc: &RpcClient,
     sig: &Signature,
+    sender: &Pubkey,
     operator: &Pubkey,
     mint: &Pubkey,
     expected_micro: u64,
+    expected_memo: &str,
 ) -> Result<()> {
     let cfg = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
@@ -379,23 +381,41 @@ pub async fn verify_token_payment(
         OptionSerializer::Some(v) => v,
         _ => bail!("payment tx has no token balances"),
     };
-    let op = operator.to_string();
     let mint_s = mint.to_string();
-    let bal = |v: &[UiTransactionTokenBalance]| -> u64 {
+    let bal_of = |v: &[UiTransactionTokenBalance], owner: &str| -> u64 {
         v.iter()
             .find(|b| {
-                matches!(&b.owner, OptionSerializer::Some(o) if *o == op) && b.mint == mint_s
+                matches!(&b.owner, OptionSerializer::Some(o) if o == owner) && b.mint == mint_s
             })
             .and_then(|b| b.ui_token_amount.amount.parse::<u64>().ok())
             .unwrap_or(0)
     };
-    let delta = bal(post).saturating_sub(bal(pre));
-    if delta < expected_micro {
+    let op = operator.to_string();
+    let snd = sender.to_string();
+    // Оператор реально получил >= expected по нужному минту.
+    let op_delta = bal_of(post, &op).saturating_sub(bal_of(pre, &op));
+    if op_delta < expected_micro {
         bail!(
             "payment too small: operator received {:.6}, expected {:.6}",
-            delta as f64 / 1e6,
+            op_delta as f64 / 1e6,
             expected_micro as f64 / 1e6
         );
+    }
+    // Source-check: перевод сделал ИМЕННО `sender` (его баланс упал на
+    // >= expected). Иначе чужой платёж оператору нельзя выдать за свою оплату.
+    let snd_spent = bal_of(pre, &snd).saturating_sub(bal_of(post, &snd));
+    if snd_spent < expected_micro {
+        bail!("payment did not come from the connected wallet");
+    }
+    // Anti-front-run: платёж привязан к ЭТОМУ депозиту через memo = commitment.
+    // Без этого атакующий возьмёт чужой (публичный) sig и подставит его к своему
+    // commitment раньше жертвы. SPL Memo пишет commitment в лог транзакции.
+    let logs: &[String] = match &meta.log_messages {
+        OptionSerializer::Some(l) => l,
+        _ => bail!("payment tx has no logs — memo binding required"),
+    };
+    if !logs.iter().any(|l| l.contains(expected_memo)) {
+        bail!("payment is not bound to this deposit (memo/commitment mismatch)");
     }
     Ok(())
 }
