@@ -68,9 +68,10 @@ pub fn mint_key(net: Network, asset: Asset) -> String {
 }
 
 fn default_mainnet_policy() -> String {
-    // cap_1 — mainnet включён, но каждая операция капится 1 токеном (демо/церемония).
+    // cap_5 — mainnet включён, каждая операция капится 5 токенами (демо/церемония;
+    // 5, а не 1, чтобы комиссия имела смысл и была одинаковой на тест-платежах).
     // "closed" оставлен как аварийный выключатель (правится в config.toml).
-    "cap_1".to_string()
+    "cap_5".to_string()
 }
 
 fn default_true() -> bool {
@@ -251,10 +252,13 @@ impl Config {
     pub fn mainnet_gate(&self, amount_micro: u64) -> Result<()> {
         match self.mainnet_policy.as_str() {
             "open" => Ok(()),
-            "cap_1" => {
-                if amount_micro > 1_000_000 {
+            // "cap_N" — до N токенов за операцию (cap_1, cap_5, cap_10, …).
+            s if s.starts_with("cap_") => {
+                let cap_tokens: u64 = s[4..].parse().unwrap_or(1);
+                let cap_micro = cap_tokens.saturating_mul(1_000_000);
+                if amount_micro > cap_micro {
                     anyhow::bail!(
-                        "Mainnet is capped at 1 token during the ceremony/demo (requested {}).",
+                        "Mainnet is capped at {cap_tokens} tokens during the ceremony/demo (requested {}).",
                         amount_micro as f64 / 1e6
                     );
                 }
@@ -262,7 +266,7 @@ impl Config {
             }
             // "closed" и любое неизвестное значение — строго закрыто.
             _ => anyhow::bail!(
-                "Mainnet is closed during the ceremony and demo — use devnet. (set mainnet_policy = \"cap_1\" or \"open\" to allow)"
+                "Mainnet is closed during the ceremony and demo — use devnet. (set mainnet_policy = \"cap_5\" or \"open\" to allow)"
             ),
         }
     }
