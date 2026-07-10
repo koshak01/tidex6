@@ -287,6 +287,28 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             let envelope = hex_bytes(&envelope).context("envelope: hex")?;
 
             let mut out = String::new();
+            // Продукт-модель: отправитель уже заплатил (amount + fee) оператору
+            // со своего кошелька (Phantom). Проверяем перевод по payment_sig
+            // ПЕРЕД wrap — иначе депозит был бы бесплатным (клиент прислал бы
+            // чужой/пустой sig). Без payment_sig — legacy demo-путь (оператор
+            // платит сам), оставлен для обкатки/совместимости.
+            if let Some(sig_str) = field_str(req, "payment_sig") {
+                use std::str::FromStr;
+                let fee = config.fee_micro(amount);
+                let total = amount + fee;
+                let sig = solana_signature::Signature::from_str(&sig_str)
+                    .context("payment_sig parse")?;
+                let mint: solana_pubkey::Pubkey =
+                    ct::usdc_mint().parse().context("underlying mint")?;
+                pool::verify_token_payment(rpc, &sig, &payer.pubkey(), &mint, total)
+                    .await
+                    .context("verify payment")?;
+                let _ = writeln!(
+                    out,
+                    "payment verified: operator received {:.6} from the sender",
+                    total as f64 / 1e6
+                );
+            }
             let _ = writeln!(out, "━━ wrap (confidential backing) ━━");
             out.push_str(&ct::wrap(rpc.clone(), payer, amount).await.context("wrap")?);
             let _ = writeln!(out, "\n━━ deposit (commitment + ML-KEM memo) ━━");

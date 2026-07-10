@@ -8,7 +8,7 @@
 
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::{AccountMeta, Instruction};
@@ -21,7 +21,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use solana_transaction_status_client_types::{
-    option_serializer::OptionSerializer, UiTransactionEncoding,
+    option_serializer::OptionSerializer, UiTransactionEncoding, UiTransactionTokenBalance,
 };
 
 const SYSTEM_PROGRAM_ID: &str = "11111111111111111111111111111111";
@@ -340,6 +340,64 @@ async fn fetch_and_parse_deposit(
         _ => return Ok(None),
     };
     Ok(parse_deposit_log(logs))
+}
+
+/// Проверяет, что транзакция `sig` увеличила token-баланс `operator` по минту
+/// `mint` минимум на `expected_micro` — доказательство, что отправитель реально
+/// заплатил оператору. Money-критично: без этой проверки продукт-депозит был бы
+/// бесплатным (клиент прислал бы чужой/пустой sig). Сравниваем pre/post
+/// token-balances транзакции по паре (owner, mint).
+pub async fn verify_token_payment(
+    rpc: &RpcClient,
+    sig: &Signature,
+    operator: &Pubkey,
+    mint: &Pubkey,
+    expected_micro: u64,
+) -> Result<()> {
+    let cfg = RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Json),
+        commitment: Some(CommitmentConfig::confirmed()),
+        max_supported_transaction_version: Some(0),
+    };
+    let tx = rpc
+        .get_transaction_with_config(sig, cfg)
+        .await
+        .context("get payment tx")?;
+    let meta = tx
+        .transaction
+        .meta
+        .as_ref()
+        .context("payment tx: no meta")?;
+    if meta.err.is_some() {
+        bail!("payment tx failed on-chain");
+    }
+    let pre: &[UiTransactionTokenBalance] = match &meta.pre_token_balances {
+        OptionSerializer::Some(v) => v,
+        _ => &[],
+    };
+    let post: &[UiTransactionTokenBalance] = match &meta.post_token_balances {
+        OptionSerializer::Some(v) => v,
+        _ => bail!("payment tx has no token balances"),
+    };
+    let op = operator.to_string();
+    let mint_s = mint.to_string();
+    let bal = |v: &[UiTransactionTokenBalance]| -> u64 {
+        v.iter()
+            .find(|b| {
+                matches!(&b.owner, OptionSerializer::Some(o) if *o == op) && b.mint == mint_s
+            })
+            .and_then(|b| b.ui_token_amount.amount.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    let delta = bal(post).saturating_sub(bal(pre));
+    if delta < expected_micro {
+        bail!(
+            "payment too small: operator received {:.6}, expected {:.6}",
+            delta as f64 / 1e6,
+            expected_micro as f64 / 1e6
+        );
+    }
+    Ok(())
 }
 
 /// Парсит `Program log: tidex6-wpool-deposit:<leaf>:<commitment_hex>:<root_hex>`.
