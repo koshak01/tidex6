@@ -297,15 +297,11 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 let sig_str = sig_str.trim().to_string();
                 let fee = config.fee_micro(amount);
                 let total = amount + fee;
-                // Anti-replay: один платёж = один депозит. Файл spent-payments
-                // хранит уже использованные sig; повтор — бесплатный депозит на
-                // ту же оплату. Money-критично.
-                let home = std::env::var("HOME").context("HOME")?;
-                let spent_path = format!("{home}/.tidex6-wusdc/spent-payments.txt");
-                let already = std::fs::read_to_string(&spent_path).unwrap_or_default();
-                if already.lines().any(|l| l.trim() == sig_str) {
-                    anyhow::bail!("this payment was already used for a deposit (replay rejected)");
-                }
+                // Commitment ОБЯЗАТЕЛЕН для memo-binding: пустой обошёл бы проверку
+                // привязки (пустая строка «содержится» в любом логе).
+                let commitment_hex = field_str(req, "commitment")
+                    .filter(|s| !s.trim().is_empty())
+                    .context("commitment required for payment binding")?;
                 let sig = solana_signature::Signature::from_str(&sig_str)
                     .context("payment_sig parse")?;
                 let mint: solana_pubkey::Pubkey =
@@ -314,9 +310,25 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 // именно он (не чужой перевод оператору).
                 let sender: solana_pubkey::Pubkey =
                     wallet.parse().context("connected wallet pubkey")?;
-                // Депозит привязан к платежу через memo = commitment (anti-front-run).
-                let commitment_hex = field_str(req, "commitment").unwrap_or_default();
-                pool::verify_token_payment(
+                // Anti-replay, TOCTOU-safe: атомарно застолбить sig через
+                // `create_new` lockfile ДО verify. Если файл уже есть — sig занят
+                // (повтор или параллельная гонка). Если verify упадёт — снимаем
+                // lock, чтобы валидный повтор с тем же sig был возможен.
+                let home = std::env::var("HOME").context("HOME")?;
+                let spent_dir = format!("{home}/.tidex6-wusdc/spent");
+                std::fs::create_dir_all(&spent_dir).ok();
+                let lock_path = format!("{spent_dir}/{sig_str}.used");
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&lock_path)
+                {
+                    Ok(_) => {}
+                    Err(_) => anyhow::bail!(
+                        "this payment was already used for a deposit (replay rejected)"
+                    ),
+                }
+                let verify = pool::verify_token_payment(
                     rpc,
                     &sig,
                     &sender,
@@ -325,19 +337,11 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                     total,
                     &commitment_hex,
                 )
-                .await
-                .context("verify payment")?;
-                // Помечаем sig израсходованным СРАЗУ после verify (до wrap): даже
-                // если wrap ниже упадёт, оплата уже потрачена on-chain — повтор
-                // с тем же sig недопустим.
-                use std::io::Write as _;
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&spent_path)
-                {
-                    let _ = writeln!(f, "{sig_str}");
+                .await;
+                if verify.is_err() {
+                    let _ = std::fs::remove_file(&lock_path);
                 }
+                verify.context("verify payment")?;
                 let _ = writeln!(
                     out,
                     "payment verified: {:.6} received from the connected wallet",

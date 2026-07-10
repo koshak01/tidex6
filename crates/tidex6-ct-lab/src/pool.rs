@@ -410,11 +410,20 @@ pub async fn verify_token_payment(
     // Anti-front-run: платёж привязан к ЭТОМУ депозиту через memo = commitment.
     // Без этого атакующий возьмёт чужой (публичный) sig и подставит его к своему
     // commitment раньше жертвы. SPL Memo пишет commitment в лог транзакции.
+    if expected_memo.is_empty() {
+        bail!("empty memo binding — commitment required");
+    }
     let logs: &[String] = match &meta.log_messages {
         OptionSerializer::Some(l) => l,
         _ => bail!("payment tx has no logs — memo binding required"),
     };
-    if !logs.iter().any(|l| l.contains(expected_memo)) {
+    // Строгий матч ИМЕННО по SPL Memo-логу с commitment в кавычках, а не сырой
+    // substring по всем логам (иначе commitment можно подсунуть в чужой лог).
+    let needle = format!("\"{expected_memo}\"");
+    if !logs
+        .iter()
+        .any(|l| l.starts_with("Program log: Memo") && l.contains(&needle))
+    {
         bail!("payment is not bound to this deposit (memo/commitment mismatch)");
     }
     Ok(())
