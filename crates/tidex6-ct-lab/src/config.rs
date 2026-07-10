@@ -46,6 +46,14 @@ pub struct Config {
     /// фоллбэк на реестр `tidex6-core::network` (дефолты).
     #[serde(default)]
     pub mints: HashMap<String, MintSet>,
+    /// Комиссия сервиса в basis points (100 = 1%, 0 = без комиссии). Настройка —
+    /// правится в config.toml без пересборки.
+    #[serde(default = "default_fee_bps")]
+    pub fee_bps: u16,
+    /// Минимальный размер комиссии в micro-токенах (floor), чтобы мелкие платежи
+    /// покрывали газ. 100000 = 0.1 токена.
+    #[serde(default = "default_fee_floor_micro")]
+    pub fee_floor_micro: u64,
 }
 
 /// Оверрайд минтов одного (сеть,актив): все три поля опциональны, незаданные
@@ -74,6 +82,14 @@ fn default_mainnet_policy() -> String {
     "cap_5".to_string()
 }
 
+fn default_fee_bps() -> u16 {
+    100 // 1%
+}
+
+fn default_fee_floor_micro() -> u64 {
+    100_000 // 0.1 токена
+}
+
 fn default_true() -> bool {
     true
 }
@@ -95,6 +111,8 @@ impl Default for Config {
             rpc_devnet: None,
             mainnet_policy: default_mainnet_policy(),
             mints: HashMap::new(),
+            fee_bps: default_fee_bps(),
+            fee_floor_micro: default_fee_floor_micro(),
         }
     }
 }
@@ -269,6 +287,15 @@ impl Config {
                 "Mainnet is closed during the ceremony and demo — use devnet. (set mainnet_policy = \"cap_5\" or \"open\" to allow)"
             ),
         }
+    }
+
+    /// Комиссия сервиса за операцию на сумму `amount_micro` (модель «сверху»:
+    /// отправитель платит amount + fee, получатель получает полную amount).
+    /// Процент от суммы (`fee_bps`) с полом `fee_floor_micro` — обе величины
+    /// настраиваются в config.toml без пересборки.
+    pub fn fee_micro(&self, amount_micro: u64) -> u64 {
+        let pct = (amount_micro as u128 * self.fee_bps as u128 / 10_000) as u64;
+        pct.max(self.fee_floor_micro)
     }
 
     /// RPC-оверрайд для сети (None → registry default_rpc).
