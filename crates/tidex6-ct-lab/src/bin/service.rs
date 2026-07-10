@@ -252,6 +252,20 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
         // Депозит из БРАУЗЕРА: нота+конверт сгенерены в табе (WASM), сюда
         // приходят готовыми (commitment + ML-KEM envelope). Сервер обёртывает
         // сумму в wUSDC (CT) и кладёт commitment+конверт в пул — ноту не хранит.
+        // Квота для продукт-депозита (юзер платит своими токенами): сколько
+        // отправитель платит (amount + fee), кому (operator ATA-owner) и каким
+        // underlying-минтом. Браузер по этой квоте строит Phantom-перевод.
+        "deposit_quote" => {
+            let amount = field_num(req, "amount").unwrap_or(1_000_000);
+            let fee = config.fee_micro(amount);
+            let total = amount + fee;
+            let underlying = ct::usdc_mint(); // active asset уже выставлен по чипу
+            Ok(format!(
+                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total}}}",
+                payer.pubkey(),
+                underlying
+            ))
+        }
         "deposit_browser" => {
             use std::fmt::Write as _;
             let amount = field_num(req, "amount").unwrap_or(1_000_000);

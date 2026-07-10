@@ -40,7 +40,7 @@ fn symbols() -> (&'static str, &'static str) {
 
 // Минты: сперва config-оверрайд (per-окружение, под оператора машины), иначе
 // дефолт из реестра tidex6-core::network.
-fn usdc_mint() -> String {
+pub fn usdc_mint() -> String {
     let net = crate::config::active_network();
     let asset = crate::config::active_asset();
     crate::config::mint_underlying(net, asset)
