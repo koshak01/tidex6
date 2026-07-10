@@ -130,6 +130,25 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     }
+    // Precheck: у оператора должен быть реальный underlying на ATA. Без этого
+    // transfer ниже падает непонятным InvalidAccountData — даём прямую причину
+    // (какой кошелёк, какой токен, сколько нужно), а не сырую RPC-ошибку.
+    match usdc.get_account_info(&payer_usdc).await {
+        Ok(acc) if acc.base.amount >= amount => {}
+        Ok(acc) => bail!(
+            "оператору {} не хватает {u}: на кошельке {:.6}, нужно {:.6}. \
+             Пополни оператор-кошелёк реальным {u} (mint {usdc_mint}).",
+            payer.pubkey(),
+            acc.base.amount as f64 / 1e6,
+            amount as f64 / 1e6,
+        ),
+        Err(_) => bail!(
+            "у оператора {} нет {u} — token-аккаунт не создан. \
+             Пополни оператор-кошелёк реальным {u} (mint {usdc_mint}), хотя бы {:.6}.",
+            payer.pubkey(),
+            amount as f64 / 1e6,
+        ),
+    }
     writeln!(out, "[1/3] transfer {u} → vault…")?;
     usdc.transfer(&payer_usdc, &vault_usdc, &payer.pubkey(), amount, &[payer])
         .await
