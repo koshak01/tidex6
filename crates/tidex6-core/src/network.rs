@@ -137,10 +137,11 @@ impl Network {
                 asset: Asset::Wusdc,
                 symbol: "wUSDC",
                 decimals: 6,
-                // Тестовый USDC (create_test_usdc, 2026-07-06).
-                underlying_mint: Some("5h1rPrDgYBk6tYrKt3jnso6qHK2B5YKueSALKpaY2rEi"),
-                // wUSDC Token-2022 CT (create_wusdc, 2026-07-06).
-                wrapped_mint: Some("8XZT4i3FXAUo4vNSBQF4g69WumtxgxaVEgj36VBJg7Tn"),
+                // Devnet test-USDC — синхронизировано с оператор-config.toml
+                // (источник истины: `[mints.devnet_wusdc]`, сверено 2026-07-15).
+                underlying_mint: Some("F9smufbnpSkW7tSxjEWzTaNnjBASJLCfXcpPyvACeUyr"),
+                // wUSDC Token-2022 CT-обёртка (config `wrapped`).
+                wrapped_mint: Some("396nGJn8DLuRBsT7pS7syop6BLqL6LfAoU4h7x1hbkEN"),
                 // Пул задеплоен на devnet по тому же адресу (2026-07-06,
                 // tx 5dFvpRAraE3g…). Пул сам верифицирует — verifier не нужен.
                 pool_program: Some("AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU"),
@@ -149,10 +150,11 @@ impl Network {
                 asset: Asset::Wusdt,
                 symbol: "wUSDT",
                 decimals: 6,
-                // Тестовый USDT (create_test_usdc usdt, 2026-07-06).
-                underlying_mint: Some("dPs6SKngzBC6Pdd8rPFAncH4q6z43KfLaVR5aRrAQQ5"),
-                // wUSDT Token-2022 CT (create_wusdc wusdt, 2026-07-06).
-                wrapped_mint: Some("2QRPbsXiLJLFU4LYbhfktwR6ifJVkqLy4xMC6aH6DTZZ"),
+                // Devnet test-USDT — синхронизировано с оператор-config.toml
+                // (источник истины: `[mints.devnet_wusdt]`, сверено 2026-07-15).
+                underlying_mint: Some("95LWdVc5WR5nB1GPuekXZq1siaJXpzeVV6TeuN488F9T"),
+                // wUSDT Token-2022 CT-обёртка (config `wrapped`).
+                wrapped_mint: Some("ELq1Hytw5Ujhyg5X2tQ4SswjoEPm4PnbATJCSJoK9Tf6"),
                 // Тот же program-id QGPY на devnet (деплой того же .so).
                 pool_program: Some("QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2"),
             }),
