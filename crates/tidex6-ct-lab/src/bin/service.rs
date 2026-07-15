@@ -287,6 +287,9 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             let envelope = hex_bytes(&envelope).context("envelope: hex")?;
 
             let mut out = String::new();
+            // Сколько комиссии реально удержано с оплаченного депозита (остаётся
+            // 0 в legacy demo-пути без payment_sig — там комиссии нет).
+            let mut collected_fee: u64 = 0;
             // Продукт-модель: отправитель уже заплатил (amount + fee) оператору
             // со своего кошелька (Phantom). Проверяем перевод по payment_sig
             // ПЕРЕД wrap — иначе депозит был бы бесплатным (клиент прислал бы
@@ -347,9 +350,37 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                     "payment verified: {:.6} received from the connected wallet",
                     total as f64 / 1e6
                 );
+                collected_fee = fee;
             }
+            // Приватный сбор комиссии (ADR-016 этап 4): если задан fee-collector
+            // и комиссия удержана — оборачиваем ВСЮ сумму (amount + fee) и кладём
+            // fee отдельной stealth-нотой оператору; иначе оборачиваем только
+            // amount, а комиссия остаётся в underlying-ATA оператора (этап 1).
+            let fee_collector = match config
+                .fee_collector_address
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                Some(hexs) if collected_fee > 0 => Some(
+                    tidex6_core::envelope::ReaderAddress::from_bytes(
+                        &hex_bytes(hexs).context("fee_collector_address: hex")?,
+                    )
+                    .map_err(|e| anyhow::anyhow!("fee_collector_address: {e}"))?,
+                ),
+                _ => None,
+            };
+            let wrap_amount = if fee_collector.is_some() {
+                amount + collected_fee
+            } else {
+                amount
+            };
             let _ = writeln!(out, "━━ wrap (confidential backing) ━━");
-            out.push_str(&ct::wrap(rpc.clone(), payer, amount).await.context("wrap")?);
+            out.push_str(
+                &ct::wrap(rpc.clone(), payer, wrap_amount)
+                    .await
+                    .context("wrap")?,
+            );
             let _ = writeln!(out, "\n━━ deposit (commitment + ML-KEM memo) ━━");
             let (sig, commit_hex) =
                 flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
@@ -360,6 +391,19 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 "deposit ok\ncommitment: {commit_hex}\nmemo: {} bytes\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}",
                 envelope.len()
             );
+            // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
+            if let Some(collector) = fee_collector {
+                let (fsig, fcommit) =
+                    flow::deposit_fee_note(rpc, payer, &collector, collected_fee, revoke)
+                        .await
+                        .context("fee note deposit")?;
+                let _ = writeln!(out, "\n━━ fee collected privately (stealth note) ━━");
+                let _ = writeln!(
+                    out,
+                    "fee note ok\ncommitment: {fcommit}\nfee: {:.6}\ntx: {fsig}",
+                    collected_fee as f64 / 1e6
+                );
+            }
             Ok(out)
         }
         // Публичный скан конвертов пула для /receive/ и /auditor/. Отдаёт

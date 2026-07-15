@@ -79,11 +79,42 @@ Two further requirements from the operator:
 
 ## Implementation stages
 
-1. Production deposit — browser user pays their own USDC (foundation).
-2. Fee-split on top (`Config::fee_micro`), recipient gets full amount.
-3. `fee_payer` sender / receiver selection.
-4. Fee as a private note to the operator (+ auditor slot).
-5. "Who pays" card + monetization copy on the site.
+0. `cap_N` generalization + `fee_bps` / `fee_floor_micro` config. **Done.**
+1. Production deposit — browser user pays their own USDC. **Done** (live on
+   mainnet + devnet, both stablecoins, verified 2026-07-15).
+2. Fee-split on top (`Config::fee_micro`), recipient gets full amount. **Done.**
+3. `fee_payer` sender / receiver selection. *Open* (sender-pays only for now).
+4. Fee as a private note to the operator. **Done 2026-07-15** (recipient slot;
+   auditor slot on the fee note is a follow-up).
+5. "Who pays" / monetization copy on the site. **Done** (per-transaction fee
+   described on the home page).
 
-`cap_N` generalization and the `fee_bps` / `fee_floor_micro` config are already
-in place (stage 0).
+## Stage 4 — how the private fee note works
+
+When `fee_collector_address` is set in `config.toml` (a hex `ReaderAddress` =
+`mlkem_pk ‖ x25519_pk`, produced by `tidex6 keygen print-mlkem-pk`), a paid
+deposit does **two** pool deposits instead of one:
+
+1. `ct::wrap(amount + fee)` — the operator wraps the **whole** paid sum (not just
+   `amount`), so the fee is inside the confidential pool, not left in the
+   operator's underlying ATA.
+2. `flow::deposit_browser(user_commitment, user_envelope)` — the recipient's note
+   for `amount` (unchanged; the browser built it).
+3. `flow::deposit_fee_note(collector, fee)` — a **fresh stealth note** for `fee`,
+   `secret`/`nullifier` generated server-side (this is the operator's own money,
+   not user self-custody), sealed with `envelope::build` into the operator's
+   recipient slot, `memo = "fee"`.
+
+On-chain the fee note is **indistinguishable** from any other deposit: another
+commitment leaf, amount hidden by Token-2022 CT, addressee hidden by the stealth
+envelope, same operator fee-payer as every deposit. Nobody can tell which leaf is
+a fee or that a fee exists.
+
+The operator **sweeps** the fees by scanning the pool with the fee-collector
+ML-KEM secret through the ordinary `/receive/` flow (or CLI) — the fee notes
+decrypt to spendable `secret`/`nullifier`, and a normal withdraw moves them to
+the operator's wallet.
+
+When `fee_collector_address` is empty the deposit keeps stage-1 behaviour
+(`wrap(amount)`, fee stays in the operator's underlying ATA, visible on-chain) —
+so the private collection is opt-in and backward-compatible.

@@ -54,6 +54,13 @@ pub struct Config {
     /// покрывали газ. 100000 = 0.1 токена.
     #[serde(default = "default_fee_floor_micro")]
     pub fee_floor_micro: u64,
+    /// Публичный ReaderAddress оператора-сборщика комиссии (hex `mlkem_pk ‖
+    /// x25519_pk`, из `tidex6 keygen print-mlkem-pk`). Задан → комиссия
+    /// собирается ПРИВАТНО отдельной stealth-нотой в пул (ADR-016 этап 4);
+    /// оператор потом сканирует пул своим ML-KEM secret и выводит. Пусто → fee
+    /// оседает открыто на underlying-ATA оператора (этап 1, обратная совместимость).
+    #[serde(default)]
+    pub fee_collector_address: Option<String>,
 }
 
 /// Оверрайд минтов одного (сеть,актив): все три поля опциональны, незаданные
@@ -113,6 +120,7 @@ impl Default for Config {
             mints: HashMap::new(),
             fee_bps: default_fee_bps(),
             fee_floor_micro: default_fee_floor_micro(),
+            fee_collector_address: None,
         }
     }
 }

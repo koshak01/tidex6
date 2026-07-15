@@ -20,6 +20,7 @@ use tidex6_circuits::solana_bytes::{groth16_to_solana_bytes, Groth16SolanaBytes}
 use tidex6_circuits::withdraw::{
     prove_withdraw, relayer_fee_bytes_from_u64, WithdrawWitness, WITHDRAW_TREE_DEPTH,
 };
+use tidex6_core::envelope::{self, ReaderAddress};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::{Commitment, Nullifier, Secret};
 
@@ -131,6 +132,35 @@ pub async fn deposit_browser(
         offset = end;
     }
     Ok((sig, hex(&commitment)))
+}
+
+/// Приватный сбор комиссии (ADR-016 этап 4): депонирует stealth-ноту на `fee`,
+/// адресованную `collector` в recipient-slot ML-KEM, в тот же пул. On-chain
+/// неотличима от обычного депозита — сумма скрыта (Token-2022 CT), адресат
+/// скрыт (stealth), memo = `"fee"` виден только сборщику. Сервер генерит ноту
+/// сам (это его комиссия, не self-custody пользователя). Оператор потом
+/// сканирует пул своим ML-KEM secret (тот же /receive/ flow) и выводит
+/// накопленные fee-ноты. Возвращает (sig, commitment-hex) как `deposit_browser`.
+pub async fn deposit_fee_note(
+    rpc: &RpcClient,
+    payer: &Keypair,
+    collector: &ReaderAddress,
+    fee_micro: u64,
+    revoke_window: i64,
+) -> Result<(String, String)> {
+    let secret = Secret::random().context("fee secret")?;
+    let nullifier = Nullifier::random().context("fee nullifier")?;
+    let commitment = Commitment::derive(&secret, &nullifier).context("fee commitment")?;
+    let envelope = envelope::build(
+        collector,
+        secret.as_bytes(),
+        nullifier.as_bytes(),
+        fee_micro,
+        b"fee",
+        &[],
+    )
+    .map_err(|e| anyhow!("fee envelope build: {e}"))?;
+    deposit_browser(rpc, payer, commitment.to_bytes(), &envelope, revoke_window).await
 }
 
 /// withdraw: реконструирует дерево из истории, строит Groth16-доказательство,
