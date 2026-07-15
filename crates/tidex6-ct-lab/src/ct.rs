@@ -252,36 +252,42 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
             ciphertext_lo: ciphertext_validity_proof_data_with_ciphertext.ciphertext_lo,
             ciphertext_hi: ciphertext_validity_proof_data_with_ciphertext.ciphertext_hi,
         };
-        wusdc
-            .confidential_transfer_mint(
-                &payer.pubkey(),
+        let payer_pk = payer.pubkey();
+        let eq_pk = eq.pubkey();
+        let range_pk = range.pubkey();
+        let mint_signers = [payer];
+        retry_blockhash("confidential mint", || {
+            wusdc.confidential_transfer_mint(
+                &payer_pk,
                 &owner_ata,
-                Some(&eq.pubkey()),
+                Some(&eq_pk),
                 Some(&val_ct),
-                Some(&range.pubkey()),
+                Some(&range_pk),
                 amount,
                 &supply_elgamal,
                 owner_elgamal.pubkey(),
                 None,
                 &mint_ae,
                 None,
-                &[payer],
+                &mint_signers,
             )
-            .await
-            .context("confidential mint")?;
+        })
+        .await?;
         close_ctxs(&wusdc, payer, &[&eq, &val, &range]).await?;
     }
-    wusdc
-        .confidential_transfer_apply_pending_balance(
+    let apply_payer_pk = payer.pubkey();
+    let apply_signers = [payer];
+    retry_blockhash("apply pending balance", || {
+        wusdc.confidential_transfer_apply_pending_balance(
             &owner_ata,
-            &payer.pubkey(),
+            &apply_payer_pk,
             None,
             owner_elgamal.secret(),
             &owner_ae,
-            &[payer],
+            &apply_signers,
         )
-        .await
-        .context("apply")?;
+    })
+    .await?;
 
     let vault_bal = usdc.get_account_info(&vault_usdc).await?.base.amount;
     writeln!(out, "\n══════ WRAP DONE ══════")?;
@@ -841,17 +847,51 @@ where
     bail!("create context: {last} (retries exhausted)")
 }
 
+/// Ретрай Token-операции при "Blockhash not found" (Helius балансирует ноды:
+/// blockhash берётся с одной, симуляция идёт на отстающей). До 5 попыток с
+/// паузой; каждая попытка берёт свежий blockhash. Только для операций,
+/// безопасных к повтору после неудачной СИМУЛЯЦИИ (on-chain состояние при
+/// simulate-fail не меняется).
+async fn retry_blockhash<T, E, F, Fut>(what: &str, mut op: F) -> Result<T>
+where
+    E: std::fmt::Display,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, E>>,
+{
+    let mut last = String::new();
+    for attempt in 0..5 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        }
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.to_lowercase().contains("blockhash") {
+                    last = msg;
+                    continue;
+                }
+                return Err(anyhow!("{what}: {msg}"));
+            }
+        }
+    }
+    bail!("{what}: {last} (retries exhausted)")
+}
+
 async fn close_ctxs(token: &TokenClient, payer: &Keypair, ctxs: &[&Keypair]) -> Result<()> {
+    let payer_pk = payer.pubkey();
+    let signers = [payer];
     for c in ctxs {
-        token
-            .confidential_transfer_close_context_state_account(
-                &c.pubkey(),
-                &payer.pubkey(),
-                &payer.pubkey(),
-                &[payer],
+        let c_pk = c.pubkey();
+        retry_blockhash("close context", || {
+            token.confidential_transfer_close_context_state_account(
+                &c_pk,
+                &payer_pk,
+                &payer_pk,
+                &signers,
             )
-            .await
-            .context("close context")?;
+        })
+        .await?;
     }
     Ok(())
 }
