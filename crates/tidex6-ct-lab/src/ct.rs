@@ -808,17 +808,37 @@ where
     ZK: bytemuck::Pod + solana_zk_elgamal_proof_interface::proof_data::ZkProofData<U>,
     U: bytemuck::Pod,
 {
-    token
-        .confidential_transfer_create_context_state_account(
-            &ctx.pubkey(),
-            &payer.pubkey(),
-            proof,
-            split,
-            &[ctx],
-        )
-        .await
-        .context("create context")?;
-    Ok(())
+    // Helius балансирует ноды: blockhash берётся с одной, симуляция идёт на
+    // отстающей → "Blockhash not found" (transient). Ретраим с паузой, чтобы
+    // взять свежий blockhash. Аккаунт-контекст не создаётся при неудачной
+    // симуляции, поэтому повтор безопасен.
+    let mut last = String::new();
+    for attempt in 0..5 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        }
+        match token
+            .confidential_transfer_create_context_state_account(
+                &ctx.pubkey(),
+                &payer.pubkey(),
+                proof,
+                split,
+                &[ctx],
+            )
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("Blockhash not found") || msg.to_lowercase().contains("blockhash") {
+                    last = msg;
+                    continue;
+                }
+                return Err(anyhow!(msg)).context("create context");
+            }
+        }
+    }
+    bail!("create context: {last} (retries exhausted)")
 }
 
 async fn close_ctxs(token: &TokenClient, payer: &Keypair, ctxs: &[&Keypair]) -> Result<()> {
