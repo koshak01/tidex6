@@ -23,6 +23,8 @@
 | [ADR-013](ADR-013-browser-side-proof-generation.md) | Browser-side proof generation via WebAssembly | Accepted |
 | [ADR-014](ADR-014-mlkem-memo-account.md) | Post-quantum ML-KEM memo in a dedicated account, new verifier | Accepted — mainnet CSDD31Zm…, supersedes ADR-012 for the new pool |
 | [ADR-015](ADR-015-confidential-amounts-two-layer.md) | Confidential amounts: CT-wrapped asset (wUSDC) + amount-in-circuit pool | Proposed |
+| [ADR-016](ADR-016-fee-monetization.md) | Fee monetization: sender-pays, fee-on-top, private-note collection | Accepted — live; private collection shipped 2026-07-17 |
+| [ADR-017](ADR-017-public-ceremony-finalization.md) | Public trusted-setup ceremony: beacon finalization + VK extraction | Accepted — collection half live, finalization pending |
 
 ## Format
 

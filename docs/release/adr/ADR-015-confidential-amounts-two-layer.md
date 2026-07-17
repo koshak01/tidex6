@@ -122,7 +122,7 @@ touched**. The amount-in-circuit change is therefore batched into the
 single new-verifier cycle together with the other circuit-level changes
 already queued (GAP-1 dev-VK fix via real multi-party ceremony, GAP-2
 recipient/relayer binding fix, on-chain auditor, 30-day revoke). The
-public ceremony (`ceremony.tidex6.com`, ADR forthcoming) freezes this
+public ceremony (`ceremony.tidex6.com`, ADR-017) freezes this
 final circuit and runs once. "Pay the migration once."
 
 ## Consequences
@@ -165,4 +165,4 @@ final circuit and runs once. "Pay the migration once."
    context-state txns + Groth16 withdraw) — measure before freezing.
 4. Ceremony scope freeze: exact final `WithdrawCircuit` (amount + revoke +
    on-chain auditor + binding fix) before contributions open — one circuit
-   for all use-cases (ADR forthcoming).
+   for all use-cases (ADR-017).
