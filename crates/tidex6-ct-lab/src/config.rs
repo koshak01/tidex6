@@ -61,6 +61,15 @@ pub struct Config {
     /// оседает открыто на underlying-ATA оператора (этап 1, обратная совместимость).
     #[serde(default)]
     pub fee_collector_address: Option<String>,
+    /// Pool-level ридер-аудиторы (regulated pool, ADR-007 v2 / v0.2): каждый —
+    /// hex ReaderAddress (`mlkem_pk‖x25519_pk` из `tidex6 keygen print-mlkem-pk`).
+    /// Их auditor-слоты добавляются в КАЖДЫЙ депозит пула (видят сумму + memo,
+    /// БЕЗ права траты — secret/nullifier в auditor-слот не кладутся). Регулятор /
+    /// биржа / бухгалтер читает пул, но не может заморозить или потратить. Пусто →
+    /// пул без обязательного аудитора («чёрный пул»). Не требует нового circuit/VK
+    /// — только offchain-шифрование. Слоган: «I grant access, not permission».
+    #[serde(default)]
+    pub pool_auditors: Vec<String>,
 }
 
 /// Оверрайд минтов одного (сеть,актив): все три поля опциональны, незаданные
@@ -121,6 +130,7 @@ impl Default for Config {
             fee_bps: default_fee_bps(),
             fee_floor_micro: default_fee_floor_micro(),
             fee_collector_address: None,
+            pool_auditors: Vec::new(),
         }
     }
 }

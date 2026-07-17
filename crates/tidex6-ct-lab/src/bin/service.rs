@@ -260,8 +260,18 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             let fee = config.fee_micro(amount);
             let total = amount + fee;
             let underlying = ct::usdc_mint(); // active asset уже выставлен по чипу
+            // Pool-level аудиторы (regulated pool): браузер добавит их auditor-
+            // слоты в envelope депозита, чтобы регулятор/биржа читали весь пул.
+            let auditors_json = config
+                .pool_auditors
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(",");
             Ok(format!(
-                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total}}}",
+                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total},\"pool_auditors\":[{auditors_json}]}}",
                 payer.pubkey(),
                 underlying
             ))
@@ -391,13 +401,37 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 "deposit ok\ncommitment: {commit_hex}\nmemo: {} bytes\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}",
                 envelope.len()
             );
+            // Pool-level аудиторы (regulated pool, ADR-007 v2): их auditor-слоты
+            // добавляются в fee-ноту — регулятор/биржа/бухгалтер видит income-
+            // леджер оператора (сумма+memo), но потратить или заморозить не может.
+            let pool_auditors: Vec<tidex6_core::envelope::ReaderAddress> = config
+                .pool_auditors
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    hex_bytes(s).context("pool_auditor: hex").and_then(|b| {
+                        tidex6_core::envelope::ReaderAddress::from_bytes(&b)
+                            .map_err(|e| anyhow::anyhow!("pool_auditor: {e}"))
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
             // Депозит пользователя уже on-chain, поэтому ошибку fee-ноты НЕ
             // пробрасываем: иначе успешный платёж вернул бы клиенту «fail». При
             // сбое комиссия остаётся в confidential-балансе оператора (wrap забрал
             // total) — не потеряна, соберётся позже; логируем для оператора.
             if let Some(collector) = fee_collector {
-                match flow::deposit_fee_note(rpc, payer, &collector, collected_fee, revoke).await {
+                match flow::deposit_fee_note(
+                    rpc,
+                    payer,
+                    &collector,
+                    collected_fee,
+                    revoke,
+                    &pool_auditors,
+                )
+                .await
+                {
                     Ok((fsig, fcommit)) => {
                         let _ = writeln!(out, "\n━━ fee collected privately (stealth note) ━━");
                         let _ = writeln!(

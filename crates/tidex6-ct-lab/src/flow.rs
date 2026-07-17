@@ -140,13 +140,16 @@ pub async fn deposit_browser(
 /// скрыт (stealth), memo = `"fee"` виден только сборщику. Сервер генерит ноту
 /// сам (это его комиссия, не self-custody пользователя). Оператор потом
 /// сканирует пул своим ML-KEM secret (тот же /receive/ flow) и выводит
-/// накопленные fee-ноты. Возвращает (sig, commitment-hex) как `deposit_browser`.
+/// накопленные fee-ноты. `auditors` — pool-level ридеры regulated-пула: их
+/// auditor-слоты видят сумму+memo комиссии (income-леджер оператора), но
+/// потратить не могут. Возвращает (sig, commitment-hex) как `deposit_browser`.
 pub async fn deposit_fee_note(
     rpc: &RpcClient,
     payer: &Keypair,
     collector: &ReaderAddress,
     fee_micro: u64,
     revoke_window: i64,
+    auditors: &[ReaderAddress],
 ) -> Result<(String, String)> {
     let secret = Secret::random().context("fee secret")?;
     let nullifier = Nullifier::random().context("fee nullifier")?;
@@ -157,7 +160,7 @@ pub async fn deposit_fee_note(
         nullifier.as_bytes(),
         fee_micro,
         b"fee",
-        &[],
+        auditors,
     )
     .map_err(|e| anyhow!("fee envelope build: {e}"))?;
     deposit_browser(rpc, payer, commitment.to_bytes(), &envelope, revoke_window).await
