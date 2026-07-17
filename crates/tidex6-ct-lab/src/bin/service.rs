@@ -392,17 +392,28 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 envelope.len()
             );
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
+            // Депозит пользователя уже on-chain, поэтому ошибку fee-ноты НЕ
+            // пробрасываем: иначе успешный платёж вернул бы клиенту «fail». При
+            // сбое комиссия остаётся в confidential-балансе оператора (wrap забрал
+            // total) — не потеряна, соберётся позже; логируем для оператора.
             if let Some(collector) = fee_collector {
-                let (fsig, fcommit) =
-                    flow::deposit_fee_note(rpc, payer, &collector, collected_fee, revoke)
-                        .await
-                        .context("fee note deposit")?;
-                let _ = writeln!(out, "\n━━ fee collected privately (stealth note) ━━");
-                let _ = writeln!(
-                    out,
-                    "fee note ok\ncommitment: {fcommit}\nfee: {:.6}\ntx: {fsig}",
-                    collected_fee as f64 / 1e6
-                );
+                match flow::deposit_fee_note(rpc, payer, &collector, collected_fee, revoke).await {
+                    Ok((fsig, fcommit)) => {
+                        let _ = writeln!(out, "\n━━ fee collected privately (stealth note) ━━");
+                        let _ = writeln!(
+                            out,
+                            "fee note ok\ncommitment: {fcommit}\nfee: {:.6}\ntx: {fsig}",
+                            collected_fee as f64 / 1e6
+                        );
+                    }
+                    Err(e) => {
+                        let _ = writeln!(
+                            out,
+                            "\n━━ fee note deferred (stays in operator confidential balance) ━━"
+                        );
+                        let _ = writeln!(out, "fee note failed (non-fatal): {e}");
+                    }
+                }
             }
             Ok(out)
         }
