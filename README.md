@@ -159,6 +159,7 @@ Public documentation lives in [`docs/release/`](docs/release/):
 - **[PROJECT_BRIEF.md](docs/release/PROJECT_BRIEF.md)** — technical brief: architecture, data flow, workspace layout, developer experience.
 - **[ROADMAP.md](docs/release/ROADMAP.md)** — now / next / later, shipping milestones.
 - **[security.md](docs/release/security.md)** — threat model, known limitations, vulnerability classes and mitigations.
+- **[CEREMONY.md](docs/release/CEREMONY.md)** — the public trusted-setup ceremony: how to contribute, how to verify the chain, how finalization works.
 - **[PR_CHECKLIST_PROOF_LOGIC.md](docs/release/PR_CHECKLIST_PROOF_LOGIC.md)** — Fiat-Shamir discipline checklist for every PR that touches proof logic.
 - **[adr/](docs/release/adr/)** — Architecture Decision Records (fourteen ADRs covering commitment scheme, Merkle tree storage, nullifier storage, ElGamal implementation, non-upgradeable verifier, builder pattern vs macros, killer features, pool isolation, proving time budget, memo transport, relayer architecture, opaque note format, browser-side proof generation, and post-quantum ML-KEM memo in a dedicated account).
 
