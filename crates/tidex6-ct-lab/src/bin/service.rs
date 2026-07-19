@@ -382,6 +382,24 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 ),
                 _ => None,
             };
+            // Pool-level аудиторы (regulated pool, ADR-007 v2): их auditor-слоты
+            // добавляются в fee-ноту — регулятор/биржа/бухгалтер видит income-
+            // леджер оператора (сумма+memo), но потратить или заморозить не может.
+            // Парсим ДО wrap/deposit: кривой hex в конфиге обязан упасть, пока
+            // деньги пользователя ещё не двинулись (иначе успешный on-chain
+            // депозит вернул бы клиенту «fail» — см. f6c1625).
+            let pool_auditors: Vec<tidex6_core::envelope::ReaderAddress> = config
+                .pool_auditors
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    hex_bytes(s).context("pool_auditor: hex").and_then(|b| {
+                        tidex6_core::envelope::ReaderAddress::from_bytes(&b)
+                            .map_err(|e| anyhow::anyhow!("pool_auditor: {e}"))
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             let wrap_amount = if fee_collector.is_some() {
                 amount + collected_fee
             } else {
@@ -403,21 +421,6 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 "deposit ok\ncommitment: {commit_hex}\nmemo: {} bytes\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}",
                 envelope.len()
             );
-            // Pool-level аудиторы (regulated pool, ADR-007 v2): их auditor-слоты
-            // добавляются в fee-ноту — регулятор/биржа/бухгалтер видит income-
-            // леджер оператора (сумма+memo), но потратить или заморозить не может.
-            let pool_auditors: Vec<tidex6_core::envelope::ReaderAddress> = config
-                .pool_auditors
-                .iter()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| {
-                    hex_bytes(s).context("pool_auditor: hex").and_then(|b| {
-                        tidex6_core::envelope::ReaderAddress::from_bytes(&b)
-                            .map_err(|e| anyhow::anyhow!("pool_auditor: {e}"))
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
             // Депозит пользователя уже on-chain, поэтому ошибку fee-ноты НЕ
             // пробрасываем: иначе успешный платёж вернул бы клиенту «fail». При
