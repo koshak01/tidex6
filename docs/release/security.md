@@ -26,6 +26,8 @@ It **does** cover:
 - The engineering process that catches the mistakes humans make when writing ZK code.
 - The vulnerability classes that have bitten similar systems and how we defend against them.
 
+Parts of the system that shipped after this document's original scope — the Token-2022 Confidential Transfers hidden-amount layer (ADR-015), the configurable fee with private stealth-note collection (ADR-016), and the public ceremony finalization pipeline (ADR-017) — are threat-modelled in their respective ADRs; a consolidated update of this document is planned alongside the ceremony finalization.
+
 ---
 
 ## 1. Known cryptographic limitations
@@ -51,7 +53,7 @@ The `arkworks-rs` ecosystem — which provides our Groth16 implementation, R1CS 
 
 > *"This repository contains an academic proof-of-concept prototype. NOT ready for production use."*
 
-Despite this disclaimer, `arkworks` is the de facto standard Rust ZK stack. Production systems across the ecosystem (Light Protocol, sp1-solana, multiple L2s) depend on it. The 15.5M+ cumulative downloads on `ark-ec` alone reflect this.
+Despite this disclaimer, `arkworks` is the de facto standard Rust ZK stack. Multiple production systems across the Rust/ZK ecosystem depend on it. The 15.5M+ cumulative downloads on `ark-ec` alone reflect this.
 
 **Our posture:**
 - We pin exact minor versions where compatibility is critical.
@@ -71,7 +73,7 @@ No production-ready Rust crate exists for ElGamal encryption on BN254. All major
 **Mitigations:**
 - The ElGamal implementation lives in `tidex6-core::elgamal` and is isolated from the consensus path. The privacy layer (Merkle tree, nullifiers, Groth16 verification) uses standard well-understood primitives. A bug in our ElGamal code can leak deposit metadata to the wrong party for users who opted into disclosure — but it cannot compromise the privacy of users who did not opt in, and it cannot enable theft.
 - The code is marked `unaudited` in the module documentation, in the README, and in this document.
-- Independent cryptographic audit is a precondition for mainnet deployment.
+- The legacy v1 pool shipped with this unaudited ElGamal isolated from the consensus path; the current pool seals envelopes with ML-KEM-768 + ChaCha20-Poly1305 (ADR-014). An independent cryptographic audit remains a v0.2 goal.
 - See [ADR-004](adr/ADR-004-elgamal-bn254.md) for the full rationale and the dual-curve design (BN254 G1 for onchain ElGamal, Baby Jubjub for in-circuit operations). ADR-004 is legacy v1 only; the current pool follows [ADR-014](adr/ADR-014-mlkem-memo-account.md).
 
 ### 1.4 Local Phase 2 trusted setup — DEVELOPMENT ONLY
@@ -82,13 +84,12 @@ The Groth16 proving system requires a trusted setup ceremony to generate proving
 - Phase 1 (the universal, circuit-independent half) is reused from an existing public ceremony. No new work required.
 - Phase 2 (circuit-specific) is run **locally by the developer** as a single-contributor ceremony. This is fast, practical, and gets the MVP shipped — but it means the toxic waste for MVP circuits was physically present on one machine, and security depends on that machine not being compromised.
 
-**The MVP circuits are marked `DEVELOPMENT ONLY — not for real funds` in code and in documentation.** The verifier deployed to devnet for MVP demonstration is acceptable for devnet; it is **not** acceptable for mainnet.
+**The MVP circuits are marked `DEVELOPMENT ONLY — not for real funds` in code and in documentation.** The current mainnet verifier ([`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd), immutable) still carries this single-contributor development VK — that is exactly why the DEVELOPMENT ONLY marking stays and why the deployment is honestly not suitable for securing real funds.
 
-**Post-MVP (v0.2 target):**
-- Public multi-contributor ceremony with 10–20 independent participants.
-- Random beacon finalization.
-- Public announcement, GitHub coordination, IPFS distribution of intermediate contributions.
-- The mainnet verifier uses keys from this public ceremony, not from the local MVP ceremony.
+**The replacement is in progress (ADR-017):**
+- A public multi-contributor ceremony is **live** at [ceremony.tidex6.com](https://ceremony.tidex6.com): browser contributions through our Rust prover compiled to WebAssembly, full MPC verification of every contribution, a publicly downloadable transcript ([/transcript/](https://ceremony.tidex6.com/transcript/log.json)) and a zero-trust `ceremony_verify` tool — see [CEREMONY.md](CEREMONY.md).
+- Finalization is a deterministic contribution seeded by a pre-announced drand beacon round; VK extraction from the frozen state is byte-reproducible.
+- A **new** verifier program carrying the ceremony VK will be deployed, source-verified, and finalized; pools migrate to it and the DEVELOPMENT ONLY markings drop only then.
 
 See [ADR-005](adr/ADR-005-non-upgradeable-verifier.md) for the interaction with the non-upgradeable verifier decision (once a verifier is deployed with specific keys, those keys cannot be swapped — a new ceremony means a new verifier program).
 
@@ -129,7 +130,7 @@ A secondary mitigation is the roadmap item to migrate to a stronger curve when S
 
 ### 2.4 Trusted setup compromise (HIGH, mainnet only)
 
-Covered in section 1.4. For MVP the trusted setup is explicitly marked DEVELOPMENT ONLY and the verifier runs on devnet only. For mainnet the risk is mitigated by the public multi-contributor ceremony planned for v0.2.
+Covered in section 1.4. The trusted setup is explicitly marked DEVELOPMENT ONLY, and the current mainnet verifier still carries the single-contributor development VK — which is why the deployment is not suitable for securing real funds. The mitigation is the public multi-contributor ceremony, now live at [ceremony.tidex6.com](https://ceremony.tidex6.com); its VK ships in a new immutable verifier once the ceremony finalizes.
 
 A secondary mitigation: even if the mainnet ceremony contributors are collectively compromised, an attacker who learns the toxic waste can forge proofs but cannot retroactively reveal the contents of past deposits. Privacy is preserved; only the soundness of the proof system is broken. This limits the damage to funds that are in the pool at the time of the attack.
 
@@ -160,7 +161,7 @@ If a user's viewing key is leaked, all past deposits encrypted under that key be
 
 ### 2.8 Anonymity set on day one (OPERATIONAL)
 
-A shielded pool is only as anonymous as the number of deposits it contains. On day one of MVP deployment, any one pool has zero deposits. Early users will withdraw from a pool containing a small number of commitments, and the anonymity they receive is correspondingly limited.
+A shielded pool is only as anonymous as the number of deposits it contains. A young or low-volume pool holds few commitments, and the anonymity early users receive is correspondingly limited. This is an ongoing operational property, not a one-time launch concern.
 
 **Mitigations and honesty:**
 - This is an inherent property of per-program pools and is acknowledged in the pitch and in the flagship example. See [ADR-008](adr/ADR-008-pool-isolation.md).
@@ -250,8 +251,8 @@ finished proof bytes.
 - Substitution of the served `.wasm` artefact by a network-level
   attacker who can also bypass TLS (state-level adversary). This
   is what Subresource Integrity (`integrity="sha384-..."`) on the
-  loading `<script>` is for; we plan to wire this in for the
-  Colosseum submission build.
+  loading `<script>` is for; wiring it in is a planned v0.2
+  hardening item (§4).
 - A compromised relayer that censors specific proofs. Relayer
   sees public proof bytes only — same trust model as the v0.1
   relayer flow without browser proving.
@@ -303,7 +304,7 @@ To make this document useful as a standalone read for auditors and grant reviewe
 - Our MVP trusted setup is a single-contributor ceremony marked DEVELOPMENT ONLY.
 - Our day-one anonymity set is small and we say so explicitly.
 - We guard against Fiat-Shamir transcript bugs with a dedicated checklist and two-reviewer policy, because this class of bug has bitten similar systems in the recent past.
-- We do not ship to mainnet without a public ceremony and a cryptographic audit.
+- The current mainnet deployment runs on that DEVELOPMENT-ONLY setup and we say so everywhere it matters; the live public ceremony ([ceremony.tidex6.com](https://ceremony.tidex6.com)) gates the next immutable verifier, and an independent cryptographic audit remains a prerequisite before we call the system fit for real funds.
 
 Everything else is in the ADRs and the [PROJECT_BRIEF.md](PROJECT_BRIEF.md).
 

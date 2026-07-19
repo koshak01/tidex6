@@ -6,12 +6,12 @@
 
 ---
 
-## Now — v0.1 MVP (Colosseum Frontier, May 11 2026)
+## Shipped — v0.1 MVP (Colosseum Frontier, May 11 2026)
 
 The minimum coherent system. Everything in this layer ships in working code, runs **live on Solana mainnet**, and is demonstrated end-to-end in one flagship example.
 
 ### Core protocol
-- Shielded pool with fixed denominations (0.1 / 1 / 10 SOL)
+- Shielded pool with fixed denominations (0.1 / 1 / 10 SOL) — the original v0.1 SOL pool
 - Groth16 verifier as a singleton, non-upgradeable Anchor program (CPI from integrator programs)
 - Deposit / Withdraw flow via Groth16 zero-knowledge proofs
 - Nullifier storage as one PDA per nullifier (anti double-spend)
@@ -64,6 +64,12 @@ The minimum coherent system. Everything in this layer ships in working code, run
 - **Fiat-Shamir discipline checklist** on every PR that touches proof logic
 - Two-reviewer policy on cryptographic changes
 
+### Shipped after MVP (June–July 2026)
+- **Two-layer privacy** (ADR-015): Token-2022 Confidential Transfers hidden-amount pools — wUSDC [`AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU`](https://solscan.io/account/AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU) and wUSDT [`QGPYpwyMe2xBTteFm3EBrHZZhVNuP8mZAvXjDm8QX2yh`](https://solscan.io/account/QGPYpwyMe2xBTteFm3EBrHZZhVNuP8mZAvXjDm8QX2yh) — live on **mainnet and devnet**. The Groth16 pool hides the *link*; confidential transfers hide the *amount*. Honest disclosure: the underlying stablecoin mints retain their issuers' `freeze_authority` — a property of the mint, not of tidex6.
+- **Configurable per-operation fee** (ADR-016): the sender pays it on top (it may be zero), the recipient receives the exact amount, the quote is shown before signing — and the fee is **collected privately**, as a stealth note to the operator inside the same shielded pool.
+- **Public trusted-setup ceremony infrastructure** (ADR-017), live at [ceremony.tidex6.com](https://ceremony.tidex6.com): browser contributions through our Rust prover compiled to WebAssembly (entropy never leaves the tab), full MPC verification per contribution, a public transcript anyone can download, a zero-trust `ceremony_verify` tool, and deterministic drand-beacon finalization + byte-reproducible VK extraction. The open step: gather contributions, finalize, and ship a fresh immutable verifier on the ceremony VK.
+- **Regulated-pools code** (ADR-007 v2): N pool-level auditor slots per deposit, config-driven — activation pending.
+
 ---
 
 ## Next — v0.2 (Q3 2026)
@@ -76,12 +82,9 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 - Ragequit mechanism — public withdrawal if a user declines disclosure
 - Compliance-compatible privacy without KYC
 
-### Stablecoin pools (USDT, USDC)
-- Per-asset deployment: a separate finalized verifier program for each mint, sharing the same circuit and crypto core (`tidex6-circuits` + `tidex6-core` unchanged)
-- **USDT first**, **USDC second** — driven by P2P liquidity in target regions (USDT dominates retail off-ramps in Eastern Europe, the Balkans, CIS, Southeast Asia; USDC dominates DeFi)
-- Pool family lets the user choose trust assumption: SOL pool (no third-party freeze risk), USDT pool (broadest stablecoin liquidity), USDC pool (DeFi-friendly)
-- Each pool is its own finalized, non-upgradeable program — independent of the current SOL verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`
-- Honest disclosure of `freeze_authority` risk for stablecoin pools in `security.md` — Circle and Tether retain the technical ability to freeze the pool ATA; this is a property of the underlying mint, not of tidex6
+### Stablecoin pools (USDT, USDC) — **shipped**, see above
+- Shipped in a stronger form than originally planned: instead of separate plain-token verifiers per mint, both stablecoins run as Token-2022 Confidential Transfers **hidden-amount** wrapped-mint pools (ADR-015) — the amount is hidden, not just the link
+- Pool family still lets the user choose trust assumption: SOL pool (no third-party freeze risk) vs stablecoin pools (broadest liquidity, issuer `freeze_authority` honestly disclosed)
 
 ### Regulated pools (multi-auditor viewing keys)
 - Extension of ADR-007 (Shielded Memo) from one auditor per deposit to **N pool-level auditors**, including optional regulator-class auditor
@@ -111,15 +114,13 @@ Built on top of the MVP. Each item is designed in MVP architecture and implement
 ### Auditor key lifecycle (forward secrecy via HD derivation)
 - BIP32-style hierarchical-deterministic auditor keys: fund publishes one Master Public Key + chain code; donors derive `epoch_pk = MPK + H(chain_code, epoch) · G` locally, fund derives the matching `epoch_sk = msk + H(chain_code, epoch)` only when the audit window opens
 - Math-grade isolation between epochs: leaking `epoch_sk_2026` exposes only 2026 deposits — `master_sk` and other epochs remain mathematically uncompromised, no key-destruction discipline required to bound the blast radius (epoch_sk leaks **cannot** be used to derive sibling epochs by the one-way property of the derivation hash)
-- Stack we already have: Poseidon hash + Baby Jubjub ECDH + AES-GCM. Zero new cryptographic primitives, no pairings, no academic-grade FSE/HIBE
+- Note: this HD-derivation math applies to the legacy v1 elliptic-curve envelope stack (Baby Jubjub ECDH + AES-GCM); the current pool seals envelopes with ML-KEM-768 (ADR-014), where key encapsulation does not support additive public-key derivation — the epoch-key design must be reworked for the ML-KEM stack before implementation
 - Backward-compatible: v0.1 single-key envelopes continue to decrypt unchanged; v0.2 introduces the derivation as an opt-in upgrade path
 - Bounds the v0.1 limit documented in `security.md` §3A: leak of an auditor secret no longer reveals "every past memo" — only the single epoch it was issued for
 
-### Public trusted setup ceremony
-- 10–20 independent contributors
-- Public coordination via GitHub and IPFS
-- Random beacon for finalization
-- Launched as a community event
+### Public trusted setup ceremony — **infrastructure shipped**, see above
+- Live at [ceremony.tidex6.com](https://ceremony.tidex6.com): browser Rust-WASM contributions, public transcript, zero-trust chain verification, drand-beacon finalization tooling
+- Remaining: gather 10–20+ independent contributions as a community event, announce the drand round, finalize, and deploy a fresh immutable verifier carrying the ceremony VK
 
 ### Additional examples
 *The reference `tidex6-tip-jar` CPI integration shipped in MVP. Next-tier examples:*
@@ -150,8 +151,8 @@ Strategic direction. Research and engineering bets that compound the MVP.
 - Requires a new circuit, new VK, new finalized verifier program (separate from v0.1 SOL verifier and v0.2 per-asset verifiers, all of which continue to operate)
 
 ### Variable denominations
-- Range proofs inside the deposit circuit
-- Pedersen commitments for amounts
+- Amount hiding is already live via the Token-2022 Confidential Transfers layer (see Shipped); this item now covers **in-circuit** amounts for the Groth16 pool itself
+- Range proofs inside the deposit circuit, Pedersen commitments for amounts
 - New circuit, new trusted setup
 
 ### Performance & UX
@@ -168,8 +169,8 @@ Strategic direction. Research and engineering bets that compound the MVP.
 
 ## What we will not do
 
-- No token. No ICO. No SaaS tier. No paid service.
-- No centralized operator. No protocol-level fees.
+- No token. No ICO. No SaaS tier.
+- The verifier primitive takes no fee and has no operator — it is a permissionless, immutable program anyone can integrate. Operated pool deployments may charge a configurable per-operation fee; ours is always shown before signing and may be zero.
 - No KYC.
 - No backdoor of any kind. No key escrow. No recovery service.
 
@@ -177,5 +178,5 @@ We are a public good. The protocol earns adoption by being useful. Anything else
 
 ---
 
-*tidex6.rs — I grant access, not permission.*
+*tidex6.com — I grant access, not permission.*
 *The Rust-native privacy framework for Solana.*
