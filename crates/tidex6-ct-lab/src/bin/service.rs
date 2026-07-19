@@ -292,7 +292,9 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             }
             let commitment = field_str(req, "commitment").context("missing commitment")?;
             let envelope = field_str(req, "envelope").context("missing envelope")?;
-            let revoke = field_num(req, "revoke_window").unwrap_or(600) as i64;
+            // Дефолт reclaim-окна = 12 часов (решение 2026-07-19): гарантия
+            // получателя; 600 с — только для ручных тестовых прогонов.
+            let revoke = field_num(req, "revoke_window").unwrap_or(43_200) as i64;
             let commitment = hex32(&commitment).context("commitment: 32-byte hex")?;
             let envelope = hex_bytes(&envelope).context("envelope: hex")?;
 
