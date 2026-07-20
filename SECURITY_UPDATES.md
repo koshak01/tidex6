@@ -7,6 +7,29 @@ low, so reviewers can see the project is continuously maintained.
 
 ---
 
+## 2026-07-20
+
+Three Dependabot alerts on the default branch (1 medium, 2 low). None touch
+the on-chain program, the circuits, the commitment scheme or the envelope
+encryption. The mainnet verifier
+`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` is immutable and was not
+redeployed.
+
+### Fixed
+
+| Crate | From | To | Severity | Practical impact |
+|---|---|---|---|---|
+| `serde_with` (panic on empty sequence / map entries in `KeyValueMap` serialization) | 3.18.0 | 3.21.0 | Medium | None observed. Pulled transitively through `anchor-client` → `solana-account-decoder` → `solana-vote-interface`; we never serialize a `KeyValueMap` ourselves, and vote-account decoding is not on any tidex6 path. Bumped anyway — it is a lockfile-only change with no API impact. `cargo check --workspace` clean afterwards. |
+
+### Acknowledged (not fixable by us)
+
+| Crate | Severity | Status |
+|---|---|---|
+| `atty` 0.2.14 (potential unaligned read) | Low | Transitive through `clap 2.34` ← `solana-clap-utils` ← `solana-cli-config` ← `spl-token-client`, in `tidex6-ct-lab` only. **The advisory has no patched version — `atty` is unmaintained.** Nothing we can bump; the fix has to come from the Solana SDK dropping `clap 2.x`. Practical impact for us is nil: `atty` is used for TTY detection in CLI output formatting, and our `ct-lab` deployment runs as a socket service with no terminal attached. |
+| `tracing-subscriber` 0.2.25 (log poisoning via ANSI escapes) | Low | Unchanged from the 2026-04-25 entry below — still pulled by `ark-relations 0.5.1`, still fixed on arkworks master but not released to crates.io. The reasoning for not pinning to git master (Fiat-Shamir transcript risk vs a Low-severity advisory we cannot trigger) stands as written there. |
+
+---
+
 ## 2026-04-25 — v2.5.7
 
 GitHub Dependabot raised nine alerts against `tidex6` and the sibling
