@@ -54,7 +54,7 @@
 
 ### Flagship примеры
 - `examples/private-payroll/` — полный сценарий с binaries `sender`, `receiver`, `accountant`
-- `programs/tidex6-tip-jar/` (развёрнут на mainnet [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)) — третья сторона Anchor-программа, использует `tidex6_verifier::deposit` через CPI. Демонстрация: любой Solana-протокол (DAO payroll, NFT royalty splitter, subscription) может подключить tidex6 как privacy primitive в ~30 строках Rust.
+- `programs/tidex6-tip-jar/` (развёрнут на mainnet и проверен OtterSec в апреле 2026, [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x); демо-деплой с тех пор закрыт — program data аккаунт закрыт, рента возвращена, программа больше не исполняется. Исходники и запись о верификации остались) — третья сторона Anchor-программа, использует `tidex6_verifier::deposit` через CPI. Демонстрация: любой Solana-протокол (DAO payroll, NFT royalty splitter, subscription) может подключить tidex6 как privacy primitive в ~30 строках Rust.
 
 ### Документация
 - Манифест, README с Quick Start, обзор архитектуры, security model, ADRs, этот roadmap
@@ -65,7 +65,7 @@
 - Two-reviewer policy на криптографические изменения
 
 ### Отгружено после MVP (июнь–июль 2026)
-- **Два слоя приватности** (ADR-015): hidden-amount пулы Token-2022 Confidential Transfers — wUSDC [`AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU`](https://solscan.io/account/AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU) и wUSDT [`QGPYpwyMe2xBTteFm3EBrHZZhVNuP8mZAvXjDm8QX2yh`](https://solscan.io/account/QGPYpwyMe2xBTteFm3EBrHZZhVNuP8mZAvXjDm8QX2yh) — live на **mainnet и devnet**. Groth16-пул прячет *связь*; confidential transfers прячут *сумму*. Честная оговорка: underlying-минты стейблкойнов сохраняют `freeze_authority` эмитента — свойство минта, а не tidex6.
+- **Два слоя приватности** (ADR-015): hidden-amount пулы Token-2022 Confidential Transfers — wUSDC [`AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU`](https://solscan.io/account/AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU) и wUSDT [`QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2`](https://solscan.io/account/QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2) — live на **mainnet и devnet**. Groth16-пул прячет *связь*; confidential transfers прячут *сумму*. Честная оговорка: underlying-минты стейблкойнов сохраняют `freeze_authority` эмитента — свойство минта, а не tidex6.
 - **Конфигурируемая комиссия за операцию** (ADR-016): отправитель платит сверху (может быть нулевой), получатель получает ровно сумму, котировка показывается до подписания — и комиссия **собирается приватно**, stealth-нотой оператору внутри того же shielded-пула.
 - **Инфраструктура публичной церемонии trusted setup** (ADR-017), live на [ceremony.tidex6.com](https://ceremony.tidex6.com): браузерные вклады через наш Rust-прувер в WebAssembly (энтропия не покидает вкладку), полная MPC-проверка каждого вклада, публичный транскрипт, zero-trust инструмент `ceremony_verify`, детерминированная drand-финализация + байт-воспроизводимое извлечение VK. Открытый шаг: собрать вклады, финализировать и задеплоить новый immutable-верификатор на церемониальном VK.
 - **Код regulated pools** (ADR-007 v2): N pool-level аудитор-слотов на депозит, через конфиг — активация впереди.

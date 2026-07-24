@@ -2,12 +2,12 @@
 
 ## Status
 
-tidex6 is **pre-audit** software under active development for the
-Colosseum Frontier hackathon (2026-05-11). The verifier program at
+tidex6 is **pre-audit** software under active development. The verifier program at
 [`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd)
-and the reference CPI example
+is live on Solana mainnet for end-to-end demonstration purposes only; the
+reference CPI example
 [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
-are live on Solana mainnet for end-to-end demonstration purposes only.
+was deployed in April 2026 and has since been closed.
 Everything in this repository is labelled **DEVELOPMENT ONLY** until a
 formal cryptographic audit and a multi-party Phase-2 trusted setup
 ceremony have been completed.

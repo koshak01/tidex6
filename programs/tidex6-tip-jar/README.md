@@ -4,7 +4,10 @@ Reference integration example: a third-party Anchor program that
 uses [`tidex6-verifier`](../tidex6-verifier/) as a **privacy
 primitive** via Cross-Program Invocation.
 
-**Live on Solana mainnet, OtterSec-verified** at
+**Deployed to Solana mainnet and OtterSec-verified in April 2026; the demo
+deployment has since been closed** — the program data account is closed and the
+rent reclaimed, so the program no longer executes. The source below and the
+verification record remain as the reference integration. Address was
 [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x)
 (latest deploy tx
 [`5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`](https://solscan.io/tx/5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP),
