@@ -26,8 +26,8 @@ use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::eq::EqGadget;
-use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::fields::FieldVar;
+use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_snark::SNARK;
@@ -103,10 +103,8 @@ impl ConstraintSynthesizer<Fr> for WithdrawCircuit {
             FpVar::<Fr>::new_input(cs.clone(), || self.amount_public.ok_or_else(missing))?;
 
         // 1. commitment = Poseidon(secret, nullifier, amount).
-        let commitment = poseidon_hash_n_var(
-            cs.clone(),
-            &[secret, nullifier.clone(), amount.clone()],
-        )?;
+        let commitment =
+            poseidon_hash_n_var(cs.clone(), &[secret, nullifier.clone(), amount.clone()])?;
 
         // 2. nullifier_hash = Poseidon(nullifier).
         let computed_nh = poseidon_hash_n_var(cs.clone(), std::slice::from_ref(&nullifier))?;

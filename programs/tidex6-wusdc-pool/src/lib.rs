@@ -16,8 +16,8 @@ mod pool;
 mod withdraw_vk;
 
 pub use pool::{
-    DepositEvent, MemoAccount, NullifierRecord, PoolState, RefundApproved, WithdrawApproved,
-    FIELD_ELEMENT_BYTES, ROOT_RING_SIZE, TREE_DEPTH,
+    DepositEvent, FIELD_ELEMENT_BYTES, MemoAccount, NullifierRecord, PoolState, ROOT_RING_SIZE,
+    RefundApproved, TREE_DEPTH, WithdrawApproved,
 };
 pub use withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
 
@@ -57,7 +57,13 @@ pub mod tidex6_wusdc_pool {
         revoke_window: i64,
         memo_chunk: Vec<u8>,
     ) -> Result<()> {
-        pool::handle_deposit(context, commitment, memo_total_len, revoke_window, memo_chunk)
+        pool::handle_deposit(
+            context,
+            commitment,
+            memo_total_len,
+            revoke_window,
+            memo_chunk,
+        )
     }
 
     /// Append the next chunk of the ML-KEM envelope.

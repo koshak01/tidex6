@@ -22,11 +22,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use anchor_client::Cluster;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use solana_keypair::{read_keypair_file, Keypair};
+use solana_keypair::{Keypair, read_keypair_file};
 
 use tidex6_client::PrivatePool;
 use tidex6_core::envelope::ReaderAddress;

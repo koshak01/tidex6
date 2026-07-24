@@ -45,8 +45,9 @@ fn main() {
 
     let genesis = CeremonyState::from_bytes(&fs::read(&genesis_path).expect("read genesis.state"))
         .expect("parse genesis.state");
-    let mut state = CeremonyState::from_bytes(&fs::read(&current_path).expect("read current.state"))
-        .expect("parse current.state");
+    let mut state =
+        CeremonyState::from_bytes(&fs::read(&current_path).expect("read current.state"))
+            .expect("parse current.state");
 
     let contributions_before = state.contributions.len();
     println!("ceremony: {contributions_before} human contribution(s) before finalization");
@@ -65,12 +66,18 @@ fn main() {
     let name = format!("drand-beacon-round-{round}");
     let contribution = contribute_state(&mut state, name.clone(), &mut rng);
     println!("applied beacon contribution: {name}");
-    println!("  delta_after (hex64): {}", short_hex(&contribution.delta_after));
+    println!(
+        "  delta_after (hex64): {}",
+        short_hex(&contribution.delta_after)
+    );
 
     // Sanity: the full chain (genesis → all human contributions → beacon) must
     // verify. If this fails we do NOT write final.state.
     match verify_chain(&genesis.pk, &state.pk, &state.contributions, &state.cs_hash) {
-        VerifyOutcome::Ok => println!("verify_chain: OK ({} contributions)", state.contributions.len()),
+        VerifyOutcome::Ok => println!(
+            "verify_chain: OK ({} contributions)",
+            state.contributions.len()
+        ),
         other => panic!("verify_chain FAILED after beacon: {other:?} — final.state NOT written"),
     }
 
@@ -97,5 +104,9 @@ fn short_hex<T: ark_serialize::CanonicalSerialize>(point: &T) -> String {
     let mut buf = Vec::new();
     point.serialize_uncompressed(&mut buf).expect("serialize");
     let n = buf.len();
-    format!("{}…{}", hex::encode(&buf[..8.min(n)]), hex::encode(&buf[n.saturating_sub(8)..]))
+    format!(
+        "{}…{}",
+        hex::encode(&buf[..8.min(n)]),
+        hex::encode(&buf[n.saturating_sub(8)..])
+    )
 }

@@ -20,7 +20,10 @@ use tidex6_circuits::solana_bytes::groth16_to_solana_bytes;
 use tidex6_circuits::withdraw::{prepare_verifying_key, verify_withdraw_proof};
 
 fn main() {
-    let dir = format!("{}/work/rust/tidex6/_ceremony", std::env::var("HOME").unwrap());
+    let dir = format!(
+        "{}/work/rust/tidex6/_ceremony",
+        std::env::var("HOME").unwrap()
+    );
     let vk_json: Value = read_json(&format!("{dir}/vk.json"));
     let proof_json: Value = read_json(&format!("{dir}/proof.json"));
     let public_json: Value = read_json(&format!("{dir}/public.json"));
@@ -62,14 +65,25 @@ fn main() {
     // ── ГЕЙТ: верификация НАШИМ путём (arkworks) ───────────────────────
     let pvk = prepare_verifying_key(&vk);
     let ok = verify_withdraw_proof(&pvk, &proof, &public_arr).expect("verify");
-    println!("arkworks verify (ceremony vk + ceremony proof): {}", if ok { "OK" } else { "FAIL" });
-    assert!(ok, "ceremony proof must verify under arkworks with the converted VK");
+    println!(
+        "arkworks verify (ceremony vk + ceremony proof): {}",
+        if ok { "OK" } else { "FAIL" }
+    );
+    assert!(
+        ok,
+        "ceremony proof must verify under arkworks with the converted VK"
+    );
 
     // ── groth16-solana байты VK (для on-chain верификатора) ────────────
     let sb = groth16_to_solana_bytes(&proof, &vk).expect("solana bytes");
-    println!("solana VK: alpha_g1={}B beta_g2={}B gamma_g2={}B delta_g2={}B ic={}×64B",
-        sb.vk_alpha_g1.len(), sb.vk_beta_g2.len(), sb.vk_gamma_g2.len(),
-        sb.vk_delta_g2.len(), sb.vk_ic.len());
+    println!(
+        "solana VK: alpha_g1={}B beta_g2={}B gamma_g2={}B delta_g2={}B ic={}×64B",
+        sb.vk_alpha_g1.len(),
+        sb.vk_beta_g2.len(),
+        sb.vk_gamma_g2.len(),
+        sb.vk_delta_g2.len(),
+        sb.vk_ic.len()
+    );
 
     // Сохранить VK-байты как JSON (hex) — источник для верификатора.
     let out = serde_json::json!({
@@ -83,7 +97,9 @@ fn main() {
     let path = format!("{dir}/../crates/tidex6-circuits/artifacts/withdraw_vk_ceremony.json");
     std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).expect("write vk");
     println!("wrote {path}");
-    println!("\nПЕТЛЯ ЗАКРЫТА: церемониальный VK верифицирует наш proof и конвертируется в solana-байты.");
+    println!(
+        "\nПЕТЛЯ ЗАКРЫТА: церемониальный VK верифицирует наш proof и конвертируется в solana-байты."
+    );
 }
 
 fn read_json(path: &str) -> Value {

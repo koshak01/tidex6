@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 use ark_bn254::Bn254;
 use ark_groth16::{ProvingKey, VerifyingKey};
 use ark_serialize::CanonicalSerialize;
-use ark_std::rand::rngs::StdRng;
 use ark_std::rand::SeedableRng;
-use tidex6_circuits::solana_bytes::{groth16_to_solana_bytes, Groth16SolanaBytes};
+use ark_std::rand::rngs::StdRng;
+use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
 use tidex6_confidential::{transfer, withdraw};
 
 /// Fixed seeds (ASCII-мнемоника). Смена seed / схемы / arkworks-версии

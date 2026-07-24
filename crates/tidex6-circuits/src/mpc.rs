@@ -50,14 +50,19 @@ impl CeremonyState {
     /// Стартовое состояние из setup-параметров (contributions пусты).
     pub fn genesis(pk: ProvingKey<Bn254>) -> Self {
         let cs_hash = cs_hash(&pk);
-        Self { cs_hash, pk, contributions: Vec::new() }
+        Self {
+            cs_hash,
+            pk,
+            contributions: Vec::new(),
+        }
     }
 
     /// Uncompressed — чтобы браузер не платил за decompress ~24k точек
     /// (безопасность даёт `verify_chain` на сервере, не десериализация).
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.serialize_uncompressed(&mut buf).expect("serialize CeremonyState");
+        self.serialize_uncompressed(&mut buf)
+            .expect("serialize CeremonyState");
         buf
     }
 
@@ -132,7 +137,13 @@ pub fn contribute_state<R: RngCore + CryptoRng>(
     name: impl Into<String>,
     rng: &mut R,
 ) -> Contribution {
-    let c = contribute(&mut state.pk, &state.contributions, &state.cs_hash, name, rng);
+    let c = contribute(
+        &mut state.pk,
+        &state.contributions,
+        &state.cs_hash,
+        name,
+        rng,
+    );
     state.contributions.push(c.clone());
     c
 }
@@ -249,8 +260,12 @@ fn check_query_scale(
         return true;
     }
     let coeffs = fiat_shamir_coeffs(cur_q);
-    let r_init = G1Projective::msm(init_q, &coeffs).expect("msm").into_affine();
-    let r_cur = G1Projective::msm(cur_q, &coeffs).expect("msm").into_affine();
+    let r_init = G1Projective::msm(init_q, &coeffs)
+        .expect("msm")
+        .into_affine();
+    let r_cur = G1Projective::msm(cur_q, &coeffs)
+        .expect("msm")
+        .into_affine();
     // e(r_cur, delta_cur_g2) == e(r_init, delta_init_g2)
     Bn254::pairing(r_cur, current.vk.delta_g2) == Bn254::pairing(r_init, initial.vk.delta_g2)
 }

@@ -13,7 +13,10 @@ use tidex6_circuits::ceremony::selftest_zkey;
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| {
-        format!("{}/work/rust/tidex6/_ceremony/withdraw_0002.zkey", std::env::var("HOME").unwrap())
+        format!(
+            "{}/work/rust/tidex6/_ceremony/withdraw_0002.zkey",
+            std::env::var("HOME").unwrap()
+        )
     });
     println!("reading {path}");
 

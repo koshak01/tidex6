@@ -72,8 +72,7 @@ fn main() {
     println!("  vk_ic length    = {}", bytes.vk_ic.len());
     println!("  nr_public_input = {}", bytes.vk_ic.len() - 1);
 
-    let out_path =
-        find_workspace_root().join("programs/tidex6-verifier/src/withdraw_vk.rs");
+    let out_path = find_workspace_root().join("programs/tidex6-verifier/src/withdraw_vk.rs");
     let source = render_vk_source(&bytes, CEREMONY_HEADER);
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent).expect("create verifier src dir");

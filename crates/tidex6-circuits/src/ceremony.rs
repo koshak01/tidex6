@@ -20,8 +20,8 @@ use thiserror::Error;
 
 use crate::circom_qap::CircomReduction;
 use crate::solana_bytes::Groth16SolanaBytes;
-use crate::withdraw::{WithdrawCircuit, WITHDRAW_TREE_DEPTH};
-use crate::zkey::{read_zkey_pk, ZkeyError};
+use crate::withdraw::{WITHDRAW_TREE_DEPTH, WithdrawCircuit};
+use crate::zkey::{ZkeyError, read_zkey_pk};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::{Commitment, Nullifier, Secret};
 
@@ -46,7 +46,10 @@ pub enum SelftestError {
 ///
 /// `seed` фиксирует RNG прувера — это ЛИШЬ функциональный self-test (не
 /// production-proof), zero-knowledge здесь не требуется.
-pub fn selftest_zkey<R: Read + Seek>(reader: &mut R, seed: u64) -> Result<VerifyingKey<Bn254>, SelftestError> {
+pub fn selftest_zkey<R: Read + Seek>(
+    reader: &mut R,
+    seed: u64,
+) -> Result<VerifyingKey<Bn254>, SelftestError> {
     let pk = read_zkey_pk(reader)?;
     selftest_pk(&pk, seed)
 }
@@ -66,8 +69,11 @@ pub fn selftest_pk(
         .derive_hash()
         .map_err(|e| SelftestError::Core(e.to_string()))?;
     let mut tree = MerkleTree::new(DEPTH).map_err(|e| SelftestError::Core(e.to_string()))?;
-    tree.insert(commitment).map_err(|e| SelftestError::Core(e.to_string()))?;
-    let merkle_proof = tree.proof(0).map_err(|e| SelftestError::Core(e.to_string()))?;
+    tree.insert(commitment)
+        .map_err(|e| SelftestError::Core(e.to_string()))?;
+    let merkle_proof = tree
+        .proof(0)
+        .map_err(|e| SelftestError::Core(e.to_string()))?;
     let merkle_root = tree.root();
 
     let recipient_bytes = [0x11u8; 32];
@@ -103,10 +109,16 @@ pub fn selftest_pk(
     };
 
     let mut rng = StdRng::seed_from_u64(seed);
-    let proof = Groth16::<Bn254, CircomReduction>::prove(&pk, circuit, &mut rng)
+    let proof = Groth16::<Bn254, CircomReduction>::prove(pk, circuit, &mut rng)
         .map_err(|e| SelftestError::Prove(e.to_string()))?;
 
-    let public = [merkle_root_fr, nullifier_hash_fr, recipient_fr, relayer_fr, fee_fr];
+    let public = [
+        merkle_root_fr,
+        nullifier_hash_fr,
+        recipient_fr,
+        relayer_fr,
+        fee_fr,
+    ];
     let ok = Groth16::<Bn254>::verify(&pk.vk, &public, &proof)
         .map_err(|e| SelftestError::Verify(e.to_string()))?;
     if !ok {

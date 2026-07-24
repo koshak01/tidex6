@@ -376,7 +376,8 @@ mod tests {
             ),
             "Program 77CwxmFdDaFpKHXTjR5fHVpUJ36DmhnfBNBzn8dXKo42 consumed 42 CU".to_string(),
         ];
-        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX).expect("legacy deposit log must parse");
+        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX)
+            .expect("legacy deposit log must parse");
         assert_eq!(parsed.leaf_index, 7);
         assert_eq!(parsed.commitment, [0xaa; 32]);
         assert_eq!(parsed.root, [0xbb; 32]);
@@ -399,7 +400,8 @@ mod tests {
             "b".repeat(64),
             memo_hex,
         )];
-        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX).expect("v2 deposit log must parse");
+        let parsed = parse_deposit_log(&logs, PoolIndexer::DEFAULT_DEPOSIT_PREFIX)
+            .expect("v2 deposit log must parse");
         assert_eq!(parsed.leaf_index, 3);
         let decoded = BASE64
             .decode(parsed.memo_base64.expect("memo must be present"))

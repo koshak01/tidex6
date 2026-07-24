@@ -16,7 +16,7 @@ use std::io::Write;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
-use tidex6_circuits::withdraw::{WithdrawCircuit, WITHDRAW_TREE_DEPTH};
+use tidex6_circuits::withdraw::{WITHDRAW_TREE_DEPTH, WithdrawCircuit};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::{Commitment, Nullifier, Secret};
 

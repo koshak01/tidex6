@@ -44,7 +44,12 @@ struct Section {
 /// Прочитать snarkjs zkey в arkworks `ProvingKey<Bn254>`.
 pub fn read_zkey_pk<R: Read + Seek>(reader: &mut R) -> Result<ProvingKey<Bn254>> {
     let sections = read_section_table(reader)?;
-    let get = |id: u32| sections.get(&id).and_then(|v| v.first()).ok_or(ZkeyError::MissingSection(id));
+    let get = |id: u32| {
+        sections
+            .get(&id)
+            .and_then(|v| v.first())
+            .ok_or(ZkeyError::MissingSection(id))
+    };
 
     // ── Section 2: header + vk-точки ───────────────────────────────────
     reader.seek(SeekFrom::Start(get(2)?.position))?;
@@ -103,7 +108,12 @@ pub fn read_zkey_pk<R: Read + Seek>(reader: &mut R) -> Result<ProvingKey<Bn254>>
 /// лишь секции 2 и 3.
 pub fn read_zkey_vk<R: Read + Seek>(reader: &mut R) -> Result<VerifyingKey<Bn254>> {
     let sections = read_section_table(reader)?;
-    let get = |id: u32| sections.get(&id).and_then(|v| v.first()).ok_or(ZkeyError::MissingSection(id));
+    let get = |id: u32| {
+        sections
+            .get(&id)
+            .and_then(|v| v.first())
+            .ok_or(ZkeyError::MissingSection(id))
+    };
 
     reader.seek(SeekFrom::Start(get(2)?.position))?;
     let _n8q = read_u32(reader)?;
@@ -149,7 +159,10 @@ fn read_section_table<R: Read + Seek>(reader: &mut R) -> Result<HashMap<u32, Vec
         let id = read_u32(reader)?;
         let size = read_u64(reader)?;
         let position = reader.stream_position()?;
-        sections.entry(id).or_default().push(Section { position, size });
+        sections
+            .entry(id)
+            .or_default()
+            .push(Section { position, size });
         reader.seek(SeekFrom::Current(size as i64))?;
     }
     Ok(sections)

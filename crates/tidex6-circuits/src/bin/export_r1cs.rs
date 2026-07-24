@@ -13,7 +13,7 @@ use std::io::Write;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisMode};
-use tidex6_circuits::withdraw::{WithdrawCircuit, WITHDRAW_TREE_DEPTH};
+use tidex6_circuits::withdraw::{WITHDRAW_TREE_DEPTH, WithdrawCircuit};
 
 fn main() {
     // Shape-схема (все входы None) в Setup-режиме → матрицы без witness.
@@ -83,8 +83,7 @@ fn main() {
     write_section(&mut out, 3, &wire2label);
 
     let home = std::env::var("HOME").unwrap();
-    let path =
-        format!("{home}/work/rust/tidex6/crates/tidex6-circuits/artifacts/withdraw.r1cs");
+    let path = format!("{home}/work/rust/tidex6/crates/tidex6-circuits/artifacts/withdraw.r1cs");
     let mut f = std::fs::File::create(&path).expect("create r1cs");
     f.write_all(&out).expect("write r1cs");
     println!("wrote {} ({} bytes)", path, out.len());

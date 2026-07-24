@@ -13,16 +13,16 @@
 //! `0` = irrevocable): if the note is never withdrawn within it, the
 //! depositor can `refund`.
 
+use anchor_client::Instruction;
 use anchor_client::anchor_lang::prelude::Pubkey;
 use anchor_client::anchor_lang::system_program;
-use anchor_client::Instruction;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use solana_keypair::Keypair;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_rpc_client_api::config::RpcTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::UiTransactionEncoding;
+use solana_transaction_status::option_serializer::OptionSerializer;
 
 use tidex6_core::envelope::{self, ReaderAddress};
 use tidex6_core::memo::validate_memo_charset;
@@ -125,9 +125,9 @@ impl<'a> DepositBuilder<'a> {
             .ok_or_else(|| anyhow!("deposit requires .to_recipient(ml_kem_pubkey)"))?;
 
         if let Some(ref text) = self.memo_plaintext {
-            validate_memo_charset(text).with_context(|| {
-                "memo contains an unsupported character (Latin + Cyrillic only)"
-            })?;
+            validate_memo_charset(text).with_context(
+                || "memo contains an unsupported character (Latin + Cyrillic only)",
+            )?;
         }
         let memo_bytes: Vec<u8> = self
             .memo_plaintext

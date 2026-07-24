@@ -16,7 +16,7 @@
 
 use anchor_lang::prelude::*;
 use groth16_solana::groth16::Groth16Verifier;
-use solana_poseidon::{hashv, Endianness, Parameters};
+use solana_poseidon::{Endianness, Parameters, hashv};
 
 use crate::withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
 use crate::{AppendMemo, Deposit, InitPool, Refund, Tidex6VerifierError, Withdraw};
@@ -218,7 +218,10 @@ pub fn handle_deposit(
 
 pub fn handle_append_memo(ctx: Context<AppendMemo>, offset: u32, chunk: Vec<u8>) -> Result<()> {
     let memo = &mut ctx.accounts.memo;
-    require!(!memo.is_finalized, Tidex6VerifierError::MemoAlreadyFinalized);
+    require!(
+        !memo.is_finalized,
+        Tidex6VerifierError::MemoAlreadyFinalized
+    );
     require!(
         offset == memo.written_len,
         Tidex6VerifierError::MemoOffsetMismatch

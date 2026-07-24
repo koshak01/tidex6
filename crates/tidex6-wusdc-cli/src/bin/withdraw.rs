@@ -66,9 +66,11 @@ fn main() -> Result<()> {
             my_leaf = Some(idx);
         }
     }
-    let leaf_index =
-        my_leaf.ok_or_else(|| anyhow!("commitment ноты не найден в истории пула"))?;
-    println!("депозитов в пуле: {}, наш лист: {leaf_index}", history.len());
+    let leaf_index = my_leaf.ok_or_else(|| anyhow!("commitment ноты не найден в истории пула"))?;
+    println!(
+        "депозитов в пуле: {}, наш лист: {leaf_index}",
+        history.len()
+    );
     let proof = tree.proof(leaf_index).context("proof")?;
     let merkle_root = proof.root.to_bytes();
     let sibling_arrays: Vec<[u8; 32]> = proof.siblings.iter().map(|c| c.to_bytes()).collect();
@@ -172,15 +174,17 @@ fn main() -> Result<()> {
     // Несёт только (recipient, amount) — ту же информацию, что мувер и так
     // увидел бы из on-chain события. Депозитора здесь нет: связь скрыта
     // Groth16-слоем, мувер её не знает.
-    let payout_path =
-        write_payout_request(&recipient.pubkey().to_string(), &nh_hex8, amount_micro)
-            .context("payout-запрос")?;
+    let payout_path = write_payout_request(&recipient.pubkey().to_string(), &nh_hex8, amount_micro)
+        .context("payout-запрос")?;
 
     println!("\n═══ WITHDRAW ПОДТВЕРЖДЁН ═══");
     println!("tx:       {sig}");
     println!("Solscan:  https://solscan.io/tx/{sig}");
     println!("получатель (свежий): {}", recipient.pubkey());
-    println!("payout:   {payout_path} ({} wUSDC)", amount_micro as f64 / 1e6);
+    println!(
+        "payout:   {payout_path} ({} wUSDC)",
+        amount_micro as f64 / 1e6
+    );
     println!("\nСвязь разорвана: на цепи не видно, что этот withdraw — из того депозита.");
     println!("Дальше: configure_recipient → mover выплатит wUSDC получателю.");
     Ok(())
@@ -194,7 +198,9 @@ fn parse_amount_field(note: &str) -> Option<u64> {
     let needle = "\"amount\": ";
     let start = note.find(needle)? + needle.len();
     let rest = &note[start..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 

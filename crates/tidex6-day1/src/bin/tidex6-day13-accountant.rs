@@ -20,8 +20,8 @@
 use std::collections::HashSet;
 
 use anchor_client::{Cluster, Signer};
-use anyhow::{anyhow, Context, Result};
-use solana_keypair::{read_keypair_file, Keypair};
+use anyhow::{Context, Result, anyhow};
+use solana_keypair::{Keypair, read_keypair_file};
 
 use tidex6_client::{AccountantScanner, PrivatePool};
 use tidex6_core::note::Denomination;

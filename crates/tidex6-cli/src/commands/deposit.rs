@@ -9,14 +9,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::Args;
 
 use tidex6_client::PrivatePool;
 use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::note::Denomination;
 
-use crate::commands::keygen::{parse_mlkem_pk, resolve_output_path, IdentityFile};
+use crate::commands::keygen::{IdentityFile, parse_mlkem_pk, resolve_output_path};
 use crate::common::{detect_cluster, explorer_url, load_default_keypair};
 
 /// Arguments for `tidex6 deposit`.

@@ -52,7 +52,10 @@ fn main() {
         eprintln!("FAIL: genesis cs_hash does not match its proving key — corrupted genesis");
         std::process::exit(1);
     }
-    println!("genesis cs_hash: {} (self-consistent)", hex::encode(&genesis.cs_hash[..16]));
+    println!(
+        "genesis cs_hash: {} (self-consistent)",
+        hex::encode(&genesis.cs_hash[..16])
+    );
 
     // 2. Same circuit: the downloaded state must reference the same setup.
     if state.cs_hash != genesis.cs_hash {

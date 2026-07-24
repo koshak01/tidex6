@@ -14,7 +14,7 @@
 //! делегируем их в `LibsnarkReduction` ради полноты трейта.
 
 use ark_ff::PrimeField;
-use ark_groth16::r1cs_to_qap::{evaluate_constraint, LibsnarkReduction, R1CSToQAP};
+use ark_groth16::r1cs_to_qap::{LibsnarkReduction, R1CSToQAP, evaluate_constraint};
 use ark_poly::EvaluationDomain;
 use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError,
@@ -38,8 +38,8 @@ impl R1CSToQAP for CircomReduction {
         full_assignment: &[F],
     ) -> R1CSResult<Vec<F>> {
         let zero = F::zero();
-        let domain = D::new(num_constraints + num_inputs)
-            .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+        let domain =
+            D::new(num_constraints + num_inputs).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let domain_size = domain.size();
 
         let mut a = vec![zero; domain_size];
@@ -69,8 +69,8 @@ impl R1CSToQAP for CircomReduction {
         // Сдвиг на корень 2n-го порядка (домен вдвое больше) — «нечётный» coset.
         let root_of_unity = {
             let domain_size_double = 2 * domain_size;
-            let domain_double = D::new(domain_size_double)
-                .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+            let domain_double =
+                D::new(domain_size_double).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
             domain_double.element(1)
         };
         D::distribute_powers_and_mul_by_const(&mut a, root_of_unity, F::one());

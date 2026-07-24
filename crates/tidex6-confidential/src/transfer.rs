@@ -23,8 +23,8 @@ use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::eq::EqGadget;
-use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::fields::FieldVar;
+use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_snark::SNARK;
@@ -32,7 +32,7 @@ use ark_std::rand::{CryptoRng, RngCore};
 use tidex6_circuits::poseidon_gadget::{poseidon_hash_n_var, poseidon_hash_pair_var};
 
 use crate::bytes::fr_from_u64;
-use crate::withdraw::{note_commitment, nullifier_hash, AMOUNT_BITS, POOL_TREE_DEPTH};
+use crate::withdraw::{AMOUNT_BITS, POOL_TREE_DEPTH, note_commitment, nullifier_hash};
 
 /// Число публичных входов transfer-схемы.
 pub const TRANSFER_NR_PUBLIC_INPUTS: usize = 4;

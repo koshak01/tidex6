@@ -10,9 +10,9 @@ use rand::rngs::StdRng;
 use rand::{RngCore, SeedableRng};
 use tidex6_confidential::bytes::fr_to_be_bytes;
 use tidex6_confidential::onchain::verify_onchain_compat;
-use tidex6_confidential::transfer::{self, TransferWitness, TRANSFER_NR_PUBLIC_INPUTS};
+use tidex6_confidential::transfer::{self, TRANSFER_NR_PUBLIC_INPUTS, TransferWitness};
 use tidex6_confidential::withdraw::{
-    self, note_commitment, WithdrawWitness, POOL_TREE_DEPTH, WITHDRAW_NR_PUBLIC_INPUTS,
+    self, POOL_TREE_DEPTH, WITHDRAW_NR_PUBLIC_INPUTS, WithdrawWitness, note_commitment,
 };
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::Commitment;

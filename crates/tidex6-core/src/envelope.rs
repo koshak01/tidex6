@@ -32,8 +32,8 @@
 //! yours". The reader's X25519 secret is derived from its ML-KEM secret, so the
 //! user keeps a single secret; the X25519 public key rides in the address.
 
-use rand::rngs::SysRng;
 use rand::TryRng;
+use rand::rngs::SysRng;
 use thiserror::Error;
 
 use crate::pqc::{self, PqcError, PqcPublicKey, PqcSecretKey};
@@ -59,6 +59,10 @@ const AUDITOR_PREFIX_LEN: usize = 8;
 
 /// Per-slot header: `kind(1) ‖ x25519_eph(32) ‖ view_tag(1) ‖ len(2)`.
 const SLOT_HEADER_LEN: usize = 1 + X25519_PK_LEN + 1 + 2;
+
+/// One parsed slot borrowed from the envelope buffer:
+/// `(kind, x25519_eph, view_tag, sealed_slot_bytes)`.
+type ParsedSlot<'a> = (u8, [u8; X25519_PK_LEN], u8, &'a [u8]);
 
 /// A reader's public address (recipient or auditor): an ML-KEM public key to
 /// decrypt the slot + an X25519 public key for the cheap view-tag. This is the
@@ -319,9 +323,7 @@ pub fn open_as_auditor(
 }
 
 /// Split the container into `(kind, x25519_eph, view_tag, sealed_slot_bytes)`.
-fn parse_slots(
-    envelope: &[u8],
-) -> Result<Vec<(u8, [u8; X25519_PK_LEN], u8, &[u8])>, EnvelopeError> {
+fn parse_slots(envelope: &[u8]) -> Result<Vec<ParsedSlot<'_>>, EnvelopeError> {
     if envelope.len() < 2 {
         return Err(EnvelopeError::Truncated);
     }
@@ -382,9 +384,11 @@ mod tests {
         let (rcpt, _) = reader();
         let (_, foreign_sk) = reader();
         let env = build(&rcpt, &[1u8; FIELD_LEN], &[2u8; FIELD_LEN], 5, b"x", &[]).expect("build");
-        assert!(open_as_recipient(&env, &foreign_sk)
-            .expect("open")
-            .is_none());
+        assert!(
+            open_as_recipient(&env, &foreign_sk)
+                .expect("open")
+                .is_none()
+        );
     }
 
     #[test]

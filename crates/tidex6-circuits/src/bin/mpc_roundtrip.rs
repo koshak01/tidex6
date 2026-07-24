@@ -12,7 +12,7 @@ use ark_ec::AffineRepr;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::rngs::StdRng;
 use tidex6_circuits::ceremony::selftest_pk;
-use tidex6_circuits::mpc::{contribute, cs_hash, verify_chain, VerifyOutcome};
+use tidex6_circuits::mpc::{VerifyOutcome, contribute, cs_hash, verify_chain};
 use tidex6_circuits::zkey::read_zkey_pk;
 
 fn main() {
@@ -31,7 +31,13 @@ fn main() {
 
     let c1 = contribute(&mut current, &[], &cs, "Alice", &mut rng);
     println!("contribution #1 (Alice) applied");
-    let c2 = contribute(&mut current, std::slice::from_ref(&c1), &cs, "Bob", &mut rng);
+    let c2 = contribute(
+        &mut current,
+        std::slice::from_ref(&c1),
+        &cs,
+        "Bob",
+        &mut rng,
+    );
     println!("contribution #2 (Bob) applied");
 
     let contributions = vec![c1.clone(), c2.clone()];
