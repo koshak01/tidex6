@@ -196,13 +196,19 @@ pub mod tidex6_confidential_amounts {
         );
 
         // Vault owned нашей программой → можем дёргать лампорты
-        // напрямую без system_program::transfer.
-        **vault_info.try_borrow_mut_lamports()? -= amount_lamports;
-        **ctx
-            .accounts
-            .owner
-            .to_account_info()
-            .try_borrow_mut_lamports()? += amount_lamports;
+        // напрямую без system_program::transfer. checked_* — sentio SW005:
+        // сырые +/- на лампортах молча переполняются в release.
+        let owner_info = ctx.accounts.owner.to_account_info();
+        let vault_after = vault_info
+            .lamports()
+            .checked_sub(amount_lamports)
+            .ok_or(ConfidentialError::VaultInsufficient)?;
+        let owner_after = owner_info
+            .lamports()
+            .checked_add(amount_lamports)
+            .ok_or(ConfidentialError::LamportOverflow)?;
+        **vault_info.try_borrow_mut_lamports()? = vault_after;
+        **owner_info.try_borrow_mut_lamports()? = owner_after;
 
         let account = &mut ctx.accounts.account;
         account.commitment = new_commitment;
@@ -383,6 +389,8 @@ pub enum ConfidentialError {
     ZeroAmount,
     #[msg("vault does not hold enough lamports for this withdrawal")]
     VaultInsufficient,
+    #[msg("lamport arithmetic overflow")]
+    LamportOverflow,
 }
 
 // ─────────────────────────────────────────────────────────────
