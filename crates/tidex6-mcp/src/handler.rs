@@ -358,9 +358,11 @@ impl Tidex6Mcp {
         let id = self
             .create_pay_request(
                 &recipient.address_hex,
+                &recipient_wallet,
                 req.amount.slug(),
                 memo.as_deref(),
                 auditor.as_ref().map(|a| a.address_hex.as_str()),
+                auditor_wallet.as_ref(),
             )
             .await?;
         let url = format!("{base}/pay/?r={id}", base = self.pay_base_url);
@@ -438,18 +440,28 @@ impl Tidex6Mcp {
     /// Everything sent here is public: the recipient's published key, the
     /// denomination, the memo. The note and its secret do not exist yet — they
     /// are created in the browser when the human opens the link.
+    #[allow(clippy::too_many_arguments)]
     async fn create_pay_request(
         &self,
         recipient: &str,
+        recipient_wallet: &Pubkey,
         amount_slug: &str,
         memo: Option<&str>,
         auditor: Option<&str>,
+        auditor_wallet: Option<&Pubkey>,
     ) -> Result<String, McpError> {
+        // The wallet addresses travel alongside the resolved keys purely so the
+        // signing page can show a person what they already recognise. Whoever is
+        // being paid is identified by their wallet everywhere else in this
+        // product; a confirmation screen showing 2432 characters of ML-KEM key
+        // instead would undo exactly that.
         let body = serde_json::json!({
             "recipient": recipient,
+            "recipient_wallet": recipient_wallet.to_string(),
             "amount": amount_slug,
             "memo": memo.unwrap_or(""),
             "auditor": auditor.unwrap_or(""),
+            "auditor_wallet": auditor_wallet.map(|w| w.to_string()).unwrap_or_default(),
             "network": self.network(),
         });
 

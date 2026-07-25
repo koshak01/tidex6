@@ -342,6 +342,31 @@ async fn fetch_and_parse_deposit(
     Ok(parse_deposit_log(logs))
 }
 
+/// Переводит «RPC не нашёл транзакцию» в фразу, которую можно показать человеку.
+///
+/// `getTransaction` отвечает `null`, когда транзакции на цепи нет, а клиент
+/// разбирает этот `null` в структуру и падает с
+/// `invalid type: null, expected struct EncodedConfirmedTransactionWithStatusMeta`.
+/// Пользователь получал ровно эту строку — внутренности десериализатора вместо
+/// объяснения. Причина при этом штатная и понятная: подпись есть, потому что
+/// кошелёк подписал, а транзакция не долетела (истёк blockhash, оборвалась
+/// связь). Денег в этом случае не списано, и повторить платёж безопасно.
+fn absent_payment_tx(sig: &Signature, err: impl std::fmt::Display) -> anyhow::Error {
+    let text = err.to_string();
+    let is_absent = text.contains("invalid type: null")
+        || text.contains("Transaction not found")
+        || text.contains("not found");
+    if is_absent {
+        anyhow::anyhow!(
+            "payment transaction {sig} is not on chain — it was signed but never landed \
+             (an expired blockhash or a dropped connection). Nothing was charged; \
+             start the payment again."
+        )
+    } else {
+        anyhow::anyhow!("get payment tx: {text}")
+    }
+}
+
 /// Проверяет, что транзакция `sig` увеличила token-баланс `operator` по минту
 /// `mint` минимум на `expected_micro` — доказательство, что отправитель реально
 /// заплатил оператору. Money-критично: без этой проверки продукт-депозит был бы
@@ -364,7 +389,7 @@ pub async fn verify_token_payment(
     let tx = rpc
         .get_transaction_with_config(sig, cfg)
         .await
-        .context("get payment tx")?;
+        .map_err(|e| absent_payment_tx(sig, e))?;
     let meta = tx
         .transaction
         .meta
