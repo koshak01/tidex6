@@ -88,6 +88,25 @@ cannot reveal even the fact of registration: findable by those given the salt,
 invisible to everyone else, same cost. Not the default, because it reintroduces
 an out-of-band exchange — the very thing this ADR removes.
 
+### Human-readable names: rejected, permanently
+
+An obvious extension is to let a wallet claim a short name — `@petr` instead of
+`7xK9…mP2` — and sell those names. It is rejected, and not deferred.
+
+A name introduces ambiguity where there was none. `@petr` versus `@petr1`
+versus `@реtr` with a Cyrillic е that renders identically: the payer cannot tell
+by looking which one is right, and a homograph is indistinguishable from the
+real thing at a glance. This is not hypothetical — it is how money is stolen in
+every naming system that has ever shipped, ENS included.
+
+A wallet address has no near-misses. It either matches or it does not, and the
+person paying can verify it by comparison rather than by trust. For a system
+whose entire proposition is that you know exactly who you are paying and who can
+read it, trading that certainty for convenience would undo the product.
+
+The registry therefore keys on wallet addresses only, and any future monetisation
+must not be built on naming.
+
 ### Consequences for the API
 
 `payment_request` takes **wallet addresses**, not reader keys:

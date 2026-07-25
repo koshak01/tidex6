@@ -13,6 +13,7 @@ tidex6-core = { path = "../tidex6-core" }
 tidex6-circuits = { path = "../tidex6-circuits" }
 tidex6-indexer = { path = "../tidex6-indexer" }
 tidex6-verifier-v2 = { path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
+tidex6-registry = { path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
 
 anchor-client = { workspace = true }
 anyhow = { workspace = true }

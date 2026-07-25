@@ -534,7 +534,7 @@ impl PrivatePool {
 
 /// Convert an Anchor-built [`Instruction`] into a browser-rebuildable
 /// recipe. `data` is already borsh bytes; we only hex-encode it.
-fn ix_to_recipe(ix: &Instruction) -> IxRecipe {
+pub(crate) fn ix_to_recipe(ix: &Instruction) -> IxRecipe {
     IxRecipe {
         program_id: ix.program_id.to_string(),
         accounts: ix

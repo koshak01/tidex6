@@ -5146,6 +5146,7 @@ dependencies = [
  "tidex6-circuits",
  "tidex6-core",
  "tidex6-indexer",
+ "tidex6-registry",
  "tidex6-verifier-v2",
 ]
 

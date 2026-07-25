@@ -71,12 +71,17 @@ pub mod accountant;
 pub mod deposit;
 pub mod pool;
 pub mod refund;
+pub mod registry;
 pub mod withdraw;
 
 pub use accountant::{AccountantEntry, AccountantScanner, RecipientEntry, RecipientScanner};
 pub use deposit::{DepositBuilder, DepositOutcome, DepositPlan, IxAccount, IxRecipe};
 pub use pool::PrivatePool;
 pub use refund::RefundBuilder;
+pub use registry::{
+    RegisterPlan, RegisteredReader, build_close_plan, build_register_plan, entry_pda, lookup,
+    lookup_many,
+};
 pub use withdraw::{
     DEFAULT_RELAYER_PUBKEY_BASE58, DEFAULT_RELAYER_URL, WithdrawBuilder, WithdrawOutcome,
 };
