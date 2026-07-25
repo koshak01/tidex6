@@ -1,0 +1,30 @@
+[package]
+name = "tidex6-registry"
+description = "Reader registry (ADR-019): maps a Solana wallet address to the ML-KEM reader address that wallet has published, so a sender needs to know nothing but the recipient's ordinary wallet address. Holds public keys only — a lock, never a key. Touches no funds and has authority over nothing."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "tidex6_registry"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "1.0.2"
+# security_txt! embeds project metadata into a section of the .so so
+# explorers and the OtterSec verifier pick it up automatically.
+solana-security-txt = "1.1"
+
+[lints]
+workspace = true

@@ -5315,6 +5315,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-registry"
+version = "2.5.20"
+dependencies = [
+ "anchor-lang",
+ "solana-security-txt",
+]
+
+[[package]]
 name = "tidex6-tip-jar"
 version = "2.5.20"
 dependencies = [

@@ -26,6 +26,7 @@
 | [ADR-016](ADR-016-fee-monetization.md) | Fee monetization: sender-pays, fee-on-top, private-note collection | Accepted — live; private collection shipped 2026-07-17 |
 | [ADR-017](ADR-017-public-ceremony-finalization.md) | Public trusted-setup ceremony: beacon finalization + VK extraction | Accepted — collection half live, finalization pending |
 | [ADR-018](ADR-018-mcp-server-agent-access.md) | MCP server: agents get capability, never keys — T1 custody, keys derived from wallet signatures | Accepted — in progress |
+| [ADR-019](ADR-019-on-chain-reader-registry.md) | On-chain reader registry: a wallet address is all anyone needs to know | Accepted — in progress |
 
 ## Format
 
