@@ -5292,11 +5292,13 @@ name = "tidex6-mcp"
 version = "2.5.20"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "reqwest",
  "rmcp",
  "schemars",
  "serde",
  "serde_json",
+ "solana-pubkey 3.0.0",
  "thiserror 2.0.18",
  "tidex6-client",
  "tidex6-core",

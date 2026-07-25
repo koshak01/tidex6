@@ -17,6 +17,7 @@ use tracing_subscriber::EnvFilter;
 
 mod handler;
 mod quote;
+mod registry;
 
 use crate::handler::Tidex6Mcp;
 
