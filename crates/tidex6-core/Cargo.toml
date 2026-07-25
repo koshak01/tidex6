@@ -46,7 +46,10 @@ rand = { version = "0.10", default-features = false, features = ["std", "std_rng
 # Baby Jubjub ECDH auditor path with a quantum-resistant envelope.
 # Both crates pin the older rand_core (0.6) via `aead::OsRng`, kept
 # separate from the crate's rand 0.10 to avoid a RngCore trait clash.
-ml-kem = "0.2"
+# `deterministic` открывает generate_deterministic(d, z) — вывод ML-KEM-пары
+# из 64 байт вместо OS-энтропии. Нужен, чтобы личность выводилась из подписи
+# кошелька и её не приходилось нигде хранить (ADR-018 §3).
+ml-kem = { version = "0.2", features = ["deterministic"] }
 chacha20poly1305 = "0.10"
 
 # X25519 view-tag over the ML-KEM envelope (roadmap A4): a cheap classical

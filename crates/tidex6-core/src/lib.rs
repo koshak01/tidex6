@@ -22,6 +22,7 @@
 
 pub mod elgamal;
 pub mod envelope;
+pub mod identity;
 pub mod keys;
 pub mod memo;
 pub mod merkle;

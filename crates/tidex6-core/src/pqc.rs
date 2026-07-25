@@ -158,6 +158,30 @@ pub fn keygen() -> (PqcPublicKey, PqcSecretKey) {
     )
 }
 
+/// Derive an ML-KEM-768 keypair deterministically from 64 bytes of seed.
+///
+/// FIPS 203 keygen takes two 32-byte values, `d` and `z`; given the same pair
+/// it always returns the same keypair. That is what lets a reader's identity be
+/// *derived* rather than stored: the seed comes from a wallet signature
+/// (ADR-018 §3), so there is no key file to back up, lose or leak — reconnect
+/// the wallet on any machine and the same keys reappear.
+///
+/// The caller is responsible for the seed being unpredictable and
+/// domain-separated. Feeding this a low-entropy or reused seed produces keys
+/// someone else can reproduce.
+pub fn keygen_from_seed(seed: &[u8; 64]) -> (PqcPublicKey, PqcSecretKey) {
+    let d = Array::<u8, ml_kem::array::typenum::U32>::try_from(&seed[..32])
+        .expect("32-byte slice of a 64-byte seed");
+    let z = Array::<u8, ml_kem::array::typenum::U32>::try_from(&seed[32..])
+        .expect("32-byte slice of a 64-byte seed");
+
+    let (dk, ek) = MlKem768::generate_deterministic(&d, &z);
+    (
+        PqcPublicKey(ek.as_bytes().to_vec()),
+        PqcSecretKey(dk.as_bytes().to_vec()),
+    )
+}
+
 /// Seal `plaintext` so that only the holder of the secret key matching
 /// `recipient_pub` can recover it. Envelope = `kem_ct || nonce || aead_ct`.
 ///

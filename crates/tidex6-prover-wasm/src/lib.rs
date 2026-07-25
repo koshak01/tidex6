@@ -91,11 +91,51 @@ impl Identity {
     }
 }
 
+/// The phrase a wallet signs to derive its tidex6 identity. Exposed so the
+/// page and the WASM cannot disagree about it — signing a different phrase
+/// silently produces a different identity, and the user would see an empty
+/// inbox instead of an error.
+#[wasm_bindgen(js_name = identityMessage)]
+pub fn identity_message() -> String {
+    tidex6_core::identity::IDENTITY_MESSAGE.to_string()
+}
+
+/// Derive the tidex6 identity from a wallet signature over
+/// [`identity_message`] (ADR-018 §3).
+///
+/// Same wallet, same phrase, same keys — on any device, forever. There is no
+/// key file to download, back up or lose: reconnect the wallet and the identity
+/// reappears. The signature itself never leaves this tab, and neither do the
+/// keys derived from it.
+///
+/// Pass the raw 64 bytes returned by the wallet's `signMessage`.
+#[wasm_bindgen(js_name = identityFromSignature)]
+pub fn identity_from_signature(signature: &[u8]) -> Result<Identity, JsError> {
+    let derived = tidex6_core::identity::from_signature(signature)
+        .map_err(|e| JsError::new(&format!("derive identity: {e}")))?;
+
+    let address = tidex6_core::envelope::ReaderAddress::from_secret(
+        derived.mlkem_public,
+        &derived.mlkem_secret,
+    );
+
+    Ok(Identity {
+        spending_key: to_hex(derived.spending_key.as_bytes()),
+        viewing_key: to_hex(derived.viewing_key.as_bytes()),
+        mlkem_public: to_hex(&address.to_bytes()),
+        mlkem_secret: to_hex(derived.mlkem_secret.as_bytes()),
+    })
+}
+
 /// Generate a fresh tidex6 identity entirely in the browser: a random
 /// `SpendingKey`, its derived `ViewingKey`, and a post-quantum ML-KEM-768
 /// keypair (ADR-014). Byte-for-byte the same shape `tidex6 keygen`
 /// produces. Nothing touches the network — the WASM sandbox has no
 /// fetch/XHR, verifiable via `WebAssembly.Module.imports(...)`.
+///
+/// Prefer [`identity_from_signature`]: an identity derived from the wallet
+/// needs no storage at all, while this one produces a key file the user must
+/// keep safe forever.
 #[wasm_bindgen(js_name = generateIdentity)]
 pub fn generate_identity() -> Result<Identity, JsError> {
     use tidex6_core::keys::SpendingKey;
