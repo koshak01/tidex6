@@ -66,8 +66,10 @@ use crate::types::{DOMAIN_VALUE_LEN, DomainError, is_below_bn254_modulus};
 /// the derivation to a hostname would mean a user's keys, and therefore their
 /// payment history, differed between the official site and their own instance.
 ///
-/// `Version: 1` is the rotation handle: bumping it derives an entirely new,
-/// unrelated identity from the same wallet.
+/// `Version: N` is the rotation handle: bumping it derives an entirely new,
+/// unrelated identity from the same wallet. Bumped to 2 on 2026-07-25 after a
+/// v1 secret was pasted into a chat during testing — cheap then, because no
+/// payment had ever been sent to it, and the reason the handle exists.
 pub const IDENTITY_MESSAGE: &str = "\
 tidex6 — derive your private-payment identity
 
@@ -77,7 +79,7 @@ payments. It does not approve any payment and cannot move funds.
 Anyone who obtains this signature can read every payment sent to you. Only
 sign it on a tidex6 site you trust — check the domain your wallet shows above.
 
-Version: 1";
+Version: 2";
 
 /// Ed25519 signature length — what a wallet's `signMessage` returns.
 pub const SIGNATURE_LEN: usize = 64;
@@ -228,7 +230,7 @@ mod tests {
             m.contains("cannot move funds"),
             "must say what it does NOT authorise"
         );
-        assert!(m.contains("Version: 1"), "must carry the rotation handle");
+        assert!(m.contains("Version: "), "must carry the rotation handle");
     }
 
     #[test]
