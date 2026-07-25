@@ -363,7 +363,7 @@ impl Tidex6Mcp {
                 auditor.as_ref().map(|a| a.address_hex.as_str()),
             )
             .await?;
-        let url = format!("{base}/pay?r={id}", base = self.pay_base_url);
+        let url = format!("{base}/pay/?r={id}", base = self.pay_base_url);
 
         let text = format!(
             "Ready to sign.\n\n\
@@ -424,7 +424,7 @@ fn unpayable(wallet: &Pubkey, role: &str, state: Lookup, register_url: &str) -> 
 impl Tidex6Mcp {
     /// Where a person goes to publish their reader address.
     fn registration_url(&self) -> String {
-        format!("{}/register", self.pay_base_url)
+        format!("{}/register/", self.pay_base_url)
     }
 
     /// Resolve a wallet into whatever it has published on chain.
