@@ -1,0 +1,35 @@
+[package]
+name = "tidex6-mcp"
+description = "MCP server exposing tidex6 private payments to AI agents (ADR-018)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The MCP server is a thin layer over the SDK — every tool is a wrapper
+# around a builder. No cryptography of its own (ADR-018 §1).
+tidex6-core = { path = "../tidex6-core" }
+tidex6-client = { path = "../tidex6-client" }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# MCP protocol. rmcp 2.x is what the collective's other MCP servers run
+# on (oculus, mcpa9); the tool patterns follow oculus/src/mcp.rs.
+# transport-io = stdio, the development transport (ADR-018 §8).
+rmcp = { version = "2.0", features = ["server", "macros", "transport-io"] }
+schemars = "1.2"
+
+# HTTP-клиент для регистрации платёжного запроса на странице подписи.
+# rustls, без OpenSSL — как во всём проекте.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

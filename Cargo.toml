@@ -37,6 +37,7 @@ members = [
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "crates/tidex6-indexer",
+    "crates/tidex6-mcp",
     "crates/tidex6-notifier-client",
     "crates/tidex6-ui-shared",
     "examples/confidential-amount-demo",
