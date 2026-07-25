@@ -13,7 +13,7 @@ Built with `crates/tidex6-prover-wasm/build-reproducible.sh`
 
 | Artifact | sha256 |
 |----------|--------|
-| `tidex6_prover_wasm_bg.wasm` | `2be8a4e5a59b166216dc5f663c9a6c2f7a56c5b7b38e5e8c1acff0baf681d1f6` |
+| `tidex6_prover_wasm_bg.wasm` | `596de19d07580af540f8b8786d2534d7a03c9470061840610d95a5012c87e274` |
 | `tidex6_prover_wasm.js` (glue) | `d9cf205dbcb344d188984b0657228d3b01e08149eca0eec3e8a973af1619f481` |
 
 These hashes are pinned by the commit that carries this file. When the prover is

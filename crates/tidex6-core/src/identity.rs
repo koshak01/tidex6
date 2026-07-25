@@ -46,9 +46,38 @@ use crate::keys::{SpendingKey, ViewingKey};
 use crate::pqc::{self, PqcPublicKey, PqcSecretKey};
 use crate::types::{DOMAIN_VALUE_LEN, DomainError, is_below_bn254_modulus};
 
-/// The phrase the wallet signs. Versioned: bumping the suffix produces an
-/// entirely different identity, which is how rotation works.
-pub const IDENTITY_MESSAGE: &str = "tidex6 identity v1";
+/// The message the wallet signs to derive the identity.
+///
+/// It is not a secret and cannot be one: it lives in this open repository, in
+/// the WASM artefact every browser downloads, and in the wallet's own approval
+/// dialog. What protects the identity is the wallet's private key, not the
+/// obscurity of this text.
+///
+/// So the text is optimised for the human reading it in the wallet popup, and
+/// it has one job: make a phishing request obvious. Someone who obtains this
+/// signature can derive the reading key and see every payment sent to that
+/// person — no funds move, but the privacy is gone. A user who has read this
+/// message once knows that, and knows to check which site is asking. A short
+/// opaque string would teach the opposite habit: sign whatever appears.
+///
+/// The wallet displays the requesting origin above the text, so the domain
+/// check happens there rather than being asserted here — which also keeps
+/// self-hosted deployments deriving the *same* identity as tidex6.com. Binding
+/// the derivation to a hostname would mean a user's keys, and therefore their
+/// payment history, differed between the official site and their own instance.
+///
+/// `Version: 1` is the rotation handle: bumping it derives an entirely new,
+/// unrelated identity from the same wallet.
+pub const IDENTITY_MESSAGE: &str = "\
+tidex6 — derive your private-payment identity
+
+Signing this message creates the keys that receive and read your private
+payments. It does not approve any payment and cannot move funds.
+
+Anyone who obtains this signature can read every payment sent to you. Only
+sign it on a tidex6 site you trust — check the domain your wallet shows above.
+
+Version: 1";
 
 /// Ed25519 signature length — what a wallet's `signMessage` returns.
 pub const SIGNATURE_LEN: usize = 64;
@@ -182,6 +211,24 @@ mod tests {
             from_signature(&[0u8; 32]),
             Err(IdentityError::BadSignatureLength { got: 32 })
         ));
+    }
+
+    #[test]
+    fn identity_message_warns_about_the_actual_risk() {
+        // The message is the only thing standing between a user and a site
+        // that asks for this signature in order to read their payments. If it
+        // ever gets shortened into something opaque, this fails.
+        let m = IDENTITY_MESSAGE;
+        assert!(m.contains("tidex6"), "must name the protocol");
+        assert!(
+            m.contains("read every payment sent to you"),
+            "must state what a stolen signature costs"
+        );
+        assert!(
+            m.contains("cannot move funds"),
+            "must say what it does NOT authorise"
+        );
+        assert!(m.contains("Version: 1"), "must carry the rotation handle");
     }
 
     #[test]
