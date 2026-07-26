@@ -313,6 +313,11 @@ pub struct Tidex6Mcp {
     salt: i64,
     /// Read by the `#[tool_handler]` macro expansion, not by our code — dead
     /// code analysis cannot see through it.
+    ///
+    /// It is only read because the attribute below says `router =
+    /// self.tool_router`. Left to its default the macro calls the *associated*
+    /// `Self::tool_router()` and this field is ignored — which loses the merged
+    /// core `version` tool without a warning, an error, or a missing symbol.
     #[allow(dead_code)]
     tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
 }
@@ -711,7 +716,10 @@ impl Tidex6Mcp {
     }
 }
 
-#[tool_handler]
+// `router = self.tool_router` — не украшение: по умолчанию макрос берёт
+// `Self::tool_router()`, то есть только наши инструменты, и смерженный в
+// конструкторе ядерный `version` пропадает молча.
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for Tidex6Mcp {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
