@@ -59,16 +59,39 @@ The agent gets **capability, not custody**:
 | Operation | Where it happens | Key involved |
 |---|---|---|
 | Quote a payment | server | none |
-| Build the transaction | server | none |
+| Prepare a payment | server | none |
 | **Sign it** | **user's wallet** | user's, never leaves it |
-| Read incoming payments | server or agent | view key only |
+| Read incoming payments | **the recipient's browser** | derived in the tab, never stored |
 | Withdraw funds | user's wallet | user's |
 
-Signing is delivered as a **Solana Action / Blink**: the server hosts an
-endpoint returning an unsigned base64 transaction, the agent hands the URL to
-the user, the wallet previews and signs. Zero key handling on our side and on
-the agent's side. A prompt injection that talks the agent into paying an
-attacker still produces nothing but a link the human declines.
+Signing is delivered as a **link**: the server registers the payment with the
+signing page and returns a short URL, the agent hands it over, the human opens
+it and signs in their own wallet. Zero key handling on our side and on the
+agent's side. A prompt injection that talks the agent into paying an attacker
+still produces nothing but a link the human declines.
+
+Reading is stronger than the table above once suggested. There is no "view key
+the agent holds": the key that finds payments is derived from a wallet
+signature inside the browser tab and is gone when the tab closes. So an agent
+cannot report whether money arrived — it can only hand over the link and let
+the person look. That is a deliberate limitation of the product, not of the
+implementation.
+
+**As built, the tools are:**
+
+| tool | returns |
+|---|---|
+| `version` | the cluster, and the statement that no key is held here |
+| `payment_quote` | amount, fee, total — creates nothing |
+| `payment_request` | a link to sign |
+| `receive` | the link a person opens to find payments sent to them |
+| `audit` | the link an auditor opens to read what was disclosed to them |
+
+There is deliberately **no `register` tool**. Registration is a state a person
+is in, not an action an agent takes, and the only moment it matters is when the
+person being paid has not done it — where `payment_request` already says so and
+includes the link. A tool for it would have invited an agent to treat someone
+else's setup as its own task.
 
 `approve`-style token delegation is explicitly **out of scope**: it moves us to
 T2 and buys convenience we do not need for the core flow.
@@ -124,23 +147,40 @@ without being able to move anything.
 
 ### 6. Prompt injection is answered in the schema, not in the prompt
 
-- **The payee is not a free string** where an address book exists: the tool
-  argument is an enum generated from the user's contacts, so "send everything to
-  `7xK…`" is not expressible. Where raw wallet addresses are allowed, the amount
-  cap and the human signature are the control.
+- **The amount is an enum**, not a number: six fixed denominations. "Send
+  everything" has no representation in the schema at all.
+- **The deadline is an enum too** (`hours1` … `days30`). A number of seconds
+  would let text on a web page produce a payment that expires before anyone
+  could collect it — a way to take money back that reads like an accident.
 - **Memo is a template, not free text** (`MonthlySupport{month}`,
-  `Invoice{number}`, `Free{≤120 chars}`), and the envelope recipient comes from
-  an allowlist. Otherwise an encrypted memo addressed to an attacker's key is a
-  perfect exfiltration channel that we ourselves made unauditable.
+  `Invoice{number}`, `Free{≤120 chars}`). Otherwise an encrypted memo addressed
+  to an attacker's key is a perfect exfiltration channel that we ourselves made
+  unauditable.
+- **The payee is a wallet address**, and it is checked against the registry
+  rather than trusted: an address nobody has registered cannot be paid at all.
+  The remaining control is the human signature, which is the point of the whole
+  design.
 - **Limits live in server config**, not in instructions. A prompt can be argued
   with; a config cannot.
 
-### 7. Durable nonce for the approval gap
+### 7. Durable nonce for the approval gap — not yet built
 
-A transaction built by the agent may sit unsigned while the human is away. A
-regular blockhash dies in ~90 seconds. Signing links therefore carry a durable
-nonce, which costs one nonce account (~0.0015 SOL) and serialises to one
-in-flight transaction per account.
+A transaction built for a human may sit unsigned while they read what their
+wallet is telling them, and a regular blockhash does not wait. The commonly
+quoted ~90 seconds is optimistic: measured on devnet the chain produced 2.7
+blocks a second, and with part of the 150-block window already spent before the
+hash reaches the browser, a transaction lives about **44 seconds**. The race is
+therefore not against the network but against a person reading a warning — one
+people lose, and losing it means an expired transaction they had already
+approved.
+
+A durable nonce does not expire, and is the answer. It costs one nonce account
+(~0.0015 SOL) and serialises to one in-flight transaction per account.
+
+**It is not implemented.** Until it is, an expiry is not reported as a failure:
+the transaction is rebuilt on a fresh blockhash and offered for signature again,
+up to three times. That works, and it is a workaround — the second dialog is a
+question the person already answered.
 
 ### 8. Transport: stdio while building, streamable HTTP in production
 
