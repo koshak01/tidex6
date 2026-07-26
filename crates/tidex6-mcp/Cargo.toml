@@ -20,14 +20,13 @@ thiserror = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # MCP protocol. rmcp 2.x is what the collective's other MCP servers run
-# on (oculus, mcpa9); the tool patterns follow oculus/src/mcp.rs.
-# transport-io = stdio, the development transport (ADR-018 §8).
-rmcp = { version = "2.0", features = ["server", "macros", "transport-io"] }
+# on (oculus, mcpa9). No transport feature: this crate is a library, and the
+# transport is chosen by whoever mounts it — tidex6-web serves it over
+# streamable HTTP at mcp.tidex6.com (ADR-018 §8).
+rmcp = { version = "2.0", features = ["server", "macros"] }
 schemars = "1.2"
 
 # HTTP-клиент для регистрации платёжного запроса на странице подписи.

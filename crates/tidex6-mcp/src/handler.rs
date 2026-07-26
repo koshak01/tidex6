@@ -211,6 +211,11 @@ fn parse_wallet(input: &str, what: &str) -> Result<Pubkey, McpError> {
 pub struct PaymentQuoteReq {
     /// How much to send.
     pub amount: AmountArg,
+    /// Which network the quote is for. Devnet unless the user asked for real
+    /// funds — the numbers are the same either way, but saying which one keeps
+    /// the answer honest.
+    #[serde(default)]
+    pub network: NetworkArg,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -236,6 +241,42 @@ pub struct PaymentRequestReq {
     /// long they want.
     #[serde(default = "CollectWithinArg::default_window")]
     pub collect_within: CollectWithinArg,
+    /// Which network to pay on. Devnet unless the user asked for real funds.
+    #[serde(default)]
+    pub network: NetworkArg,
+}
+
+/// Which Solana network a call is about.
+///
+/// An argument rather than the server's configuration, because there is one
+/// deployment for everyone: an environment variable would set the network for
+/// every caller at once. Devnet is the default, and mainnet has to be asked for
+/// — the pool's verification key is still a development key, so real money is a
+/// choice somebody makes on purpose, not one they arrive at by saying nothing.
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkArg {
+    /// Test network. Funds are not real. The default.
+    #[default]
+    Devnet,
+    /// Live network. Funds are real. Only pass this when the user said so.
+    Mainnet,
+}
+
+impl NetworkArg {
+    fn network(self) -> Network {
+        match self {
+            Self::Devnet => Network::Devnet,
+            Self::Mainnet => Network::Mainnet,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Devnet => "devnet",
+            Self::Mainnet => "mainnet",
+        }
+    }
 }
 
 /// A question about one wallet, asked of the read-side tools.
@@ -246,12 +287,14 @@ pub struct WalletQuestionReq {
     /// that wallet has enabled private payments yet.
     #[serde(default)]
     pub wallet: Option<String>,
+    /// Which network to check the wallet on. Registrations are per network.
+    #[serde(default)]
+    pub network: NetworkArg,
 }
 
 /// Handler state. One instance per MCP session.
 #[derive(Clone)]
 pub struct Tidex6Mcp {
-    network: Network,
     fee: FeePolicy,
     /// Origin of the signing page. Configurable so an operator can point at
     /// their own deployment instead of ours.
@@ -259,8 +302,10 @@ pub struct Tidex6Mcp {
     /// HTTP client for the signing page and for Solana RPC. Timeouts are set:
     /// a hung request here would hang the agent's turn.
     http: reqwest::Client,
-    /// Solana JSON-RPC endpoint used to read the registry (ADR-019).
-    rpc_url: String,
+    /// Solana JSON-RPC endpoints for reading the registry (ADR-019). Both are
+    /// held, because one deployment serves callers asking about either network.
+    rpc_mainnet: String,
+    rpc_devnet: String,
     /// Read by the `#[tool_handler]` macro expansion, not by our code — dead
     /// code analysis cannot see through it.
     #[allow(dead_code)]
@@ -269,24 +314,23 @@ pub struct Tidex6Mcp {
 
 #[tool_router]
 impl Tidex6Mcp {
-    /// Build from the environment. `TIDEX6_NETWORK` defaults to devnet,
-    /// because a server that defaults to mainnet is a server that spends real
-    /// money on a typo.
+    /// Build from the environment.
+    ///
+    /// The network is deliberately **not** here: it is an argument of each
+    /// call. One deployment serves everybody, so an environment variable would
+    /// choose the network for every caller at once — and the caller who most
+    /// needs the choice is the one paying real money.
     pub fn from_env() -> anyhow::Result<Self> {
-        let moniker = std::env::var("TIDEX6_NETWORK").unwrap_or_else(|_| "devnet".to_string());
-        let network = Network::from_moniker(&moniker)
-            .ok_or_else(|| anyhow::anyhow!("unknown TIDEX6_NETWORK: {moniker}"))?;
-
         let pay_base_url = std::env::var("TIDEX6_PAY_BASE_URL")
             .unwrap_or_else(|_| "https://tidex6.com".to_string());
 
         // Reading the registry needs an RPC endpoint. Defaults to the project's
         // own proxy so the server works out of the box; an operator running
-        // their own node points this at it.
-        let rpc_url = std::env::var("TIDEX6_RPC_URL").unwrap_or_else(|_| match network {
-            Network::Mainnet => "https://relayer.tidex6.com/rpc/".to_string(),
-            Network::Devnet => "https://relayer.tidex6.com/rpc-devnet/".to_string(),
-        });
+        // their own node points these at it.
+        let rpc_mainnet = std::env::var("TIDEX6_RPC_MAINNET")
+            .unwrap_or_else(|_| "https://relayer.tidex6.com/rpc/".to_string());
+        let rpc_devnet = std::env::var("TIDEX6_RPC_DEVNET")
+            .unwrap_or_else(|_| "https://relayer.tidex6.com/rpc-devnet/".to_string());
 
         let http = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(5))
@@ -295,32 +339,43 @@ impl Tidex6Mcp {
             .map_err(|e| anyhow::anyhow!("build http client: {e}"))?;
 
         Ok(Self {
-            network,
             fee: FeePolicy::default(),
             pay_base_url,
             http,
-            rpc_url,
+            rpc_mainnet,
+            rpc_devnet,
             tool_router: Self::tool_router(),
         })
     }
 
-    pub fn network(&self) -> &'static str {
-        match self.network {
-            Network::Mainnet => "mainnet",
-            Network::Devnet => "devnet",
+    fn rpc_for(&self, network: NetworkArg) -> &str {
+        match network.network() {
+            Network::Mainnet => &self.rpc_mainnet,
+            Network::Devnet => &self.rpc_devnet,
         }
     }
 
-    /// Server version and the cluster it is pointed at.
+    /// What this server is, what it cannot do, and what is not finished.
+    ///
+    /// Named `about` rather than `version`, which the core reserves for the
+    /// deployment epoch every service of the collective reports.
     #[tool(
-        description = "Report the tidex6 MCP server version and which Solana cluster it is configured for. Call this first to confirm whether payments will be real (mainnet) or not (devnet)."
+        description = "Explain what this server can and cannot do, and the state of the project. Call it before the first payment of a conversation: it names the limitation that matters — the pool's verification key is still a development key, so this is not somewhere to put real savings yet."
     )]
-    async fn version(&self) -> Result<CallToolResult, McpError> {
+    async fn about(&self) -> Result<CallToolResult, McpError> {
         let text = format!(
-            "tidex6-mcp {}\nnetwork: {}\ncustody: T1 — this server never holds a spending key; \
-             every payment is signed by the user's wallet, in their browser.",
-            env!("CARGO_PKG_VERSION"),
-            self.network()
+            "tidex6-mcp {version}\n\n\
+             Custody: T1. This server never holds a spending key. Every payment is signed \
+             by the user's wallet, in their browser. It also cannot read anyone's \
+             payments — the key that finds them is derived from a wallet signature inside \
+             a browser tab and is gone when the tab closes.\n\n\
+             Network: an argument on each call, devnet unless mainnet is asked for.\n\n\
+             Not finished, and it matters: the pool's verification key is still a \
+             development key, generated by one contributor from a seed published in the \
+             repository, which means proofs against it are forgeable. A public \
+             trusted-setup ceremony is being collected at https://ceremony.tidex6.com to \
+             replace it. Until that finishes, say so before anyone puts real savings in.",
+            version = env!("CARGO_PKG_VERSION"),
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
@@ -342,7 +397,7 @@ impl Tidex6Mcp {
              fee:    {fee} {sym}\n\
              total:  {total} {sym}\n\n\
              Nothing has been sent. The sender pays the total; the recipient receives the amount.",
-            network = self.network(),
+            network = req.network.name(),
             sym = req.amount.symbol(),
             amount = micro_to_decimal(quote.amount_micro),
             fee = micro_to_decimal(quote.fee_micro),
@@ -360,7 +415,7 @@ impl Tidex6Mcp {
         &self,
         Parameters(req): Parameters<WalletQuestionReq>,
     ) -> Result<CallToolResult, McpError> {
-        let standing = self.describe_wallet(req.wallet.as_deref(), "be paid").await?;
+        let standing = self.describe_wallet(req.wallet.as_deref(), "be paid", req.network).await?;
         let text = format!(
             "To find payments sent to you, open this link:\n\n\
              {base}/receive/\n\n\
@@ -372,7 +427,7 @@ impl Tidex6Mcp {
              anything is waiting is something only they can see.\n\n\
              Network: {network}.",
             base = self.pay_base_url,
-            network = self.network(),
+            network = req.network.name(),
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
@@ -386,7 +441,7 @@ impl Tidex6Mcp {
         Parameters(req): Parameters<WalletQuestionReq>,
     ) -> Result<CallToolResult, McpError> {
         let standing = self
-            .describe_wallet(req.wallet.as_deref(), "be named as an auditor")
+            .describe_wallet(req.wallet.as_deref(), "be named as an auditor", req.network)
             .await?;
         let text = format!(
             "To read the payments disclosed to you, open this link:\n\n\
@@ -398,7 +453,7 @@ impl Tidex6Mcp {
              {standing}\n\n\
              Network: {network}.",
             base = self.pay_base_url,
-            network = self.network(),
+            network = req.network.name(),
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
@@ -429,7 +484,7 @@ impl Tidex6Mcp {
         // Resolve wallets into published locks (ADR-019). "Not registered" is
         // not a failure — it is an answer the user can act on, so it comes back
         // as instructions rather than as an error the agent has to interpret.
-        let recipient = match self.resolve(&recipient_wallet).await? {
+        let recipient = match self.resolve(&recipient_wallet, req.network).await? {
             Lookup::Found(r) => r,
             other => {
                 return Ok(unpayable(
@@ -441,7 +496,7 @@ impl Tidex6Mcp {
             }
         };
         let auditor = match auditor_wallet {
-            Some(w) => match self.resolve(&w).await? {
+            Some(w) => match self.resolve(&w, req.network).await? {
                 Lookup::Found(r) => Some(r),
                 other => return Ok(unpayable(&w, "auditor", other, &self.registration_url())),
             },
@@ -461,6 +516,7 @@ impl Tidex6Mcp {
                 auditor.as_ref().map(|a| a.address_hex.as_str()),
                 auditor_wallet.as_ref(),
                 req.collect_within.seconds(),
+                req.network,
             )
             .await?;
         let url = format!("{base}/pay/?r={id}", base = self.pay_base_url);
@@ -491,7 +547,7 @@ impl Tidex6Mcp {
                 .map(|w| w.to_string())
                 .unwrap_or_else(|| "(none)".to_string()),
             window = req.collect_within.human(),
-            network = self.network(),
+            network = req.network.name(),
             url = url,
         );
 
@@ -531,8 +587,10 @@ impl Tidex6Mcp {
     }
 
     /// Resolve a wallet into whatever it has published on chain.
-    async fn resolve(&self, wallet: &Pubkey) -> Result<Lookup, McpError> {
-        registry::lookup(&self.http, &self.rpc_url, wallet).await
+    async fn resolve(&self, wallet: &Pubkey, network: NetworkArg)
+        -> Result<Lookup, McpError>
+    {
+        registry::lookup(&self.http, self.rpc_for(network), wallet).await
     }
 
     /// One sentence on whether a wallet is set up, for the read-side tools.
@@ -546,13 +604,14 @@ impl Tidex6Mcp {
         &self,
         wallet: Option<&str>,
         capability: &str,
+        network: NetworkArg,
     ) -> Result<String, McpError> {
         let Some(raw) = wallet.map(str::trim).filter(|w| !w.is_empty()) else {
             return Ok(String::new());
         };
         let parsed = parse_wallet(raw, "wallet")?;
 
-        Ok(match self.resolve(&parsed).await? {
+        Ok(match self.resolve(&parsed, network).await? {
             Lookup::Found(entry) => format!(
                 "This wallet has private payments enabled (identity v{}), so it can {capability}.",
                 entry.version
@@ -587,6 +646,7 @@ impl Tidex6Mcp {
         auditor: Option<&str>,
         auditor_wallet: Option<&Pubkey>,
         reclaim_seconds: u32,
+        network: NetworkArg,
     ) -> Result<String, McpError> {
         // The wallet addresses travel alongside the resolved keys purely so the
         // signing page can show a person what they already recognise. Whoever is
@@ -601,7 +661,7 @@ impl Tidex6Mcp {
             "auditor": auditor.unwrap_or(""),
             "auditor_wallet": auditor_wallet.map(|w| w.to_string()).unwrap_or_default(),
             "reclaim_seconds": reclaim_seconds,
-            "network": self.network(),
+            "network": network.name(),
         });
 
         let endpoint = format!("{}/api/pay/new", self.pay_base_url);
