@@ -26,6 +26,9 @@ tracing = "0.1"
 # on (oculus, mcpa9). No transport feature: this crate is a library, and the
 # transport is chosen by whoever mounts it — tidex6-web serves it over
 # streamable HTTP at mcp.tidex6.com (ADR-018 §8).
+# Ядро даёт гарантированный tool `version` (эпоха деплоя) и bootstrap
+# streamable-сервиса. rmcp берём из него же — один экземпляр в графе.
+forge-mcp = { path = "../../../forge/crates/forge-mcp" }
 rmcp = { version = "2.0", features = ["server", "macros"] }
 schemars = "1.2"
 

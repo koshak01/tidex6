@@ -306,6 +306,11 @@ pub struct Tidex6Mcp {
     /// held, because one deployment serves callers asking about either network.
     rpc_mainnet: String,
     rpc_devnet: String,
+    /// Deploy epoch, reported by the core's guaranteed `version` tool so the
+    /// collective can see which build is up. Consumed when the router is built,
+    /// which dead-code analysis cannot see through.
+    #[allow(dead_code)]
+    salt: i64,
     /// Read by the `#[tool_handler]` macro expansion, not by our code — dead
     /// code analysis cannot see through it.
     #[allow(dead_code)]
@@ -320,7 +325,7 @@ impl Tidex6Mcp {
     /// call. One deployment serves everybody, so an environment variable would
     /// choose the network for every caller at once — and the caller who most
     /// needs the choice is the one paying real money.
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub fn from_env(salt: i64) -> anyhow::Result<Self> {
         let pay_base_url = std::env::var("TIDEX6_PAY_BASE_URL")
             .unwrap_or_else(|_| "https://tidex6.com".to_string());
 
@@ -344,7 +349,11 @@ impl Tidex6Mcp {
             http,
             rpc_mainnet,
             rpc_devnet,
-            tool_router: Self::tool_router(),
+            salt,
+            // Наши инструменты плюс гарантированный ядерный `version` (эпоха
+            // деплоя, которую все сервисы коллектива отдают одинаково). Наш
+            // одноимённый переименован в `about` именно поэтому.
+            tool_router: Self::tool_router() + forge_mcp::version_router(salt),
         })
     }
 
