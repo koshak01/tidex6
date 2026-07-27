@@ -15,6 +15,7 @@ use std::collections::HashSet;
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -96,6 +97,26 @@ impl AmountArg {
             Self::Usdt5 => "usdt5",
             Self::Usdt10 => "usdt10",
             Self::Usdt100 => "usdt100",
+        }
+    }
+
+    /// Актив пула, которому соответствует номинал.
+    fn asset(self) -> tidex6_core::network::Asset {
+        match self {
+            Self::Usdc0_1
+            | Self::Usdc1
+            | Self::Usdc2
+            | Self::Usdc3
+            | Self::Usdc5
+            | Self::Usdc10
+            | Self::Usdc100 => tidex6_core::network::Asset::Wusdc,
+            Self::Usdt0_1
+            | Self::Usdt1
+            | Self::Usdt2
+            | Self::Usdt3
+            | Self::Usdt5
+            | Self::Usdt10
+            | Self::Usdt100 => tidex6_core::network::Asset::Wusdt,
         }
     }
 
@@ -467,6 +488,72 @@ impl Tidex6Mcp {
         Ok(handler)
     }
 
+    /// Кошелёк, чьим токеном сделан вызов.
+    ///
+    /// Кладёт его тот, кто монтирует сервер (`tidex6-web`): он один умеет
+    /// превратить токен в учётную запись, а её — в адрес. Здесь мы только
+    /// читаем.
+    ///
+    /// `None` означает «неизвестен» и не должен встречаться в проде: без
+    /// токена до инструментов не добраться. Поэтому и не ошибка — если однажды
+    /// сервер смонтируют иначе, платежи продолжат работать, просто без
+    /// проверок, которые без адреса всё равно невозможны.
+    fn caller_wallet(ctx: &RequestContext<RoleServer>) -> Option<String> {
+        ctx.extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<crate::CallerWallet>())
+            .map(|w| w.0.clone())
+    }
+
+    /// Отказать, если платить нечем.
+    ///
+    /// Спрашиваем цепочку до того, как ссылка создана. Иначе агент честно
+    /// посчитает стоимость, выдаст ссылку, человек дойдёт до кошелька — и
+    /// увидит там «недостаточно токенов» без единого слова о том, сколько у
+    /// него есть и сколько нужно. Один раз это уже стоило нам получаса
+    /// разбирательства, причём выяснилось, что смотрели на разные минты.
+    ///
+    /// Отправитель платит `amount + fee` тем же токеном, что получит
+    /// получатель, — потому и сравниваем с `total`.
+    async fn check_funds(
+        &self,
+        sender: Option<&str>,
+        amount: AmountArg,
+        total_micro: u64,
+        network: NetworkArg,
+    ) -> Result<(), McpError> {
+        let Some(sender) = sender else {
+            return Ok(());
+        };
+        let Ok(owner) = sender.parse::<Pubkey>() else {
+            return Ok(());
+        };
+        let Some(info) = network.network().asset(amount.asset()) else {
+            return Ok(());
+        };
+        let Some(mint) = info.underlying_mint else {
+            return Ok(());
+        };
+
+        let have =
+            registry::token_balance_micro(&self.http, self.rpc_for(network), &owner, mint).await?;
+        if have >= total_micro {
+            return Ok(());
+        }
+        Err(McpError::invalid_params(
+            format!(
+                "not enough {sym} to send this: the wallet holds {have} {sym} and the payment \
+                 needs {need} {sym} in total ({amount_str} to the recipient plus the fee). \
+                 Nothing was created. Top the wallet up, or send a smaller denomination.",
+                sym = amount.symbol(),
+                have = micro_to_decimal(have),
+                need = micro_to_decimal(total_micro),
+                amount_str = micro_to_decimal(amount.micro()),
+            ),
+            None,
+        ))
+    }
+
     /// Отказать, если сумма выше того, что пул примет на mainnet.
     ///
     /// Проверяем здесь, а не полагаемся на отказ пула: там он случится уже
@@ -776,8 +863,13 @@ impl Tidex6Mcp {
     async fn payment_request(
         &self,
         Parameters(req): Parameters<PaymentRequestReq>,
+        ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         self.check_mainnet_cap(req.amount, req.network)?;
+
+        // Кто платит — известно из токена, а не из аргументов. Спрашивать
+        // отправителя у агента значило бы позволить ему назвать чужой кошелёк.
+        let sender = Self::caller_wallet(&ctx);
 
         let recipient_wallet = parse_wallet(&req.recipient, "recipient")?;
         let auditor_wallet = match &req.auditor {
@@ -790,6 +882,11 @@ impl Tidex6Mcp {
 
         let quote = Quote::compute(req.amount.micro(), self.fee)
             .ok_or_else(|| McpError::internal_error("quote overflowed", None))?;
+
+        // До реестра и до ссылки: если платить нечем, всё остальное — работа
+        // впустую, а человеку идти никуда не надо.
+        self.check_funds(sender.as_deref(), req.amount, quote.total_micro, req.network)
+            .await?;
 
         // Resolve wallets into published locks (ADR-019). "Not registered" is
         // not a failure — it is an answer the user can act on, so it comes back
@@ -827,6 +924,7 @@ impl Tidex6Mcp {
                 auditor_wallet.as_ref(),
                 req.collect_within.seconds(),
                 req.network,
+                sender.as_deref(),
             )
             .await?;
         let url = format!("{base}/pay/?r={id}", base = self.pay_base_url);
@@ -961,6 +1059,7 @@ impl Tidex6Mcp {
         auditor_wallet: Option<&Pubkey>,
         reclaim_seconds: u32,
         network: NetworkArg,
+        sender_wallet: Option<&str>,
     ) -> Result<String, McpError> {
         // The wallet addresses travel alongside the resolved keys purely so the
         // signing page can show a person what they already recognise. Whoever is
@@ -976,6 +1075,10 @@ impl Tidex6Mcp {
             "auditor_wallet": auditor_wallet.map(|w| w.to_string()).unwrap_or_default(),
             "reclaim_seconds": reclaim_seconds,
             "network": network.name(),
+            // Кому выписана заявка. Страница подписи сверит с подключённым
+            // кошельком: ссылка, работающая у любого, кто её открыл, обесценила
+            // бы подпись, которой человек входил.
+            "sender_wallet": sender_wallet.unwrap_or(""),
         });
 
         let endpoint = format!("{}/api/pay/new", self.pay_base_url);

@@ -244,3 +244,64 @@ mod tests {
         assert_ne!(entry_pda(&a).unwrap(), entry_pda(&b).unwrap());
     }
 }
+
+/// Сколько у кошелька токенов этого минта, в микро-единицах.
+///
+/// `getTokenAccountsByOwner` с фильтром по минту: у кошелька может быть
+/// несколько счетов одного токена, и человек считает деньгами их сумму.
+///
+/// Отдельная функция, а не поле в `Lookup`: реестр отвечает на вопрос «этому
+/// кошельку можно платить», а баланс — на «этому кошельку есть чем платить».
+/// Разные вопросы, разные ответы, и второй нужен только отправителю.
+pub async fn token_balance_micro(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    owner: &Pubkey,
+    mint: &str,
+) -> Result<u64, McpError> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            owner.to_string(),
+            { "mint": mint },
+            { "encoding": "jsonParsed" },
+        ],
+    });
+
+    let payload: serde_json::Value = http
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| McpError::internal_error(format!("cannot reach the Solana RPC: {e}"), None))?
+        .json()
+        .await
+        .map_err(|e| McpError::internal_error(format!("RPC returned no JSON: {e}"), None))?;
+
+    if let Some(error) = payload.get("error") {
+        return Err(McpError::internal_error(
+            format!("RPC error while reading the balance: {error}"),
+            None,
+        ));
+    }
+
+    let accounts = payload
+        .pointer("/result/value")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            McpError::internal_error("RPC response has no result.value".to_string(), None)
+        })?;
+
+    // Счетов может не быть вовсе — это ноль, а не ошибка: кошелёк просто ни
+    // разу не держал этот токен.
+    let total = accounts
+        .iter()
+        .filter_map(|a| a.pointer("/account/data/parsed/info/tokenAmount/amount"))
+        .filter_map(|v| v.as_str())
+        .filter_map(|s| s.parse::<u64>().ok())
+        .sum();
+
+    Ok(total)
+}

@@ -30,6 +30,9 @@ tracing = "0.1"
 # streamable-сервиса. rmcp берём из него же — один экземпляр в графе.
 forge-mcp = { path = "../../../forge/crates/forge-mcp" }
 rmcp = { version = "2.0", features = ["server", "macros"] }
+# Только типы: `http::request::Parts` — то, во что rmcp кладёт HTTP-контекст
+# вызова. Через него инструмент узнаёт, чьим токеном его позвали.
+http = "1"
 schemars = "1.2"
 
 # HTTP-клиент для регистрации платёжного запроса на странице подписи.
