@@ -127,71 +127,83 @@ impl CollectWithinArg {
     }
 }
 
-/// What a memo may say (ADR-018 §6).
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum MemoArg {
-    /// No memo at all.
+/// What kind of thing the memo says (ADR-018 §6).
+///
+/// A flat string enum, and the argument that carries its value is a plain
+/// string beside it — deliberately, not for want of a tidier type. This started
+/// life as an internally-tagged enum, `{"kind": "invoice", "number": "…"}`, and
+/// it could not be called at all: the client serialises a nested object
+/// argument into a JSON *string*, so the server received `"{\"kind\":\"none\"}"`
+/// where it expected an object, and every call failed — including the trivial
+/// one with no memo. Nothing in the schema is wrong; a nested object simply
+/// does not survive the trip.
+///
+/// So: no nested objects in tool arguments. Everything here is a scalar.
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoKind {
+    /// No memo. The default.
+    #[default]
     None,
-    /// Regular support payment for a given month.
-    MonthlySupport {
-        /// Month as YYYY-MM.
-        month: String,
-    },
-    /// Payment against an invoice.
-    Invoice {
-        /// Invoice number as printed on the document.
-        number: String,
-    },
-    /// Anything else. Kept short and shown to the human in full before signing.
-    Free {
-        /// Up to 120 characters: letters, digits, space and .,-
-        text: String,
-    },
+    /// Regular support payment for a month; the value is that month as YYYY-MM.
+    MonthlySupport,
+    /// Payment against an invoice; the value is the invoice number.
+    Invoice,
+    /// Anything else; the value is the text itself.
+    Free,
 }
 
-impl MemoArg {
-    fn none_default() -> Self {
-        Self::None
-    }
+/// Render the memo, rejecting anything outside the allowed shape.
+///
+/// A value with no kind is treated as free text: an agent that has the words
+/// but not the category should not have to guess a category to be understood.
+fn render_memo(kind: MemoKind, value: Option<&str>) -> Result<Option<String>, String> {
+    let value = value.map(str::trim).filter(|v| !v.is_empty());
 
-    /// Render to the memo string, rejecting anything outside the allowed shape.
-    fn render(&self) -> Result<Option<String>, String> {
-        let text = match self {
-            Self::None => return Ok(None),
-            Self::MonthlySupport { month } => {
-                let ok = month.len() == 7
-                    && month.as_bytes()[4] == b'-'
-                    && month[..4].chars().all(|c| c.is_ascii_digit())
-                    && month[5..].chars().all(|c| c.is_ascii_digit());
-                if !ok {
-                    return Err(format!("month must be YYYY-MM, got {month:?}"));
-                }
-                format!("monthly support {month}")
+    let text = match (kind, value) {
+        (MemoKind::None, None) => return Ok(None),
+        (MemoKind::None, Some(text)) | (MemoKind::Free, Some(text)) => {
+            if text.chars().count() > 120 {
+                return Err("memo is limited to 120 characters".to_string());
             }
-            Self::Invoice { number } => {
-                if number.is_empty() || number.len() > 40 {
-                    return Err("invoice number must be 1..=40 characters".to_string());
-                }
-                format!("invoice {number}")
+            let allowed = text
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | ',' | '-'));
+            if !allowed {
+                return Err("memo may contain letters, digits, space and .,- only".to_string());
             }
-            Self::Free { text } => {
-                if text.chars().count() > 120 {
-                    return Err("free memo is limited to 120 characters".to_string());
-                }
-                let allowed = text
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | ',' | '-'));
-                if !allowed {
-                    return Err(
-                        "free memo may contain letters, digits, space and .,- only".to_string()
-                    );
-                }
-                text.clone()
+            text.to_string()
+        }
+        (MemoKind::Free, None) => {
+            return Err("memo_kind is 'free', so memo must carry the text".to_string());
+        }
+        (MemoKind::MonthlySupport, Some(month)) => {
+            let ok = month.len() == 7
+                && month.as_bytes()[4] == b'-'
+                && month[..4].chars().all(|c| c.is_ascii_digit())
+                && month[5..].chars().all(|c| c.is_ascii_digit());
+            if !ok {
+                return Err(format!("memo must be a month as YYYY-MM, got {month:?}"));
             }
-        };
-        Ok(Some(text))
-    }
+            format!("monthly support {month}")
+        }
+        (MemoKind::MonthlySupport, None) => {
+            return Err(
+                "memo_kind is 'monthly_support', so memo must carry the month as YYYY-MM"
+                    .to_string(),
+            );
+        }
+        (MemoKind::Invoice, Some(number)) => {
+            if number.len() > 40 {
+                return Err("invoice number must be 1..=40 characters".to_string());
+            }
+            format!("invoice {number}")
+        }
+        (MemoKind::Invoice, None) => {
+            return Err("memo_kind is 'invoice', so memo must carry the invoice number".to_string());
+        }
+    };
+    Ok(Some(text))
 }
 
 /// Parse a Solana wallet address.
@@ -228,10 +240,17 @@ pub struct PaymentRequestReq {
     pub recipient: String,
     /// How much to send.
     pub amount: AmountArg,
-    /// What the payment is for. Readable by the recipient and by an auditor
-    /// the sender chooses — by nobody else, and never by the chain.
-    #[serde(default = "MemoArg::none_default")]
-    pub memo: MemoArg,
+    /// What the payment is for, as plain text. Readable by the recipient and by
+    /// an auditor the sender chooses — by nobody else, and never by the chain.
+    /// Up to 120 characters: letters, digits, space and .,- only. With
+    /// `memo_kind` set to `monthly_support` or `invoice` this carries the month
+    /// (YYYY-MM) or the invoice number instead, and the wording is composed
+    /// here.
+    #[serde(default)]
+    pub memo: Option<String>,
+    /// What kind of memo this is. Leave it out for plain text.
+    #[serde(default)]
+    pub memo_kind: MemoKind,
     /// Optional auditor's Solana wallet address. An auditor sees the amount and
     /// the memo of this payment and cannot spend it. They must have enabled
     /// private payments too.
@@ -381,6 +400,25 @@ impl Tidex6Mcp {
         .map_err(|e| anyhow::anyhow!("MCP text limits: {e}"))?;
 
         Ok(handler)
+    }
+
+    /// Why the fee is what it is, when the floor is what is being charged.
+    ///
+    /// Said only when it applies. On the smallest denomination the floor equals
+    /// the payment, and a fee of 100% shown without a word of explanation reads
+    /// as a defect — it is not one, but nobody can tell that from the number.
+    fn fee_note(&self, quote: &Quote) -> String {
+        if !quote.is_floor_charged(self.fee) {
+            return String::new();
+        }
+        format!(
+            "\nThe fee here is a minimum, not a percentage: verifying a zero-knowledge proof \
+             and landing the transactions costs the same whatever the amount, so below \
+             {threshold} the cost stops scaling down. On small amounts that minimum is a large \
+             share of the payment — say so plainly rather than letting the number speak for \
+             itself.\n",
+            threshold = micro_to_decimal(self.fee.floor_micro * 10_000 / self.fee.bps as u64),
+        )
     }
 
     /// The warning that has to lead a mainnet answer, or nothing on devnet.
@@ -571,9 +609,11 @@ impl Tidex6Mcp {
              Payment quote ({network})\n\
              amount: {amount} {sym}\n\
              fee:    {fee} {sym}\n\
-             total:  {total} {sym}\n\n\
+             total:  {total} {sym}\n\
+             {fee_note}\n\
              Nothing has been sent. The sender pays the total; the recipient receives the amount.",
             caution = self.mainnet_caution(req.network),
+            fee_note = self.fee_note(&quote),
             network = req.network.name(),
             sym = req.amount.symbol(),
             amount = micro_to_decimal(quote.amount_micro),
@@ -650,9 +690,7 @@ impl Tidex6Mcp {
             _ => None,
         };
 
-        let memo = req
-            .memo
-            .render()
+        let memo = render_memo(req.memo_kind, req.memo.as_deref())
             .map_err(|e| McpError::invalid_params(e, None))?;
 
         let quote = Quote::compute(req.amount.micro(), self.fee)
@@ -709,12 +747,14 @@ impl Tidex6Mcp {
              auditor: {auditor}\n\
              collect: within {window} — after that, if it has not been \
              collected, the sender can take it back\n\
-             network: {network}\n\n\
+             network: {network}\n\
+             {fee_note}\n\
              Open to sign: {url}\n\n\
              The note and the encrypted memo are generated in the browser at that link, and \
              the wallet signs there. This server produced a link and nothing else: no funds \
              moved, no key was used, and none is held here.",
             caution = self.mainnet_caution(req.network),
+            fee_note = self.fee_note(&quote),
             to = recipient_wallet,
             ver = recipient.version,
             sym = req.amount.symbol(),

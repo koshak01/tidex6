@@ -57,6 +57,18 @@ impl Quote {
             total_micro: total,
         })
     }
+
+    /// Whether the floor, not the percentage, is what the sender is paying.
+    ///
+    /// Worth saying out loud when it happens. The fee looks flat on small
+    /// amounts — on the smallest denomination it equals the payment itself —
+    /// and a number like that reads as a bug unless the reason comes with it.
+    /// The reason is real: verifying a proof and landing the transactions costs
+    /// the same whatever the amount being moved.
+    pub fn is_floor_charged(&self, policy: FeePolicy) -> bool {
+        let proportional = (self.amount_micro as u128) * (policy.bps as u128) / 10_000;
+        proportional < policy.floor_micro as u128
+    }
 }
 
 /// Render micro-units as a decimal string, trailing zeros trimmed.
