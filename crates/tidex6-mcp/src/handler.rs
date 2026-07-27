@@ -367,7 +367,7 @@ impl Tidex6Mcp {
             // Наши инструменты плюс гарантированный ядерный `version` (эпоха
             // деплоя, которую все сервисы коллектива отдают одинаково). Наш
             // одноимённый переименован в `about` именно поэтому.
-            tool_router: Self::tool_router() + forge_mcp::version_router(salt),
+            tool_router: Self::tool_router() + forge_mcp::version_router(salt, "tidex6"),
         })
     }
 
@@ -456,8 +456,26 @@ impl Tidex6Mcp {
         // somebody bothers to read it; these fields are what it reads like to
         // code that has to decide. `vk_forgeable` in particular should never
         // have to be inferred from a paragraph.
+        //
+        // `summary` duplicates the text on purpose. A client is free to render
+        // the structured result *instead of* the content — the one I tested
+        // against does exactly that — and then every sentence here would be
+        // dropped in favour of the fields. Losing the explanation to the act of
+        // making it machine-readable would be a poor trade, so the short form
+        // rides along inside the structure.
         let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
         result.structured_content = Some(serde_json::json!({
+            "summary": format!(
+                "tidex6-mcp {version}. Custody T1: this server holds no spending key and \
+                 cannot read anyone's payments — every payment is signed in the user's own \
+                 wallet, and the key that finds payments is derived in their browser. The \
+                 pool's verification key is still a development key generated from a \
+                 published seed, so proofs against it are forgeable; say so before anyone \
+                 puts real savings in. A public ceremony to replace it is being collected \
+                 at {ceremony} — see the `ceremony` tool.",
+                version = env!("CARGO_PKG_VERSION"),
+                ceremony = self.ceremony_base_url,
+            ),
             "version": env!("CARGO_PKG_VERSION"),
             "custody": "T1",
             "holds_spending_key": false,
