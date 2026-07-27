@@ -1,0 +1,17 @@
+<!-- The brand mark on a square canvas, for anywhere an icon is drawn in a
+     square box: browser tabs, app tiles, MCP connector lists, explorer logos.
+
+     The mark itself is 624×374 — a hat is wider than it is tall, and in the
+     site header that is correct. But a client that draws it into a square
+     without honouring the aspect ratio squashes it, which is exactly what the
+     Claude Desktop connector list did. A square canvas cannot be squashed:
+     whatever the client does to fit it, the proportions inside survive.
+
+     Same reasoning as brand/solscan/*.png, which letterbox for explorers.
+     Geometry is identical to hat.svg, translated down by (624-374)/2 = 125. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 624" fill="#9945FF">
+  <g transform="translate(0,125)">
+    <path fill-rule="evenodd" d="M 0 291 a 312 82 0 0 1 624 0 a 312 82 0 0 1 -624 0 Z M 38 265 a 274 59 0 0 0 548 0 a 274 59 0 0 0 -548 0 Z"/>
+    <path d="M 96 200 a 216 200 0 0 1 432 0 L 528 271 a 300 84 0 0 1 -432 0 Z"/>
+  </g>
+</svg>
