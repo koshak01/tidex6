@@ -413,10 +413,10 @@ impl Tidex6Mcp {
         }
         format!(
             "\nThe fee here is a minimum, not a percentage: verifying a zero-knowledge proof \
-             and landing the transactions costs the same whatever the amount, so below \
-             {threshold} the cost stops scaling down. On small amounts that minimum is a large \
-             share of the payment — say so plainly rather than letting the number speak for \
-             itself.\n",
+             and landing the transactions costs the same whatever the amount, so below about \
+             {threshold} USDC or USDT the cost stops scaling down with it. On small amounts \
+             that minimum is a large share of the payment — say so plainly rather than \
+             letting the number speak for itself.\n",
             threshold = micro_to_decimal(self.fee.floor_micro * 10_000 / self.fee.bps as u64),
         )
     }
