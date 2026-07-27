@@ -35,14 +35,30 @@ pub enum AmountArg {
     Usdc0_1,
     /// 1 USDC
     Usdc1,
+    /// 2 USDC
+    Usdc2,
+    /// 3 USDC
+    Usdc3,
+    /// 5 USDC
+    Usdc5,
     /// 10 USDC
     Usdc10,
+    /// 100 USDC
+    Usdc100,
     /// 0.1 USDT
     Usdt0_1,
     /// 1 USDT
     Usdt1,
+    /// 2 USDT
+    Usdt2,
+    /// 3 USDT
+    Usdt3,
+    /// 5 USDT
+    Usdt5,
     /// 10 USDT
     Usdt10,
+    /// 100 USDT
+    Usdt100,
 }
 
 impl AmountArg {
@@ -51,26 +67,54 @@ impl AmountArg {
         match self {
             Self::Usdc0_1 | Self::Usdt0_1 => 100_000,
             Self::Usdc1 | Self::Usdt1 => 1_000_000,
+            Self::Usdc2 | Self::Usdt2 => 2_000_000,
+            Self::Usdc3 | Self::Usdt3 => 3_000_000,
+            Self::Usdc5 | Self::Usdt5 => 5_000_000,
             Self::Usdc10 | Self::Usdt10 => 10_000_000,
+            Self::Usdc100 | Self::Usdt100 => 100_000_000,
         }
     }
 
     /// The slug the signing page parses back out of the link.
+    ///
+    /// Must stay in step with `AGENT_AMOUNTS` in `send.js`: a slug the page
+    /// does not know leaves the amount field empty, and the person is asked to
+    /// type a number the agent already worked out.
     fn slug(self) -> &'static str {
         match self {
             Self::Usdc0_1 => "usdc0_1",
             Self::Usdc1 => "usdc1",
+            Self::Usdc2 => "usdc2",
+            Self::Usdc3 => "usdc3",
+            Self::Usdc5 => "usdc5",
             Self::Usdc10 => "usdc10",
+            Self::Usdc100 => "usdc100",
             Self::Usdt0_1 => "usdt0_1",
             Self::Usdt1 => "usdt1",
+            Self::Usdt2 => "usdt2",
+            Self::Usdt3 => "usdt3",
+            Self::Usdt5 => "usdt5",
             Self::Usdt10 => "usdt10",
+            Self::Usdt100 => "usdt100",
         }
     }
 
     fn symbol(self) -> &'static str {
         match self {
-            Self::Usdc0_1 | Self::Usdc1 | Self::Usdc10 => "USDC",
-            Self::Usdt0_1 | Self::Usdt1 | Self::Usdt10 => "USDT",
+            Self::Usdc0_1
+            | Self::Usdc1
+            | Self::Usdc2
+            | Self::Usdc3
+            | Self::Usdc5
+            | Self::Usdc10
+            | Self::Usdc100 => "USDC",
+            Self::Usdt0_1
+            | Self::Usdt1
+            | Self::Usdt2
+            | Self::Usdt3
+            | Self::Usdt5
+            | Self::Usdt10
+            | Self::Usdt100 => "USDT",
         }
     }
 }
@@ -324,6 +368,15 @@ pub struct Tidex6Mcp {
     /// separate site, and an operator running their own pool runs their own
     /// ceremony for it — the two are not interchangeable.
     ceremony_base_url: String,
+    /// Потолок одной операции на mainnet, в micro-единицах. `None` — без
+    /// потолка.
+    ///
+    /// Пул применяет его у себя (`mainnet_policy` в конфиге оператора), и без
+    /// этого знания инструмент честно считал бы стоимость, выдавал ссылку — а
+    /// человек упирался бы в отказ уже на странице подписи. Числу здесь
+    /// полагается совпадать с конфигом; расхождение стоит одного отказа, а не
+    /// потерянных денег.
+    mainnet_cap_micro: Option<u64>,
     /// HTTP client for the signing page and for Solana RPC. Timeouts are set:
     /// a hung request here would hang the agent's turn.
     http: reqwest::Client,
@@ -361,6 +414,17 @@ impl Tidex6Mcp {
         let ceremony_base_url = std::env::var("TIDEX6_CEREMONY_BASE_URL")
             .unwrap_or_else(|_| "https://ceremony.tidex6.com".to_string());
 
+        // Дефолт — текущая политика демо (`cap_5`). Оператор с другой ставит
+        // переменную; «0» снимает потолок.
+        let mainnet_cap_micro = match std::env::var("TIDEX6_MAINNET_CAP_MICRO") {
+            Ok(v) => match v.trim().parse::<u64>() {
+                Ok(0) => None,
+                Ok(n) => Some(n),
+                Err(_) => Some(5_000_000),
+            },
+            Err(_) => Some(5_000_000),
+        };
+
         // Reading the registry needs an RPC endpoint. Defaults to the project's
         // own proxy so the server works out of the box; an operator running
         // their own node points these at it.
@@ -379,6 +443,7 @@ impl Tidex6Mcp {
             fee: FeePolicy::default(),
             pay_base_url,
             ceremony_base_url,
+            mainnet_cap_micro,
             http,
             rpc_mainnet,
             rpc_devnet,
@@ -400,6 +465,32 @@ impl Tidex6Mcp {
         .map_err(|e| anyhow::anyhow!("MCP text limits: {e}"))?;
 
         Ok(handler)
+    }
+
+    /// Отказать, если сумма выше того, что пул примет на mainnet.
+    ///
+    /// Проверяем здесь, а не полагаемся на отказ пула: там он случится уже
+    /// после того, как человек открыл ссылку и потянулся к кошельку. Отказ,
+    /// который можно было выдать сразу, но выдали в конце, читается как
+    /// поломка — и правильно читается.
+    fn check_mainnet_cap(&self, amount: AmountArg, network: NetworkArg) -> Result<(), McpError> {
+        let Some(cap) = self.mainnet_cap_micro else {
+            return Ok(());
+        };
+        if !matches!(network.network(), Network::Mainnet) || amount.micro() <= cap {
+            return Ok(());
+        }
+        Err(McpError::invalid_params(
+            format!(
+                "on mainnet a single payment is capped at {cap} {sym} while the ceremony is \
+                 collecting — this one is {amount_str} {sym} and the pool would refuse it. \
+                 Use devnet for anything larger, or a smaller denomination.",
+                cap = micro_to_decimal(cap),
+                amount_str = micro_to_decimal(amount.micro()),
+                sym = amount.symbol(),
+            ),
+            None,
+        ))
     }
 
     /// Why the fee is what it is, when the floor is what is being charged.
@@ -601,6 +692,8 @@ impl Tidex6Mcp {
         &self,
         Parameters(req): Parameters<PaymentQuoteReq>,
     ) -> Result<CallToolResult, McpError> {
+        self.check_mainnet_cap(req.amount, req.network)?;
+
         let quote = Quote::compute(req.amount.micro(), self.fee)
             .ok_or_else(|| McpError::internal_error("quote overflowed", None))?;
 
@@ -684,6 +777,8 @@ impl Tidex6Mcp {
         &self,
         Parameters(req): Parameters<PaymentRequestReq>,
     ) -> Result<CallToolResult, McpError> {
+        self.check_mainnet_cap(req.amount, req.network)?;
+
         let recipient_wallet = parse_wallet(&req.recipient, "recipient")?;
         let auditor_wallet = match &req.auditor {
             Some(a) if !a.trim().is_empty() => Some(parse_wallet(a, "auditor")?),
