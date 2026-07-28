@@ -773,6 +773,103 @@ impl Tidex6Mcp {
         }
     }
 
+    /// Что у кошелька есть открыто — и чего здесь принципиально не видно.
+    #[tool(
+        description = "Report how much USDC, USDT and SOL a wallet holds openly on Solana. Use it when the user asks what their balance is, how much they have, or whether they can afford a payment. With no address it answers for the connected wallet. This reads only the public, spendable balance — payments received privately through the pool are encrypted and cannot be read here or by anyone but their recipient."
+    )]
+    async fn balance(
+        &self,
+        Parameters(req): Parameters<WalletQuestionReq>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let own = Self::caller_wallet(&ctx);
+        let Some(wallet) = req.wallet.as_deref().or(own.as_deref()) else {
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                "This connection is not tied to a wallet, and no address was given. \
+                 Reconnect the connector and sign in — the wallet is what the sign-in \
+                 signature establishes."
+                    .to_string(),
+            )]));
+        };
+        let owner = wallet.parse::<Pubkey>().map_err(|_| {
+            McpError::invalid_params(format!("`{wallet}` is not a Solana address"), None)
+        })?;
+
+        let net = req.network.network();
+        let rpc = self.rpc_for(req.network);
+
+        // Три отдельных чтения, а не одно: у токенов и у SOL разные методы RPC.
+        // Отказ любого из них — отказ всего ответа, и это правильно: половина
+        // баланса, поданная как баланс, хуже отсутствия ответа.
+        let mut lines = Vec::new();
+        let mut structured = serde_json::Map::new();
+        for asset in [
+            tidex6_core::network::Asset::Wusdc,
+            tidex6_core::network::Asset::Wusdt,
+        ] {
+            let Some(info) = net.asset(asset) else { continue };
+            let Some(mint) = info.underlying_mint else {
+                continue;
+            };
+            let micro = registry::token_balance_micro(&self.http, rpc, &owner, mint).await?;
+            // Символ пула — "wUSDC"; человек держит USDC, обёртка появляется
+            // внутри платежа и обратно исчезает. Называть его балансом wUSDC
+            // значит отвечать про то, чего он у себя не найдёт.
+            let symbol = info.symbol.trim_start_matches('w');
+            lines.push(format!("{symbol}: {}", micro_to_decimal(micro)));
+            structured.insert(
+                symbol.to_lowercase(),
+                serde_json::Value::String(micro_to_decimal(micro)),
+            );
+        }
+
+        let lamports = registry::sol_balance_lamports(&self.http, rpc, &owner).await?;
+        let sol = format!("{:.9}", lamports as f64 / 1e9);
+        let sol = sol.trim_end_matches('0').trim_end_matches('.').to_string();
+        lines.push(format!("SOL:  {sol}"));
+        structured.insert("sol".into(), serde_json::Value::String(sol.clone()));
+
+        // Зарегистрирован ли кошелёк — здесь не отвечаем. Это другой вопрос,
+        // на него есть `whoami`; сложенные в один ответ, два разных вопроса
+        // читаются как один составной, которого никто не задавал.
+
+        // Без SOL нельзя ни зарегистрироваться, ни подписать: рента за запись
+        // в реестре берётся с самого кошелька. Молчать об этом значит отправить
+        // человека пополнять стейблкоины, когда упёрлось не в них.
+        let no_sol = if lamports < 11_000_000 {
+            "\nThere is not enough SOL here to write to the chain. Registering in the \
+             reader registry costs about 0.01 SOL of rent, paid by this wallet, and \
+             signing costs a little more. Top it up before trying.\n"
+        } else {
+            ""
+        };
+
+        let text = format!(
+            "Openly held by {wallet} on {network}:\n\n\
+             {balances}\n\
+             {no_sol}\n\
+             This is the public balance — what a block explorer shows and what can be \
+             spent. Payments received privately through the pool are not in it: their \
+             amounts are encrypted, and only the recipient's own wallet can open them, in \
+             their own browser. Do not present this number as everything they have.",
+            network = req.network.name(),
+            balances = lines.join("\n"),
+        );
+
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text.clone())]);
+        // Текст кладётся и в структуру: клиент, получив структурную часть,
+        // показывает ЕЁ ВМЕСТО содержимого, и человеческий ответ пропадает
+        // целиком. Напоролись на этом дважды — с `about` и с `whoami`.
+        structured.insert("wallet".into(), serde_json::Value::String(wallet.to_string()));
+        structured.insert(
+            "network".into(),
+            serde_json::Value::String(req.network.name().to_string()),
+        );
+        structured.insert("summary".into(), serde_json::Value::String(text));
+        result.structured_content = Some(serde_json::Value::Object(structured));
+        Ok(result)
+    }
+
     /// Кто спрашивает — по токену, а не по слову агента.
     #[tool(
         description = "Report which Solana wallet this connection belongs to, and whether it is set up for private payments. Use it when the user asks who they are signed in as, which wallet is connected, or when they are unsure the right wallet is being used — with several wallets it is easy to lose track."
@@ -806,10 +903,16 @@ impl Tidex6Mcp {
             network = req.network.name(),
         );
 
-        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text.clone())]);
+        // `summary` дублирует текст внутрь структуры, и это не избыточность.
+        // Клиент, увидев структурную часть, показывает её ВМЕСТО содержимого:
+        // ответ приходил голым JSON из двух полей, а всё сказанное словами —
+        // зарегистрирован ли кошелёк, что заявки выписываются именно на него —
+        // пропадало. Тот же случай, что с `about`.
         result.structured_content = Some(serde_json::json!({
             "wallet": wallet,
             "network": req.network.name(),
+            "summary": text,
         }));
         Ok(result)
     }

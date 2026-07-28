@@ -305,3 +305,47 @@ pub async fn token_balance_micro(
 
     Ok(total)
 }
+
+/// Сколько у кошелька SOL, в лампортах.
+///
+/// Отдельно от токенов, потому что отвечает на другой вопрос. Токены — «есть
+/// чем платить»; SOL — «есть чем вообще сделать хоть что-нибудь»: регистрация
+/// в реестре пишет на цепочку аккаунт и требует ренты, и кошелёк с нулём там
+/// не сможет ни зарегистрироваться, ни подписать транзакцию. Без этой строки
+/// человек читает «USDC: 0, USDT: 0» и идёт пополнять не то.
+pub async fn sol_balance_lamports(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    owner: &Pubkey,
+) -> Result<u64, McpError> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getBalance",
+        "params": [owner.to_string()],
+    });
+
+    let payload: serde_json::Value = http
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| McpError::internal_error(format!("cannot reach the Solana RPC: {e}"), None))?
+        .json()
+        .await
+        .map_err(|e| McpError::internal_error(format!("RPC returned no JSON: {e}"), None))?;
+
+    if let Some(error) = payload.get("error") {
+        return Err(McpError::internal_error(
+            format!("RPC error while reading the SOL balance: {error}"),
+            None,
+        ));
+    }
+
+    payload
+        .pointer("/result/value")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| {
+            McpError::internal_error("RPC response has no result.value".to_string(), None)
+        })
+}
