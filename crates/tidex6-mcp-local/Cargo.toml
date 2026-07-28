@@ -1,0 +1,28 @@
+[package]
+name = "tidex6-mcp-local"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "tidex6 MCP server for a local signer: the agent pays with its own key, no browser"
+
+[dependencies]
+tidex6-client = { path = "../tidex6-client" }
+tidex6-core = { path = "../tidex6-core" }
+
+anyhow = { workspace = true }
+# `transport-io` даёт stdio: MCP-клиент запускает нас процессом и говорит
+# через трубы. Это и есть локальный режим — ключ не покидает машину, потому
+# что покидать её некуда.
+rmcp = { version = "2.0", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+solana-keypair = "3"
+solana-rpc-client = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

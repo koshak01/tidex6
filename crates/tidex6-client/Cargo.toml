@@ -31,6 +31,9 @@ solana-rpc-client = "3"
 solana-rpc-client-api = "3"
 solana-account-decoder-client-types = "3"
 solana-signature = "3"
+# Перевод оператору собирается вручную из трёх инструкций — нужен сам тип
+# транзакции. (`solana-transaction-status` ниже — про чтение чужих, не путать.)
+solana-transaction = "3"
 solana-compute-budget-interface = "3"
 solana-transaction-status = "3"
 

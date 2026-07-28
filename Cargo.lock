@@ -718,7 +718,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-std 0.5.0",
  "tracing",
- "tracing-subscriber",
+ "tracing-subscriber 0.2.25",
 ]
 
 [[package]]
@@ -2460,6 +2460,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2508,6 +2517,15 @@ dependencies = [
  "kem",
  "rand_core 0.6.4",
  "sha3",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3416,6 +3434,15 @@ checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
 dependencies = [
  "digest 0.10.7",
  "keccak",
+]
+
+[[package]]
+name = "sharded-slab"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
+dependencies = [
+ "lazy_static",
 ]
 
 [[package]]
@@ -5071,8 +5098,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "thread_local"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "tidex6-caller"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -5080,7 +5116,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -5104,7 +5140,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-cli"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5121,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-client"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anyhow",
@@ -5141,6 +5177,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-signature",
+ "solana-transaction",
  "solana-transaction-status",
  "thiserror 2.0.18",
  "tidex6-circuits",
@@ -5152,7 +5189,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -5170,7 +5207,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amount-demo"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5190,7 +5227,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amounts"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
@@ -5198,7 +5235,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-pool"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -5210,7 +5247,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",
@@ -5233,7 +5270,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-day1"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5257,7 +5294,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-example-private-payroll"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5274,7 +5311,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-indexer"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "base64 0.22.1",
@@ -5289,7 +5326,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-mcp"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5308,8 +5345,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-mcp-local"
+version = "2.14.0"
+dependencies = [
+ "anyhow",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "solana-keypair",
+ "solana-rpc-client",
+ "tidex6-client",
+ "tidex6-core",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber 0.3.23",
+]
+
+[[package]]
 name = "tidex6-notifier-client"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anyhow",
  "bitcode",
@@ -5319,7 +5375,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-registry"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "solana-security-txt",
@@ -5327,7 +5383,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-tip-jar"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "solana-security-txt",
@@ -5336,14 +5392,14 @@ dependencies = [
 
 [[package]]
 name = "tidex6-ui-shared"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "include_dir",
 ]
 
 [[package]]
 name = "tidex6-verifier"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",
@@ -5354,7 +5410,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-verifier-v2"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",
@@ -5365,7 +5421,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-wusdc-cli"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5383,7 +5439,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-wusdc-pool"
-version = "2.13.0"
+version = "2.14.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",
@@ -5638,12 +5694,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e0d2eaa99c3c2e41547cfa109e910a68ea03823cccad4a0525dcbc9b01e8c71"
 dependencies = [
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-subscriber"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
+dependencies = [
+ "matchers",
+ "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
+ "sharded-slab",
+ "smallvec",
+ "thread_local",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
 ]
 
 [[package]]
