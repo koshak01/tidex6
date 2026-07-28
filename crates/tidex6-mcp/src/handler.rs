@@ -521,24 +521,42 @@ impl Tidex6Mcp {
         amount: AmountArg,
         total_micro: u64,
         network: NetworkArg,
-    ) -> Result<(), McpError> {
+    ) -> Result<Option<String>, McpError> {
+        // Не знаем, у кого спрашивать, или нечего спрашивать — говорим прямо.
+        // Молчание здесь равно «проверено, всё в порядке», а это неправда:
+        // человек узнает о нехватке уже стоя перед кошельком.
+        let unchecked = Some(format!(
+            "\nThe balance was not checked. Make sure the wallet holds at least {need} {sym} \
+             before signing — otherwise the wallet will refuse the payment.\n",
+            need = micro_to_decimal(total_micro),
+            sym = amount.symbol(),
+        ));
+
         let Some(sender) = sender else {
-            return Ok(());
+            return Ok(unchecked);
         };
         let Ok(owner) = sender.parse::<Pubkey>() else {
-            return Ok(());
+            return Ok(unchecked);
         };
         let Some(info) = network.network().asset(amount.asset()) else {
-            return Ok(());
+            return Ok(unchecked);
         };
         let Some(mint) = info.underlying_mint else {
-            return Ok(());
+            return Ok(unchecked);
         };
 
-        let have =
-            registry::token_balance_micro(&self.http, self.rpc_for(network), &owner, mint).await?;
+        // Не смогли спросить — пропускаем. Проверка средств вспомогательная:
+        // она избавляет человека от похода к кошельку ради отказа. Превращать
+        // её недоступность в отказ платежа значит менять «не смог помочь» на
+        // «не дам сделать» — RPC, у которого закрыт нужный метод, останавливал
+        // бы работу целиком.
+        let Ok(have) =
+            registry::token_balance_micro(&self.http, self.rpc_for(network), &owner, mint).await
+        else {
+            return Ok(unchecked);
+        };
         if have >= total_micro {
-            return Ok(());
+            return Ok(None);
         }
         Err(McpError::invalid_params(
             format!(
@@ -885,7 +903,8 @@ impl Tidex6Mcp {
 
         // До реестра и до ссылки: если платить нечем, всё остальное — работа
         // впустую, а человеку идти никуда не надо.
-        self.check_funds(sender.as_deref(), req.amount, quote.total_micro, req.network)
+        let funds_note = self
+            .check_funds(sender.as_deref(), req.amount, quote.total_micro, req.network)
             .await?;
 
         // Resolve wallets into published locks (ADR-019). "Not registered" is
@@ -941,13 +960,14 @@ impl Tidex6Mcp {
              collect: within {window} — after that, if it has not been \
              collected, the sender can take it back\n\
              network: {network}\n\
-             {fee_note}\n\
+             {fee_note}{funds_note}\n\
              Open to sign: {url}\n\n\
              The note and the encrypted memo are generated in the browser at that link, and \
              the wallet signs there. This server produced a link and nothing else: no funds \
              moved, no key was used, and none is held here.",
             caution = self.mainnet_caution(req.network),
             fee_note = self.fee_note(&quote),
+            funds_note = funds_note.unwrap_or_default(),
             to = recipient_wallet,
             ver = recipient.version,
             sym = req.amount.symbol(),
