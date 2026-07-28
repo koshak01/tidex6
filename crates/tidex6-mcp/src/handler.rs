@@ -387,6 +387,14 @@ pub struct WalletQuestionReq {
     pub network: NetworkArg,
 }
 
+/// Ask what became of a payment link.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PaymentStatusReq {
+    /// The identifier from the link this server returned — the part after
+    /// `?r=`. Pass the whole link and it will be trimmed to the identifier.
+    pub request_id: String,
+}
+
 /// Handler state. One instance per MCP session.
 #[derive(Clone)]
 pub struct Tidex6Mcp {
@@ -897,6 +905,93 @@ impl Tidex6Mcp {
             "network".into(),
             serde_json::Value::String(req.network.name().to_string()),
         );
+        structured.insert("summary".into(), serde_json::Value::String(text));
+        result.structured_content = Some(serde_json::Value::Object(structured));
+        Ok(result)
+    }
+
+    /// Прошёл ли платёж — и что об этом честно можно сказать.
+    #[tool(
+        description = "Check whether a payment link has been signed. Use it after giving someone a payment link, when they say they have paid, or when you are asked whether a payment went through. Until this reports it signed, do not say the payment happened. It reports the sender's own transaction only — whether the recipient has collected the funds is encrypted and readable by nobody but them."
+    )]
+    async fn payment_status(
+        &self,
+        Parameters(req): Parameters<PaymentStatusReq>,
+    ) -> Result<CallToolResult, McpError> {
+        // Пришёл целый URL — берём хвост. Агент, которому отдали ссылку,
+        // естественнее всего вернёт её же, и отказывать ему за это глупо.
+        let id = req
+            .request_id
+            .rsplit(['=', '/'])
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if id.is_empty() {
+            return Err(McpError::invalid_params(
+                "request_id is empty — pass the identifier from the payment link".to_string(),
+                None,
+            ));
+        }
+
+        let endpoint = format!("{base}/api/pay/status?r={id}", base = self.pay_base_url);
+        let payload: serde_json::Value = self
+            .http
+            .get(&endpoint)
+            .send()
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("cannot reach the signing service: {e}"), None)
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("signing service returned no JSON: {e}"), None)
+            })?;
+
+        let state = payload
+            .get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        let text = match state {
+            "signed" => {
+                let signature = payload
+                    .get("signature")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let explorer = if signature.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\nhttps://solscan.io/tx/{signature}")
+                };
+                // Две разные вещи, и путать их нельзя. Отправитель узнаёт про
+                // СВОЮ транзакцию — он её и сделал, тут нечего раскрывать.
+                // Забрал ли получатель — зашифровано, и от отправителя тоже:
+                // ноту генерирует и запечатывает браузер, никуда её не сохраняя.
+                format!(
+                    "Signed. The payment is on chain.{explorer}\n\n\
+                     Say this precisely: the sender's transaction is confirmed. Whether the \
+                     recipient has collected the funds is something only they can see — the \
+                     amount is encrypted and opens with a key their wallet alone can produce. \
+                     Do not report it as delivered, and do not treat that as a gap: it is what \
+                     the sender paid for."
+                )
+            }
+            "pending" => "Not signed yet. The link is still valid and waiting for the wallet \
+                          owner. Nothing has moved — say that, and do not guess."
+                .to_string(),
+            _ => "No such payment link. Either it was never created, or it expired unsigned \
+                  after thirty minutes. A link that was signed stays answerable for a day, so \
+                  this is not a signed payment that has been forgotten."
+                .to_string(),
+        };
+
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text.clone())]);
+        let mut structured = serde_json::Map::new();
+        structured.insert("state".into(), serde_json::Value::String(state.to_string()));
+        if let Some(sig) = payload.get("signature") {
+            structured.insert("signature".into(), sig.clone());
+        }
         structured.insert("summary".into(), serde_json::Value::String(text));
         result.structured_content = Some(serde_json::Value::Object(structured));
         Ok(result)
