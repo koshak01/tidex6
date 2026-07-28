@@ -798,11 +798,17 @@ impl Tidex6Mcp {
         let net = req.network.network();
         let rpc = self.rpc_for(req.network);
 
-        // Три отдельных чтения, а не одно: у токенов и у SOL разные методы RPC.
-        // Отказ любого из них — отказ всего ответа, и это правильно: половина
-        // баланса, поданная как баланс, хуже отсутствия ответа.
+        // Три отдельных чтения: у токенов и у SOL разные методы RPC.
+        //
+        // Строка, которую не удалось прочитать, так и говорит — вместо того
+        // чтобы обрушить весь ответ. Сначала было наоборот, и первый же живой
+        // вызов это наказал: `getBalance` не оказалось в белом списке RPC
+        // релеера, и человек, спросивший баланс, не узнал даже те два числа,
+        // которые прочитались. Молчать про строку нельзя — тогда ноль от
+        // «не прочиталось» неотличим; но и терять из-за неё остальное незачем.
         let mut lines = Vec::new();
         let mut structured = serde_json::Map::new();
+        let mut unread = false;
         for asset in [
             tidex6_core::network::Asset::Wusdc,
             tidex6_core::network::Asset::Wusdt,
@@ -811,23 +817,39 @@ impl Tidex6Mcp {
             let Some(mint) = info.underlying_mint else {
                 continue;
             };
-            let micro = registry::token_balance_micro(&self.http, rpc, &owner, mint).await?;
             // Символ пула — "wUSDC"; человек держит USDC, обёртка появляется
             // внутри платежа и обратно исчезает. Называть его балансом wUSDC
             // значит отвечать про то, чего он у себя не найдёт.
             let symbol = info.symbol.trim_start_matches('w');
-            lines.push(format!("{symbol}: {}", micro_to_decimal(micro)));
-            structured.insert(
-                symbol.to_lowercase(),
-                serde_json::Value::String(micro_to_decimal(micro)),
-            );
+            match registry::token_balance_micro(&self.http, rpc, &owner, mint).await {
+                Ok(micro) => {
+                    lines.push(format!("{symbol}: {}", micro_to_decimal(micro)));
+                    structured.insert(
+                        symbol.to_lowercase(),
+                        serde_json::Value::String(micro_to_decimal(micro)),
+                    );
+                }
+                Err(_) => {
+                    lines.push(format!("{symbol}: could not be read"));
+                    unread = true;
+                }
+            }
         }
 
-        let lamports = registry::sol_balance_lamports(&self.http, rpc, &owner).await?;
-        let sol = format!("{:.9}", lamports as f64 / 1e9);
-        let sol = sol.trim_end_matches('0').trim_end_matches('.').to_string();
-        lines.push(format!("SOL:  {sol}"));
-        structured.insert("sol".into(), serde_json::Value::String(sol.clone()));
+        let lamports = match registry::sol_balance_lamports(&self.http, rpc, &owner).await {
+            Ok(lamports) => {
+                let sol = format!("{:.9}", lamports as f64 / 1e9);
+                let sol = sol.trim_end_matches('0').trim_end_matches('.').to_string();
+                lines.push(format!("SOL:  {sol}"));
+                structured.insert("sol".into(), serde_json::Value::String(sol));
+                Some(lamports)
+            }
+            Err(_) => {
+                lines.push("SOL:  could not be read".to_string());
+                unread = true;
+                None
+            }
+        };
 
         // Зарегистрирован ли кошелёк — здесь не отвечаем. Это другой вопрос,
         // на него есть `whoami`; сложенные в один ответ, два разных вопроса
@@ -836,7 +858,7 @@ impl Tidex6Mcp {
         // Без SOL нельзя ни зарегистрироваться, ни подписать: рента за запись
         // в реестре берётся с самого кошелька. Молчать об этом значит отправить
         // человека пополнять стейблкоины, когда упёрлось не в них.
-        let no_sol = if lamports < 11_000_000 {
+        let no_sol = if lamports.is_some_and(|l| l < 11_000_000) {
             "\nThere is not enough SOL here to write to the chain. Registering in the \
              reader registry costs about 0.01 SOL of rent, paid by this wallet, and \
              signing costs a little more. Top it up before trying.\n"
@@ -844,9 +866,19 @@ impl Tidex6Mcp {
             ""
         };
 
+        // Непрочитанная строка — не ноль. Сказать это словами обязательно:
+        // «USDC: could not be read» в списке чисел глазами читается как число.
+        let caveat = if unread {
+            "\nA line marked \"could not be read\" is not a zero — the node refused that \
+             one query. Say so rather than reporting it as an amount.\n"
+        } else {
+            ""
+        };
+
         let text = format!(
             "Openly held by {wallet} on {network}:\n\n\
              {balances}\n\
+             {caveat}\
              {no_sol}\n\
              This is the public balance — what a block explorer shows and what can be \
              spent. Payments received privately through the pool are not in it: their \
