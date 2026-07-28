@@ -744,6 +744,35 @@ impl Tidex6Mcp {
         Ok(result)
     }
 
+    /// Ссылка на страницу чтения — своя, а не адрес раздела.
+    ///
+    /// Заявка тут не несёт данных: получению и аудиту сервер ничего не должен
+    /// помнить, ключ рождается в браузере. Она нужна ради двух вещей — чтобы
+    /// страница открылась в нужной сети (иначе человек ищет в mainnet то, что
+    /// лежит в devnet, и видит пустоту) и чтобы сказала, если подключён не тот
+    /// кошелёк. Сегодня это стоило получаса: скан шёл ключом соседнего
+    /// аккаунта и честно находил чужие платежи.
+    ///
+    /// Не вышло — возвращаем простой адрес. Ссылка без заявки работает, просто
+    /// сеть придётся выбрать руками.
+    async fn scan_link(&self, path: &str, wallet: Option<&str>, network: NetworkArg) -> String {
+        let plain = format!("{base}{path}", base = self.pay_base_url);
+        let Some(wallet) = wallet else {
+            return plain;
+        };
+        match self
+            .create_scan_request(wallet, network, if path.contains("accountant") {
+                "audit"
+            } else {
+                "receive"
+            })
+            .await
+        {
+            Ok(id) => format!("{plain}?r={id}"),
+            Err(_) => plain,
+        }
+    }
+
     /// Кто спрашивает — по токену, а не по слову агента.
     #[tool(
         description = "Report which Solana wallet this connection belongs to, and whether it is set up for private payments. Use it when the user asks who they are signed in as, which wallet is connected, or when they are unsure the right wallet is being used — with several wallets it is easy to lose track."
@@ -887,9 +916,10 @@ impl Tidex6Mcp {
         let own = Self::caller_wallet(&ctx);
         let wallet = req.wallet.as_deref().or(own.as_deref());
         let standing = self.describe_wallet(wallet, "be paid", req.network).await?;
+        let link = self.scan_link("/receive/", wallet, req.network).await;
         let text = format!(
             "To find payments sent to you, open this link:\n\n\
-             {base}/receive/\n\n\
+             {link}\n\n\
              One button. The wallet signs one phrase, the key that finds the payments is \
              computed from that signature in that tab, and it is gone when the tab \
              closes — there is no file and nothing to keep.\n\n\
@@ -897,7 +927,6 @@ impl Tidex6Mcp {
              Report this as a link to open, not as an answer about their money: whether \
              anything is waiting is something only they can see.\n\n\
              Network: {network}.",
-            base = self.pay_base_url,
             network = req.network.name(),
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
@@ -917,16 +946,16 @@ impl Tidex6Mcp {
         let standing = self
             .describe_wallet(wallet, "be named as an auditor", req.network)
             .await?;
+        let link = self.scan_link("/accountant/", wallet, req.network).await;
         let text = format!(
             "To read the payments disclosed to you, open this link:\n\n\
-             {base}/accountant/\n\n\
+             {link}\n\n\
              The wallet signs, the reading key is computed in that tab, and only the \
              payments whose sender named that wallet open at all. An auditor reads the \
              amount and the memo and can move nothing — that separation is in the \
              ciphertext, not in a rule someone enforces.\n\n\
              {standing}\n\n\
              Network: {network}.",
-            base = self.pay_base_url,
             network = req.network.name(),
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
@@ -1128,6 +1157,34 @@ impl Tidex6Mcp {
     /// denomination, the memo. The note and its secret do not exist yet — they
     /// are created in the browser when the human opens the link.
     #[allow(clippy::too_many_arguments)]
+    /// Завести заявку для страницы чтения: только сеть и кошелёк.
+    ///
+    /// Тот же путь, что у платёжной, — одно место, где заявки создаются, и
+    /// один формат ссылки для человека.
+    async fn create_scan_request(
+        &self,
+        wallet: &str,
+        network: NetworkArg,
+        kind: &str,
+    ) -> Result<String, McpError> {
+        let body = serde_json::json!({
+            // Полей платежа тут нет и быть не должно: читать чужое заявка не
+            // помогает, отбор делает ключ в браузере.
+            "recipient": "",
+            "recipient_wallet": "",
+            "amount": "",
+            "network": network.name(),
+            "sender_wallet": wallet,
+            "kind": kind,
+        });
+        self.post_request(&body).await
+    }
+
+    // Аргументов много, и каждый — отдельное поле заявки. Сворачивать их в
+    // структуру ради счётчика значит завести тип, который существует только
+    // чтобы пройти проверку: те же поля, ещё одно имя, и лишний шаг между
+    // вызовом и телом запроса.
+    #[allow(clippy::too_many_arguments)]
     async fn create_pay_request(
         &self,
         recipient: &str,
@@ -1159,12 +1216,20 @@ impl Tidex6Mcp {
             // бы подпись, которой человек входил.
             "sender_wallet": sender_wallet.unwrap_or(""),
         });
+        self.post_request(&body).await
+    }
 
+    /// Отправить заявку на страницу подписи и получить её короткий id.
+    ///
+    /// Одно место на все виды заявок: платёж, получение, аудит. Разошедшись,
+    /// они дали бы три слегка разных способа сказать одно и то же — и три
+    /// места, где чинить, когда сервис ответит иначе.
+    async fn post_request(&self, body: &serde_json::Value) -> Result<String, McpError> {
         let endpoint = format!("{}/api/pay/new", self.pay_base_url);
         let response = self
             .http
             .post(&endpoint)
-            .json(&body)
+            .json(body)
             .send()
             .await
             .map_err(|e| {

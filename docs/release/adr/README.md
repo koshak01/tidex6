@@ -28,6 +28,7 @@
 | [ADR-018](ADR-018-mcp-server-agent-access.md) | MCP server: agents get capability, never keys — T1 custody, keys derived from wallet signatures | Accepted — implemented |
 | [ADR-019](ADR-019-on-chain-reader-registry.md) | On-chain reader registry: a wallet address is all anyone needs to know | Accepted — live on both networks |
 | [ADR-020](ADR-020-wallet-sign-in.md) | Sign in with a wallet, and keep the sign-in challenge apart from the key-derivation phrase | Accepted — implemented |
+| [ADR-021](ADR-021-agent-request-links.md) | One link shape for everything an agent hands a person, and a page that says whose key it uses | Accepted — implemented |
 
 ## Format
 
