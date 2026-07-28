@@ -68,6 +68,7 @@
 //! integrators see one error type at the top of their call graph.
 
 pub mod accountant;
+pub mod confidential;
 pub mod deposit;
 pub mod pool;
 pub mod refund;
@@ -75,6 +76,7 @@ pub mod registry;
 pub mod withdraw;
 
 pub use accountant::{AccountantEntry, AccountantScanner, RecipientEntry, RecipientScanner};
+pub use confidential::{DailySpend, LimitError, Limits};
 pub use deposit::{DepositBuilder, DepositOutcome, DepositPlan, IxAccount, IxRecipe};
 pub use pool::PrivatePool;
 pub use refund::RefundBuilder;

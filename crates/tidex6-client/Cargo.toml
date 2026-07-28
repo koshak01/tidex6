@@ -17,6 +17,9 @@ tidex6-registry = { path = "../../programs/tidex6-registry", features = ["no-ent
 
 anchor-client = { workspace = true }
 anyhow = { workspace = true }
+# Отказ лимита — штатный ответ, а не сбой: у него есть тип и разбираемые
+# варианты, чтобы вызывающий мог отличить «превышен потолок» от «нет сети».
+thiserror = { workspace = true }
 
 ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
@@ -38,6 +41,9 @@ solana-transaction-status = "3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Дискриминатор anchor-аккаунта — sha256 от имени типа. Тот же путь, что
+# у ct-lab, чтобы два места считали одно и то же одинаково.
+sha2 = "0.10"
 hex = "0.4"
 base64 = { workspace = true }
 
