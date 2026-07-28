@@ -365,6 +365,15 @@ impl NetworkArg {
     }
 }
 
+/// Вопрос, которому нужна только сеть.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NetworkOnlyReq {
+    /// Which network to answer about. Registrations are per network, so the
+    /// same wallet can be set up on one and not the other.
+    #[serde(default)]
+    pub network: NetworkArg,
+}
+
 /// A question about one wallet, asked of the read-side tools.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct WalletQuestionReq {
@@ -735,6 +744,47 @@ impl Tidex6Mcp {
         Ok(result)
     }
 
+    /// Кто спрашивает — по токену, а не по слову агента.
+    #[tool(
+        description = "Report which Solana wallet this connection belongs to, and whether it is set up for private payments. Use it when the user asks who they are signed in as, which wallet is connected, or when they are unsure the right wallet is being used — with several wallets it is easy to lose track."
+    )]
+    async fn whoami(
+        &self,
+        Parameters(req): Parameters<NetworkOnlyReq>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(wallet) = Self::caller_wallet(&ctx) else {
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                "This connection is not tied to a wallet. Reconnect the connector and sign \
+                 in again — the wallet is what the sign-in signature establishes."
+                    .to_string(),
+            )]));
+        };
+
+        let standing = self
+            .describe_wallet(Some(&wallet), "be paid", req.network)
+            .await?;
+
+        let text = format!(
+            "You are signed in with this wallet:\n\n\
+             {wallet}\n\n\
+             {standing}\n\n\
+             It was established by the signature you gave when connecting, and every \
+             payment prepared here is issued to it — a link made for this wallet cannot be \
+             paid from another one. To act as a different wallet, reconnect and sign in \
+             with that one.\n\n\
+             Network: {network}.",
+            network = req.network.name(),
+        );
+
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.structured_content = Some(serde_json::json!({
+            "wallet": wallet,
+            "network": req.network.name(),
+        }));
+        Ok(result)
+    }
+
     /// The state of the trusted setup, and the link that contributes to it.
     ///
     /// Reads the public transcript rather than a counter of our own: the log is
@@ -824,13 +874,19 @@ impl Tidex6Mcp {
 
     /// Where a person goes to collect what was sent to them.
     #[tool(
-        description = "Return the link a person opens to find and collect confidential payments sent to them. Use it when the user asks whether they have been paid, where their money is, or how to claim a shielded or private transfer. You cannot see their payments yourself: finding them needs a key that only their wallet can produce, in their own browser. Pass their wallet address to also check whether that wallet can be paid at all."
+        description = "Return the link a person opens to find and collect confidential payments sent to them. Use it whenever someone asks whether they have been paid, whether anything arrived, where their money is, how to claim or withdraw a shielded transfer, or wants to check their incoming private payments. You cannot see their payments yourself: finding them needs a key only their wallet can produce, in their own browser. With no wallet address it answers for the connected one; pass an address to ask about someone else."
     )]
     async fn receive(
         &self,
         Parameters(req): Parameters<WalletQuestionReq>,
+        ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let standing = self.describe_wallet(req.wallet.as_deref(), "be paid", req.network).await?;
+        // Свой кошелёк спрашивать не надо: он в токене. Аргумент остаётся —
+        // им спрашивают ПРО ЧУЖОЙ адрес («а этому можно платить?»), и тогда
+        // он важнее.
+        let own = Self::caller_wallet(&ctx);
+        let wallet = req.wallet.as_deref().or(own.as_deref());
+        let standing = self.describe_wallet(wallet, "be paid", req.network).await?;
         let text = format!(
             "To find payments sent to you, open this link:\n\n\
              {base}/receive/\n\n\
@@ -849,14 +905,17 @@ impl Tidex6Mcp {
 
     /// Where an auditor goes to read what was disclosed to them.
     #[tool(
-        description = "Return the link an auditor opens to read the confidential payments that named them — selective disclosure of otherwise shielded transfers. An auditor sees the amount and the memo of those payments and can never spend them or freeze them. Use it when the user is an accountant, a regulator, a tax adviser or anyone who was given read access, or when someone asks how a private payment system can still be audited. Pass their wallet address to also check whether that wallet can read at all."
+        description = "Return the link an auditor opens to read the confidential payments that named them — selective disclosure of otherwise shielded transfers. Use it whenever someone says they are an auditor or an accountant, asks to see what was disclosed to them, wants to check payments naming them, needs to review or reconcile private transfers, or asks how a private payment system can still be audited. An auditor reads the amount and the memo and can never spend or freeze anything. With no wallet address it answers for the connected one; pass an address to ask about someone else."
     )]
     async fn audit(
         &self,
         Parameters(req): Parameters<WalletQuestionReq>,
+        ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
+        let own = Self::caller_wallet(&ctx);
+        let wallet = req.wallet.as_deref().or(own.as_deref());
         let standing = self
-            .describe_wallet(req.wallet.as_deref(), "be named as an auditor", req.network)
+            .describe_wallet(wallet, "be named as an auditor", req.network)
             .await?;
         let text = format!(
             "To read the payments disclosed to you, open this link:\n\n\
