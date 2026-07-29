@@ -45,8 +45,18 @@ pub struct Quote {
 /// Чем кончилась отправка.
 #[derive(Debug)]
 pub struct SentPayment {
-    /// Подпись перевода оператору. Публична, её можно открыть в обозревателе.
+    /// Подпись перевода оператору.
+    ///
+    /// **Показывать её человеку как «ваш платёж» нельзя.** Это оплата услуги:
+    /// в обозревателе видно отправителя, получателя-оператора и полную сумму с
+    /// комиссией. Приватного в ней нет ничего, и не должно быть — приватен
+    /// депозит, который идёт следом.
     pub payment_signature: String,
+    /// Подпись депозита в пул — **вот это и есть платёж**.
+    ///
+    /// В обозревателе по ней видно ровно один хеш: ни отправителя, ни
+    /// получателя, ни суммы. Её и показываем.
+    pub deposit_signature: String,
     /// Commitment платежа — то единственное, что увидит наблюдатель.
     pub commitment_hex: String,
     /// Сколько списано всего.
@@ -101,7 +111,7 @@ impl PoolService {
         wallet: &str,
         payment_signature: &str,
         revoke_window_secs: i64,
-    ) -> Result<String> {
+    ) -> Result<DepositResult> {
         let body = serde_json::json!({
             "step": "deposit_browser",
             "commitment": commitment_hex,
@@ -113,7 +123,8 @@ impl PoolService {
             "wallet": wallet,
             "payment_sig": payment_signature,
         });
-        self.call(&body).context("депозит")
+        let out = self.call(&body).context("депозит")?;
+        serde_json::from_str(&out).with_context(|| format!("депозит вернул не то: {out}"))
     }
 
     /// Один вызов службы. Отказ службы — это отказ, а не пустой ответ.
@@ -164,6 +175,15 @@ impl PoolService {
         }
         Ok(reply.output)
     }
+}
+
+/// Результат депозита — то, что служба отдаёт структурой.
+#[derive(Debug, Deserialize)]
+struct DepositResult {
+    /// Подпись транзакции депозита. **Не перевода оператору**: в переводе
+    /// видно отправителя, получателя и полную сумму, и показывать его вместо
+    /// депозита значит выдать прозрачную транзакцию за приватную.
+    tx: String,
 }
 
 /// Отправить приватный платёж целиком: от котировки до записи в пул.
@@ -245,7 +265,7 @@ pub fn send_payment(
     )?;
     on_paid(&payment_signature);
 
-    service.deposit(
+    let deposit_output = service.deposit(
         &commitment_hex,
         &bytes_to_hex(&sealed.envelope),
         amount_micro,
@@ -262,6 +282,7 @@ pub fn send_payment(
 
     Ok(SentPayment {
         payment_signature,
+        deposit_signature: deposit_output.tx,
         commitment_hex,
         total_micro: quote.total,
     })

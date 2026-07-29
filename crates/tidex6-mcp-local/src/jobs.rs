@@ -40,6 +40,12 @@ pub enum JobState {
     Done {
         signature: String,
         commitment: String,
+        /// Хвост для обозревателя: `?cluster=devnet` или пусто.
+        ///
+        /// Без него Solscan ищет транзакцию в mainnet и отвечает «unable to
+        /// locate this tx hash» — платёж выглядит несуществующим, хотя он есть,
+        /// просто в другой сети.
+        explorer_suffix: String,
     },
     /// Не получилось. Поле `funds_moved` отвечает на единственный вопрос,
     /// который человек задаст первым.
@@ -60,10 +66,11 @@ impl JobState {
             Self::Done {
                 signature,
                 commitment,
+                explorer_suffix,
             } => format!(
                 "Done. The payment is on chain.\n\
                  Signature: {signature}\n\
-                 https://solscan.io/tx/{signature}\n\
+                 https://solscan.io/tx/{signature}{explorer_suffix}\n\
                  Commitment: {commitment}\n\n\
                  Say this precisely: the transaction is confirmed. Whether the recipient has \
                  collected it is something only they can see — the amount is encrypted and \

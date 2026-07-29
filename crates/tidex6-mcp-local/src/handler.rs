@@ -23,7 +23,7 @@ use solana_keypair::Keypair;
 use solana_rpc_client::rpc_client::RpcClient;
 use tidex6_client::confidential::{DailySpend, LocalIdentity, PoolService, ReadAs, scan};
 use tidex6_core::envelope::ReaderAddress;
-use tidex6_core::network::Asset;
+use tidex6_core::network::{Asset, Network};
 
 use crate::config::Config;
 use crate::jobs::{JobState, Jobs};
@@ -79,6 +79,13 @@ impl AmountArg {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayReq {
+    /// В какой сети. Спрашивается у человека, а не угадывается: mainnet — это
+    /// настоящие деньги, и решение «в какой сети платить» принимает он.
+    ///
+    /// Этот сервер настроен ровно на одну сеть — ту, что в его конфиге, откуда
+    /// он берёт ключ. Запрос про другую отклоняется вслух: молча уйти не в ту
+    /// сеть значит сделать не то, о чём попросили, и не сказать об этом.
+    pub network: NetworkArg,
     /// Кому платим — обычный адрес кошелька Solana.
     pub recipient: String,
     /// Сколько.
@@ -89,6 +96,24 @@ pub struct PayReq {
     /// Кому раскрыть сумму и назначение. Пусто — никому.
     #[serde(default)]
     pub auditor: Option<String>,
+}
+
+/// Сеть. Перечисление, а не строка: «main», «Mainnet» и «mainnet-beta» должны
+/// быть одним и тем же, а опечатка — отказом на входе, а не платежом не туда.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkArg {
+    Mainnet,
+    Devnet,
+}
+
+impl NetworkArg {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Devnet => "devnet",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -169,6 +194,25 @@ impl LocalTools {
             .network()
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
+        // Сеть из запроса должна совпадать с настроенной. Уйти в devnet, когда
+        // просили mainnet, — худший вид молчаливого несоответствия: человек
+        // уверен, что заплатил по-настоящему.
+        let asked = match req.network {
+            NetworkArg::Mainnet => Network::Mainnet,
+            NetworkArg::Devnet => Network::Devnet,
+        };
+        if asked != network {
+            return Err(McpError::invalid_params(
+                format!(
+                    "this server signs on {configured} only — it holds a {configured} key. \
+                     A {asked} payment needs a server configured for {asked}.",
+                    configured = self.config.network,
+                    asked = req.network.name(),
+                ),
+                None,
+            ));
+        }
+
         // Всё, что проверяется дёшево, проверяется ДО того, как мы скажем
         // «принято». Отказ через двадцать секунд после «принято» — худший
         // порядок: человек уже ушёл заниматься другим делом.
@@ -202,13 +246,13 @@ impl LocalTools {
 
         if let Some(n) = &self.config.notify {
             n.say(&format!(
-                "Принято: {amount} {symbol} → {to}{auditor}\n\
-                 Подписываю перевод. Пока ничего не подтверждено.",
+                "Accepted: {amount} {symbol} → {to}{auditor}\n\
+                 Signing the transfer. Nothing is confirmed yet.",
                 amount = micro_to_decimal(req.amount.micro()),
                 symbol = req.amount.symbol(),
                 to = short_address(&req.recipient),
                 auditor = if auditors_were_named {
-                    ", аудитору откроется сумма и назначение"
+                    " · auditor will read the amount and memo"
                 } else {
                     ""
                 },
@@ -259,8 +303,8 @@ impl LocalTools {
                     });
                     if let Some(n) = &notify {
                         n.say(&format!(
-                            "Перевод подтверждён — {value} {symbol} ушли с кошелька.\n\
-                             Пишу конверт в цепочку.",
+                            "Transfer confirmed — {value} {symbol} left the wallet.\n\
+                             Writing the envelope to chain.",
                             value = micro_to_decimal(amount.micro()),
                             symbol = amount.symbol(),
                         ));
@@ -269,17 +313,47 @@ impl LocalTools {
             ) {
                 Ok(sent) => {
                     if let Some(n) = &notify {
+                        // Ссылка ведёт на ДЕПОЗИТ, и только на него. Перевод
+                        // оператору публичен по устройству — в нём видно
+                        // отправителя, получателя и полную сумму. Подставить
+                        // его вместо депозита значит показать прозрачную
+                        // транзакцию и назвать её приватной.
+                        //
+                        // Не нашли подпись депозита — ссылки нет. Так честнее:
+                        // отсутствие ссылки человек заметит, а подмену — нет.
+                        let link = if sent.deposit_signature.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                "https://solscan.io/tx/{sig}{cluster}\n",
+                                sig = sent.deposit_signature,
+                                cluster = if network == Network::Devnet {
+                                    "?cluster=devnet"
+                                } else {
+                                    ""
+                                },
+                            )
+                        };
                         n.say(&format!(
-                            "Готово. Платёж в цепочке.\n\
-                             https://solscan.io/tx/{sig}\n\n\
-                             Забрал ли получатель — знает только он: сумма зашифрована и \
-                             открывается ключом, который может произвести лишь его кошелёк.",
-                            sig = sent.payment_signature,
+                            "Done. The payment is on chain.\n\
+                             {link}\n\
+                             Whether the recipient has collected it is something only they \
+                             can see: the amount is encrypted and opens with a key their \
+                             wallet alone can produce."
                         ));
                     }
                     jobs.set(&job_id, JobState::Done {
-                        signature: sent.payment_signature,
+                        signature: if sent.deposit_signature.is_empty() {
+                            sent.payment_signature
+                        } else {
+                            sent.deposit_signature
+                        },
                         commitment: sent.commitment_hex,
+                        explorer_suffix: if network == Network::Devnet {
+                            "?cluster=devnet".to_string()
+                        } else {
+                            String::new()
+                        },
                     })
                 }
                 Err(e) => {
@@ -292,12 +366,12 @@ impl LocalTools {
                     if let Some(n) = &notify {
                         n.say(&if funds_moved {
                             format!(
-                                "Сбой ПОСЛЕ списания: {text}\n\n\
-                                 Деньги уже ушли — не повторяйте платёж. Проверьте \
-                                 получение через минуту: депозит мог дойти."
+                                "Failed AFTER the funds left: {text}\n\n\
+                                 The money has already gone — do not repeat this payment. \
+                                 Check again in a minute: the deposit may well have landed."
                             )
                         } else {
-                            format!("Не отправлено: {text}\n\nДеньги не тронуты.")
+                            format!("Not sent: {text}\n\nNo money moved.")
                         });
                     }
                     jobs.set(&job_id, JobState::Failed { reason: text, funds_moved });

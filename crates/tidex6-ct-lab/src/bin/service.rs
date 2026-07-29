@@ -416,9 +416,17 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
                     .await
                     .context("deposit")?;
-            let _ = writeln!(
+            // JSON, а не фраза. Этот ответ читает программа: локальный
+            // MCP-сервер, браузер, завтра — чужая интеграция. Выковыривать
+            // подпись из предложения значит сделать формулировку частью
+            // протокола, и мы уже едва не показали из-за этого не ту
+            // транзакцию.
+            //
+            // Человеку JSON тоже читается: полей четыре, имена говорящие.
+            let _ = write!(
                 out,
-                "deposit ok\ncommitment: {commit_hex}\nmemo: {} bytes\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}",
+                "{{\"op\":\"deposit_browser\",\"commitment\":\"{commit_hex}\",\
+                 \"tx\":\"{sig}\",\"memo_bytes\":{}}}",
                 envelope.len()
             );
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
@@ -580,14 +588,16 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                     .await
                     .context("pool withdraw")?;
             use std::fmt::Write as _;
-            let _ = writeln!(
+            // Вывод из пула и выдача получателю — два шага, и в ответе оба.
+            // `payout` остаётся человекочитаемым: это отчёт службы о своей
+            // работе, его никто не разбирает.
+            let payout = ct::cashout_to_address(rpc.clone(), payer, &recipient, amount)
+                .await
+                .context("cashout to recipient")?;
+            let _ = write!(
                 out,
-                "withdraw ok\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}\n"
-            );
-            out.push_str(
-                &ct::cashout_to_address(rpc.clone(), payer, &recipient, amount)
-                    .await
-                    .context("cashout to recipient")?,
+                "{{\"op\":\"withdraw_browser\",\"tx\":\"{sig}\",\"payout\":\"{}\"}}",
+                esc(&payout)
             );
             Ok(out)
         }

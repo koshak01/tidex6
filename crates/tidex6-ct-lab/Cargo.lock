@@ -5402,7 +5402,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.5.20"
+version = "2.16.0"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.5.20"
+version = "2.16.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254",
