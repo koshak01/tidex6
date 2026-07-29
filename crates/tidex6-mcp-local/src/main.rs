@@ -9,6 +9,8 @@
 //! испорченный сервер.
 
 mod config;
+mod jobs;
+mod notify;
 mod handler;
 
 use anyhow::Result;
@@ -31,7 +33,32 @@ async fn main() -> Result<()> {
 
     tracing::info!(?network, "tidex6 local MCP: ключ загружен, слушаю stdio");
 
+    // Держим ссылку на работы: сервис забирает `tools` себе, а нам после его
+    // остановки надо знать, не остался ли кто-то в полёте.
+    let jobs = tools.jobs().clone();
+
     let service = tools.serve(stdio()).await?;
     service.waiting().await?;
+
+    // Клиент отключился — но платёж мог быть в середине. Между переводом
+    // оператору и записью конверта деньги уже списаны, а платежа ещё нет:
+    // выйти в этот момент значит оставить человека без того и без другого.
+    //
+    // Ждём до пяти минут. Дольше — уже не «доделываем», а держим мёртвый
+    // процесс; тогда лучше выйти и сказать об этом в лог, чем висеть молча.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    while jobs.in_flight() > 0 && std::time::Instant::now() < deadline {
+        tracing::info!(
+            in_flight = jobs.in_flight(),
+            "клиент отключился, доделываю начатые платежи"
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+    if jobs.in_flight() > 0 {
+        tracing::error!(
+            in_flight = jobs.in_flight(),
+            "выхожу, не дождавшись: платежи могли остаться незавершёнными"
+        );
+    }
     Ok(())
 }

@@ -5349,6 +5349,7 @@ name = "tidex6-mcp-local"
 version = "2.14.0"
 dependencies = [
  "anyhow",
+ "reqwest",
  "rmcp",
  "schemars",
  "serde",

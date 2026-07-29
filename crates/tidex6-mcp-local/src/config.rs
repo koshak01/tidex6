@@ -38,6 +38,11 @@ pub struct Config {
     /// намеренно тесные.
     #[serde(default)]
     pub limits: LimitsToml,
+
+    /// Куда досылать ход работы. Нет секции — сервер работает молча, и
+    /// состояние спрашивают через `payment_status`.
+    #[serde(default)]
+    pub notify: Option<crate::notify::Notify>,
 }
 
 /// Потолки в том виде, в каком их пишет человек: в токенах, не в микро-единицах.

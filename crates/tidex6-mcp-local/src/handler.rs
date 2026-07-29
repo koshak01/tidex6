@@ -12,7 +12,7 @@
 //!
 //! Размещённый готовит, локальный делает. Разница ровно в том, у кого ключ.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
@@ -23,9 +23,10 @@ use solana_keypair::Keypair;
 use solana_rpc_client::rpc_client::RpcClient;
 use tidex6_client::confidential::{DailySpend, LocalIdentity, PoolService, ReadAs, scan};
 use tidex6_core::envelope::ReaderAddress;
-use tidex6_core::network::{Asset, Network};
+use tidex6_core::network::Asset;
 
 use crate::config::Config;
+use crate::jobs::{JobState, Jobs};
 
 /// Сколько отправляем. Перечисление, а не число, и это защита, а не удобство:
 /// пул работает фиксированными номиналами, поэтому «отправь 4999» невыразимо —
@@ -93,6 +94,12 @@ pub struct PayReq {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct Empty {}
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct StatusReq {
+    /// Идентификатор, который вернул `payment_request`.
+    pub job_id: String,
+}
+
 /// Состояние сервера: ключ, личность и счётчик расхода.
 ///
 /// Расход в памяти процесса: перезапуск обнуляет дневной счётчик. Это честное
@@ -100,11 +107,14 @@ pub struct Empty {}
 /// хранение — следующий шаг, и оно потребует места, куда писать, а значит ещё
 /// одного файла с правами.
 pub struct LocalTools {
-    config: Config,
-    keypair: Keypair,
-    identity: LocalIdentity,
-    service: PoolService,
-    spend: Mutex<DailySpend>,
+    // Всё под `Arc`, потому что платёж уходит в фоновую задачу и переживает
+    // вызов инструмента, который его начал.
+    config: Arc<Config>,
+    keypair: Arc<Keypair>,
+    identity: Arc<LocalIdentity>,
+    service: Arc<PoolService>,
+    spend: Arc<Mutex<DailySpend>>,
+    jobs: Jobs,
     tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
 }
 
@@ -115,11 +125,12 @@ impl LocalTools {
         let identity = LocalIdentity::from_keypair(&keypair)?;
         let service = PoolService::new(config.pool_service.clone())?;
         Ok(Self {
-            config,
-            keypair,
-            identity,
-            service,
-            spend: Mutex::new(DailySpend::default()),
+            config: Arc::new(config),
+            keypair: Arc::new(keypair),
+            identity: Arc::new(identity),
+            service: Arc::new(service),
+            spend: Arc::new(Mutex::new(DailySpend::default())),
+            jobs: Jobs::default(),
             tool_router: Self::tool_router(),
         })
     }
@@ -145,95 +156,189 @@ impl LocalTools {
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
-    /// Отправить платёж. Здесь он действительно уходит.
+    /// Отправить платёж. Возвращается сразу, работа идёт своим ходом.
     #[tool(
-        description = "Send a private stablecoin payment on Solana — the amount is hidden on-chain and so is the link between sender and recipient. This server signs with its own key: the payment is SENT, not prepared. Use it when the user asks to pay someone privately. State the amount and recipient in your reply before calling it."
+        description = "Send a private stablecoin payment on Solana — the amount is hidden on-chain and so is the link between sender and recipient. This server signs with its own key: the payment is SENT, not prepared. It returns immediately with a job id while the work continues; report that it was accepted, then call payment_status to learn the outcome. Never say the payment completed until payment_status says so."
     )]
     async fn payment_request(
         &self,
         Parameters(req): Parameters<PayReq>,
     ) -> Result<CallToolResult, McpError> {
-        let mut steps = Steps::new();
         let network = self
             .config
             .network()
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        steps.done(
-            "Resolving the recipient in the on-chain registry",
-            &format!("{}…", &req.recipient[..8.min(req.recipient.len())]),
-        );
-        let recipient = self.reader_address(&req.recipient, network, "recipient")?;
-
+        // Всё, что проверяется дёшево, проверяется ДО того, как мы скажем
+        // «принято». Отказ через двадцать секунд после «принято» — худший
+        // порядок: человек уже ушёл заниматься другим делом.
+        let recipient = self.reader_address(&req.recipient, "recipient")?;
         let auditors = match req.auditor.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(auditor) => {
-                let address = self.reader_address(auditor, network, "auditor")?;
-                steps.done(
-                    "Resolving the auditor",
-                    "they will read the amount and memo, and can never spend",
-                );
-                vec![address]
-            }
-            None => {
-                steps.done("Auditor", "none — nobody but the recipient can read this");
-                Vec::new()
-            }
+            Some(auditor) => vec![self.reader_address(auditor, "auditor")?],
+            None => Vec::new(),
         };
 
-        steps.done(
-            "Checking the caps",
-            &format!("{} {}", micro_to_decimal(req.amount.micro()), req.amount.symbol()),
-        );
+        {
+            // Предварительная проверка потолков: она ничего не записывает, а
+            // отказать до перевода лучше, чем после.
+            let mut spend = self
+                .spend
+                .lock()
+                .map_err(|_| McpError::internal_error("spend counter poisoned", None))?;
+            self.config
+                .limits()
+                .check(
+                    req.amount.asset(),
+                    req.amount.micro(),
+                    None,
+                    &mut spend,
+                    std::time::SystemTime::now(),
+                )
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        }
 
-        let mut spend = self
-            .spend
-            .lock()
-            .map_err(|_| McpError::internal_error("spend counter poisoned", None))?;
+        let auditors_were_named = !auditors.is_empty();
+        let id = self.jobs.start();
 
-        let sent = tidex6_client::confidential::send_payment(
-            &self.service,
-            &self.keypair,
-            &recipient,
-            &auditors,
-            req.amount.micro(),
-            &req.memo,
-            req.amount.asset(),
-            network,
-            self.config.revoke_window_secs,
-            &self.config.rpc_url,
-            &self.config.limits(),
-            &mut spend,
-        )
-        // `{e:#}` — вся цепочка `anyhow`, а не верхний слой. С `to_string()`
-        // человек видит слово «депозит» и ничего больше: причина, ради которой
-        // контекст и добавляли, остаётся внутри.
-        .map_err(|e| McpError::internal_error(format!("{e:#}"), None))?;
+        if let Some(n) = &self.config.notify {
+            n.say(&format!(
+                "Принято: {amount} {symbol} → {to}{auditor}\n\
+                 Подписываю перевод. Пока ничего не подтверждено.",
+                amount = micro_to_decimal(req.amount.micro()),
+                symbol = req.amount.symbol(),
+                to = short_address(&req.recipient),
+                auditor = if auditors_were_named {
+                    ", аудитору откроется сумма и назначение"
+                } else {
+                    ""
+                },
+            ));
+        }
 
-        steps.done("Sealing the note into an ML-KEM envelope", "post-quantum");
-        steps.done(
-            "Paying from this wallet",
-            &format!("{}…", &sent.payment_signature[..12.min(sent.payment_signature.len())]),
-        );
-        steps.done(
-            "Hiding the amount and depositing into the pool",
-            "on-chain there is only a commitment hash",
-        );
+        // Дальше — фон. `spawn_blocking`, а не `spawn`: внутри синхронные HTTP
+        // и RPC, и занимать ими асинхронный поток нельзя.
+        let jobs = self.jobs.clone();
+        let job_id = id.clone();
+        let service = Arc::clone(&self.service);
+        let keypair = Arc::clone(&self.keypair);
+        let config = Arc::clone(&self.config);
+        let spend = Arc::clone(&self.spend);
+        let amount = req.amount;
+        let memo = req.memo.clone();
+        let notify = self.config.notify.clone();
 
+        tokio::task::spawn_blocking(move || {
+            let mut guard = match spend.lock() {
+                Ok(g) => g,
+                Err(_) => {
+                    jobs.set(&job_id, JobState::Failed {
+                        reason: "spend counter poisoned".to_string(),
+                        funds_moved: false,
+                    });
+                    return;
+                }
+            };
+            match tidex6_client::confidential::send_payment(
+                &service,
+                &keypair,
+                &recipient,
+                &auditors,
+                amount.micro(),
+                &memo,
+                amount.asset(),
+                network,
+                config.revoke_window_secs,
+                &config.rpc_url,
+                &config.limits(),
+                &mut guard,
+                |signature| {
+                    // Деньги ушли, платежа ещё нет. Спросив статус в эту
+                    // секунду, человек должен увидеть именно это, а не «идёт».
+                    jobs.set(&job_id, JobState::Paid {
+                        signature: signature.to_string(),
+                    });
+                    if let Some(n) = &notify {
+                        n.say(&format!(
+                            "Перевод подтверждён — {value} {symbol} ушли с кошелька.\n\
+                             Пишу конверт в цепочку.",
+                            value = micro_to_decimal(amount.micro()),
+                            symbol = amount.symbol(),
+                        ));
+                    }
+                },
+            ) {
+                Ok(sent) => {
+                    if let Some(n) = &notify {
+                        n.say(&format!(
+                            "Готово. Платёж в цепочке.\n\
+                             https://solscan.io/tx/{sig}\n\n\
+                             Забрал ли получатель — знает только он: сумма зашифрована и \
+                             открывается ключом, который может произвести лишь его кошелёк.",
+                            sig = sent.payment_signature,
+                        ));
+                    }
+                    jobs.set(&job_id, JobState::Done {
+                        signature: sent.payment_signature,
+                        commitment: sent.commitment_hex,
+                    })
+                }
+                Err(e) => {
+                    // Различить «не начали» и «деньги ушли» — единственное, что
+                    // человеку по-настоящему нужно при отказе. Перевод идёт до
+                    // депозита, поэтому упавшее на депозите случилось уже после
+                    // списания.
+                    let text = format!("{e:#}");
+                    let funds_moved = text.contains("депозит");
+                    if let Some(n) = &notify {
+                        n.say(&if funds_moved {
+                            format!(
+                                "Сбой ПОСЛЕ списания: {text}\n\n\
+                                 Деньги уже ушли — не повторяйте платёж. Проверьте \
+                                 получение через минуту: депозит мог дойти."
+                            )
+                        } else {
+                            format!("Не отправлено: {text}\n\nДеньги не тронуты.")
+                        });
+                    }
+                    jobs.set(&job_id, JobState::Failed { reason: text, funds_moved });
+                }
+            }
+        });
+
+        let auditor_line = if auditors_were_named {
+            "  ✓ Auditor resolved — they will read the amount and memo, and can never spend\n"
+        } else {
+            "  ✓ No auditor — nobody but the recipient can read this\n"
+        };
         let text = format!(
-            "{steps}\n\
-             Sent. {amount} {symbol} to {recipient}.\n\
-             Signature: {sig}\n\
-             https://solscan.io/tx/{sig}\n\n\
-             Say this precisely: the payment is on chain. Whether the recipient has \
-             collected it is something only they can see — the amount is encrypted and \
-             opens with a key their wallet alone can produce. Do not report it as \
-             delivered.",
-            steps = steps.render(),
+            "  ✓ Recipient resolved in the on-chain registry\n\
+             {auditor_line}\
+               ✓ Caps checked — {amount} {symbol}\n\
+               ✓ Accepted, job {id}\n\n\
+             The transfer is being signed and the envelope written to chain — about half a \
+             minute. Tell the user it was accepted and that nothing is confirmed yet, then \
+             call `payment_status` with id `{id}`.",
             amount = micro_to_decimal(req.amount.micro()),
             symbol = req.amount.symbol(),
-            recipient = req.recipient,
-            sig = sent.payment_signature,
         );
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+    }
+
+    /// Чем кончилась работа.
+    #[tool(
+        description = "Check what became of a payment started by payment_request. Use it after sending, and whenever the user asks whether a payment went through. Until this reports it done, do not say the payment completed."
+    )]
+    async fn payment_status(
+        &self,
+        Parameters(req): Parameters<StatusReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let text = match self.jobs.get(req.job_id.trim()) {
+            Some(state) => state.describe(),
+            None => "No such job. Either it was never started, or it finished over an hour \
+                     ago and is no longer remembered — a completed payment is on chain \
+                     regardless, and `receive` will find it."
+                .to_string(),
+        };
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
@@ -255,6 +360,11 @@ impl LocalTools {
 }
 
 impl LocalTools {
+    /// Работы, ещё не дошедшие до конца. Читается при остановке.
+    pub fn jobs(&self) -> &Jobs {
+        &self.jobs
+    }
+
     /// Общий скан для получателя и аудитора: отличается только ролью.
     async fn scan_and_report(&self, role: ReadAs) -> Result<CallToolResult, McpError> {
         let network = self
@@ -330,17 +440,13 @@ impl LocalTools {
     /// Отказ здесь — штатный ответ, а не сбой: кошелёк, не включивший приватные
     /// платежи, запечатать нечем, и человеку нужно это сказать, а не пытаться
     /// ещё раз.
-    fn reader_address(
-        &self,
-        wallet: &str,
-        network: Network,
-        role: &str,
-    ) -> Result<ReaderAddress, McpError> {
+    fn reader_address(&self, wallet: &str, role: &str) -> Result<ReaderAddress, McpError> {
         let rpc = RpcClient::new(self.config.rpc_url.clone());
         let pubkey = wallet
             .parse()
-            .map_err(|_| McpError::invalid_params(format!("`{wallet}` is not a Solana address"), None))?;
-        let _ = network;
+            .map_err(|_| {
+                McpError::invalid_params(format!("`{wallet}` is not a Solana address"), None)
+            })?;
         tidex6_client::registry::lookup(&rpc, &pubkey)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .map(|entry| entry.address)
@@ -400,6 +506,18 @@ impl Steps {
         }
         format!("{}\n", self.0.join("\n"))
     }
+}
+
+/// Адрес в виде, который читается в чате: начало, многоточие, конец.
+///
+/// Человек узнаёт адрес по краям, а середина — то, из-за чего сообщение
+/// становится нечитаемым (и из-за чего фильтры утечек принимают адрес за
+/// секрет).
+fn short_address(address: &str) -> String {
+    if address.len() < 16 {
+        return address.to_string();
+    }
+    format!("{}…{}", &address[..8], &address[address.len() - 6..])
 }
 
 fn micro_to_decimal(micro: u64) -> String {

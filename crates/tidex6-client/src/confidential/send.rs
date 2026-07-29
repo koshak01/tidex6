@@ -179,6 +179,10 @@ impl PoolService {
 ///   зашивается: у оператора свой узел, у пользователя свой, и библиотека не
 ///   должна выбирать за них
 /// * `limits` / `spend` — потолки; проверяются **до** первой транзакции
+/// * `on_paid` — зовётся сразу после подтверждения перевода оператору, до
+///   записи в пул. Это единственный момент, когда деньги уже списаны, а платёж
+///   ещё не существует; вызывающему нужно уметь сказать об этом человеку, иначе
+///   отказ на следующем шаге читается как «ничего не произошло»
 ///
 /// # Возвращает
 /// * `SentPayment` — подпись перевода и commitment
@@ -200,6 +204,7 @@ pub fn send_payment(
     rpc_url: &str,
     limits: &Limits,
     spend: &mut DailySpend,
+    on_paid: impl FnOnce(&str),
 ) -> Result<SentPayment> {
     use anchor_client::Signer as _;
 
@@ -238,6 +243,7 @@ pub fn send_payment(
         &commitment_hex,
         rpc_url,
     )?;
+    on_paid(&payment_signature);
 
     service.deposit(
         &commitment_hex,
