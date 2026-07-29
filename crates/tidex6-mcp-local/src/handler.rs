@@ -204,7 +204,10 @@ impl LocalTools {
             &self.config.limits(),
             &mut spend,
         )
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        // `{e:#}` — вся цепочка `anyhow`, а не верхний слой. С `to_string()`
+        // человек видит слово «депозит» и ничего больше: причина, ради которой
+        // контекст и добавляли, остаётся внутри.
+        .map_err(|e| McpError::internal_error(format!("{e:#}"), None))?;
 
         steps.done("Sealing the note into an ML-KEM envelope", "post-quantum");
         steps.done(
