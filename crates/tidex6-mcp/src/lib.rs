@@ -22,7 +22,7 @@ pub mod handler;
 pub mod quote;
 pub mod registry;
 
-pub use handler::Tidex6Mcp;
+pub use handler::{CreateRequest, ReadStatus, Tidex6Mcp};
 
 /// Кошелёк того, чьим токеном сделан вызов.
 ///

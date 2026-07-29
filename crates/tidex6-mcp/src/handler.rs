@@ -395,6 +395,23 @@ pub struct PaymentStatusReq {
     pub request_id: String,
 }
 
+/// Как создать платёжную заявку.
+///
+/// Функция, а не HTTP-адрес, потому что MCP-сервер живёт **внутри** того же
+/// процесса, который эти заявки хранит. Ходить к себе по HTTP значило бы
+/// гонять запрос наружу через прокси и обратно ради вызова соседнего модуля —
+/// и, что хуже, держать ради этого публичную ручку, которую можно дёрнуть в
+/// обход всей проверки кошелька. Проверено 2026-07-29: ручка была открыта.
+///
+/// Принимает и возвращает `serde_json::Value`, чтобы этот крейт не зависел от
+/// типов веб-слоя: зависимость идёт в одну сторону, и разворачивать её ради
+/// одной структуры незачем.
+pub type CreateRequest =
+    std::sync::Arc<dyn Fn(serde_json::Value) -> Result<String, String> + Send + Sync>;
+
+/// Чем кончилась заявка. Те же соображения, что и у [`CreateRequest`].
+pub type ReadStatus = std::sync::Arc<dyn Fn(&str) -> serde_json::Value + Send + Sync>;
+
 /// Handler state. One instance per MCP session.
 #[derive(Clone)]
 pub struct Tidex6Mcp {
@@ -402,6 +419,10 @@ pub struct Tidex6Mcp {
     /// Origin of the signing page. Configurable so an operator can point at
     /// their own deployment instead of ours.
     pay_base_url: String,
+    /// Создать заявку — прямым вызовом, без HTTP к самому себе.
+    create_request: CreateRequest,
+    /// Прочитать исход заявки.
+    read_status: ReadStatus,
     /// Origin of the ceremony. Separate from `pay_base_url` because it is a
     /// separate site, and an operator running their own pool runs their own
     /// ceremony for it — the two are not interchangeable.
@@ -446,7 +467,11 @@ impl Tidex6Mcp {
     /// call. One deployment serves everybody, so an environment variable would
     /// choose the network for every caller at once — and the caller who most
     /// needs the choice is the one paying real money.
-    pub fn from_env(salt: i64) -> anyhow::Result<Self> {
+    pub fn from_env(
+        salt: i64,
+        create_request: CreateRequest,
+        read_status: ReadStatus,
+    ) -> anyhow::Result<Self> {
         let pay_base_url = std::env::var("TIDEX6_PAY_BASE_URL")
             .unwrap_or_else(|_| "https://tidex6.com".to_string());
         let ceremony_base_url = std::env::var("TIDEX6_CEREMONY_BASE_URL")
@@ -480,6 +505,8 @@ impl Tidex6Mcp {
         let handler = Self {
             fee: FeePolicy::default(),
             pay_base_url,
+            create_request,
+            read_status,
             ceremony_base_url,
             mainnet_cap_micro,
             http,
@@ -934,20 +961,8 @@ impl Tidex6Mcp {
             ));
         }
 
-        let endpoint = format!("{base}/api/pay/status?r={id}", base = self.pay_base_url);
-        let payload: serde_json::Value = self
-            .http
-            .get(&endpoint)
-            .send()
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("cannot reach the signing service: {e}"), None)
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("signing service returned no JSON: {e}"), None)
-            })?;
+        // Прямой вызов, как и создание заявки: хранилище — в этом же процессе.
+        let payload = (self.read_status)(id);
 
         let state = payload
             .get("state")
@@ -1481,41 +1496,8 @@ impl Tidex6Mcp {
     /// они дали бы три слегка разных способа сказать одно и то же — и три
     /// места, где чинить, когда сервис ответит иначе.
     async fn post_request(&self, body: &serde_json::Value) -> Result<String, McpError> {
-        let endpoint = format!("{}/api/pay/new", self.pay_base_url);
-        let response = self
-            .http
-            .post(&endpoint)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    format!("cannot reach the signing service at {endpoint}: {e}"),
-                    None,
-                )
-            })?;
-
-        let status = response.status();
-        let payload: serde_json::Value = response.json().await.map_err(|e| {
-            McpError::internal_error(format!("signing service returned no JSON: {e}"), None)
-        })?;
-
-        if !status.is_success() {
-            let reason = payload
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown error");
-            return Err(McpError::internal_error(
-                format!("signing service refused the request ({status}): {reason}"),
-                None,
-            ));
-        }
-
-        payload
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| McpError::internal_error("signing service returned no request id", None))
+        (self.create_request)(body.clone())
+            .map_err(|e| McpError::internal_error(format!("cannot store the request: {e}"), None))
     }
 }
 
