@@ -63,9 +63,12 @@ impl AmountArg {
     }
     fn asset(self) -> Asset {
         match self {
-            Self::Usdc0_1 | Self::Usdc1 | Self::Usdc2 | Self::Usdc3 | Self::Usdc5 | Self::Usdc10 => {
-                Asset::Wusdc
-            }
+            Self::Usdc0_1
+            | Self::Usdc1
+            | Self::Usdc2
+            | Self::Usdc3
+            | Self::Usdc5
+            | Self::Usdc10 => Asset::Wusdc,
             _ => Asset::Wusdt,
         }
     }
@@ -217,7 +220,12 @@ impl LocalTools {
         // «принято». Отказ через двадцать секунд после «принято» — худший
         // порядок: человек уже ушёл заниматься другим делом.
         let recipient = self.reader_address(&req.recipient, "recipient")?;
-        let auditors = match req.auditor.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let auditors = match req
+            .auditor
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(auditor) => vec![self.reader_address(auditor, "auditor")?],
             None => Vec::new(),
         };
@@ -288,10 +296,13 @@ impl LocalTools {
             let mut guard = match spend.lock() {
                 Ok(g) => g,
                 Err(_) => {
-                    jobs.set(&job_id, JobState::Failed {
-                        reason: "spend counter poisoned".to_string(),
-                        funds_moved: false,
-                    });
+                    jobs.set(
+                        &job_id,
+                        JobState::Failed {
+                            reason: "spend counter poisoned".to_string(),
+                            funds_moved: false,
+                        },
+                    );
                     return;
                 }
             };
@@ -311,9 +322,12 @@ impl LocalTools {
                 |signature| {
                     // Деньги ушли, платежа ещё нет. Спросив статус в эту
                     // секунду, человек должен увидеть именно это, а не «идёт».
-                    jobs.set(&job_id, JobState::Paid {
-                        signature: signature.to_string(),
-                    });
+                    jobs.set(
+                        &job_id,
+                        JobState::Paid {
+                            signature: signature.to_string(),
+                        },
+                    );
                     tracing::info!(
                         job = %job_id,
                         signature = %signature,
@@ -366,19 +380,22 @@ impl LocalTools {
                         commitment = %sent.commitment_hex,
                         "deposit written to chain; payment complete"
                     );
-                    jobs.set(&job_id, JobState::Done {
-                        signature: if sent.deposit_signature.is_empty() {
-                            sent.payment_signature
-                        } else {
-                            sent.deposit_signature
+                    jobs.set(
+                        &job_id,
+                        JobState::Done {
+                            signature: if sent.deposit_signature.is_empty() {
+                                sent.payment_signature
+                            } else {
+                                sent.deposit_signature
+                            },
+                            commitment: sent.commitment_hex,
+                            explorer_suffix: if network == Network::Devnet {
+                                "?cluster=devnet".to_string()
+                            } else {
+                                String::new()
+                            },
                         },
-                        commitment: sent.commitment_hex,
-                        explorer_suffix: if network == Network::Devnet {
-                            "?cluster=devnet".to_string()
-                        } else {
-                            String::new()
-                        },
-                    })
+                    )
                 }
                 Err(e) => {
                     // Различить «не начали» и «деньги ушли» — единственное, что
@@ -408,7 +425,13 @@ impl LocalTools {
                         funds_moved,
                         "payment failed: {text}"
                     );
-                    jobs.set(&job_id, JobState::Failed { reason: text, funds_moved });
+                    jobs.set(
+                        &job_id,
+                        JobState::Failed {
+                            reason: text,
+                            funds_moved,
+                        },
+                    );
                 }
             }
         });
@@ -630,11 +653,9 @@ impl LocalTools {
     /// ещё раз.
     fn reader_address(&self, wallet: &str, role: &str) -> Result<ReaderAddress, McpError> {
         let rpc = RpcClient::new(self.config.rpc_url.clone());
-        let pubkey = wallet
-            .parse()
-            .map_err(|_| {
-                McpError::invalid_params(format!("`{wallet}` is not a Solana address"), None)
-            })?;
+        let pubkey = wallet.parse().map_err(|_| {
+            McpError::invalid_params(format!("`{wallet}` is not a Solana address"), None)
+        })?;
         tidex6_client::registry::lookup(&rpc, &pubkey)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .map(|entry| entry.address)
@@ -657,7 +678,7 @@ impl ServerHandler for LocalTools {
         // правим нужное, а не литералом.
         let mut info = ServerInfo::default();
         info.instructions = Some(
-                "tidex6, local mode. This server holds a Solana key and sends private \
+            "tidex6, local mode. This server holds a Solana key and sends private \
                  stablecoin payments itself — no browser, no link, no human signature per \
                  payment. What bounds it is code, not a prompt: per-payment and daily caps \
                  and a two-asset allowlist, checked before anything is sent.\n\n\
@@ -667,7 +688,7 @@ impl ServerHandler for LocalTools {
                  Never report a payment as delivered. You may say the transaction is \
                  confirmed on chain. Whether the recipient collected it is encrypted and \
                  unknowable — to you, to this server, to everyone but them."
-                    .to_string(),
+                .to_string(),
         );
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info

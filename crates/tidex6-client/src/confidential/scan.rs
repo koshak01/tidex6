@@ -99,9 +99,7 @@ pub fn scan(
         // base64 задаём явно: по умолчанию узел отдаёт base58, а он на
         // многокилобайтовых конвертах и медленнее, и местами обрезается.
         account_config: solana_rpc_client_api::config::RpcAccountInfoConfig {
-            encoding: Some(
-                solana_account_decoder_client_types::UiAccountEncoding::Base64,
-            ),
+            encoding: Some(solana_account_decoder_client_types::UiAccountEncoding::Base64),
             ..Default::default()
         },
         ..Default::default()

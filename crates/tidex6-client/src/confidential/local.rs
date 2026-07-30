@@ -94,8 +94,7 @@ impl LocalIdentity {
 /// Отдельная функция, потому что это единственное место, где локальный режим
 /// касается материала подписи, и его стоит держать на виду.
 pub fn load_keypair(path: &str) -> Result<Keypair> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("read the key {path}"))?;
+    let raw = std::fs::read_to_string(path).with_context(|| format!("read the key {path}"))?;
     let bytes: Vec<u8> = serde_json::from_str(&raw)
         .with_context(|| format!("{path}: expected a byte array, as solana-keygen writes"))?;
     Keypair::try_from(bytes.as_slice())

@@ -31,10 +31,7 @@ impl Notify {
     /// но это не повод обрушить платёж, который в этот момент идёт. Работа
     /// важнее рассказа о ней.
     pub fn say(&self, text: &str) {
-        let url = format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            self.bot_token
-        );
+        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
         let body = serde_json::json!({
             "chat_id": self.chat_id,
             "text": text,

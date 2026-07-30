@@ -135,7 +135,8 @@ impl PoolService {
             "payment_sig": payment_signature,
         });
         let out = self.call(&body).context("deposit")?;
-        serde_json::from_str(&out).with_context(|| format!("the deposit came back unreadable: {out}"))
+        serde_json::from_str(&out)
+            .with_context(|| format!("the deposit came back unreadable: {out}"))
     }
 
     /// Один вызов службы. Отказ службы — это отказ, а не пустой ответ.
@@ -255,9 +256,8 @@ pub fn send_payment(
     let mut all_auditors = auditors.to_vec();
     for hex_key in &quote.pool_auditors {
         let bytes = hex_to_bytes(hex_key).context("pool auditor: not hex")?;
-        all_auditors.push(
-            ReaderAddress::from_bytes(&bytes).context("pool auditor: unreadable address")?,
-        );
+        all_auditors
+            .push(ReaderAddress::from_bytes(&bytes).context("pool auditor: unreadable address")?);
     }
 
     let sealed = super::note::seal_payment(recipient, &all_auditors, amount_micro, memo)?;

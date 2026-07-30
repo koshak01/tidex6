@@ -78,8 +78,8 @@ impl Default for Limits {
     /// — осознанное действие; опустить его задним числом уже поздно.
     fn default() -> Self {
         Self {
-            per_payment: 5_000_000,          // 5
-            per_day: 25_000_000,             // 25
+            per_payment: 5_000_000, // 5
+            per_day: 25_000_000,    // 25
             allowed_assets: vec![Asset::Wusdc, Asset::Wusdt],
             session_balance_cap: Some(100_000_000), // 100
         }

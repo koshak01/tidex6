@@ -9,9 +9,9 @@
 //! испорченный сервер.
 
 mod config;
+mod handler;
 mod jobs;
 mod notify;
-mod handler;
 
 use anyhow::Result;
 use rmcp::ServiceExt;
@@ -22,8 +22,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
