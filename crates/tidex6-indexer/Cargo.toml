@@ -1,6 +1,7 @@
 [package]
 name = "tidex6-indexer"
 description = "Rebuilds the tidex6 shielded-pool Merkle tree offchain by replaying on-chain deposit event logs."
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -9,7 +10,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-tidex6-core = { version = "2.17.0", path = "../tidex6-core" }
+tidex6-core = { version = "2.17.1", path = "../tidex6-core" }
 
 anchor-client = { workspace = true }
 thiserror = { workspace = true }

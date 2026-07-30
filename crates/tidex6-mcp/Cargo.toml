@@ -9,7 +9,7 @@
 [package]
 name = "tidex6-mcp"
 description = "MCP server exposing tidex6 private payments to AI agents (ADR-018)"
-version = "2.17.0"
+version = "2.17.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"

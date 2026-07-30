@@ -1,6 +1,7 @@
 [package]
 name = "tidex6-verifier-v2"
 description = "tidex6 verifier v2 (ADR-014): ML-KEM memo in a dedicated account, stealth scanning, 30-day revoke. WithdrawCircuit/VK reused from v1."
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true

@@ -1,6 +1,7 @@
 [package]
 name = "tidex6-client"
 description = "tidex6 Rust SDK: high-level PrivatePool builder API for shielded deposits and withdrawals on Solana."
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -9,11 +10,11 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-tidex6-core = { version = "2.17.0", path = "../tidex6-core" }
-tidex6-circuits = { version = "2.17.0", path = "../tidex6-circuits" }
-tidex6-indexer = { version = "2.17.0", path = "../tidex6-indexer" }
-tidex6-verifier-v2 = { version = "2.17.0", path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
-tidex6-registry = { version = "2.17.0", path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
+tidex6-core = { version = "2.17.1", path = "../tidex6-core" }
+tidex6-circuits = { version = "2.17.1", path = "../tidex6-circuits" }
+tidex6-indexer = { version = "2.17.1", path = "../tidex6-indexer" }
+tidex6-verifier-v2 = { version = "2.17.1", path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
+tidex6-registry = { version = "2.17.1", path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
 
 anchor-client = { workspace = true }
 anyhow = { workspace = true }

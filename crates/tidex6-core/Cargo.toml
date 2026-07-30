@@ -1,6 +1,7 @@
 [package]
 name = "tidex6-core"
 description = "Core primitives for the tidex6 privacy framework: commitments, nullifiers, Merkle tree, keys, Poseidon wrapper, ElGamal on BN254."
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
