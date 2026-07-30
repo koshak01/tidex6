@@ -101,9 +101,32 @@ async fn main() -> Result<()> {
             continue;
         }
         let req = String::from_utf8_lossy(&buf).to_string();
+
+        // Журнал операции: строка на входе и строка на выходе. Смысл в паре —
+        // операция, у которой есть «→» и нет «←», была прервана на середине,
+        // и это единственный способ узнать такое постфактум. Раньше сервис
+        // писал только стартовые баннеры, и на вопрос «оборвал ли рестарт
+        // чей-то платёж» приходилось отвечать раскопками в цепочке (инцидент
+        // 2026-07-30: демон supervisord перезапустил весь парк, и доказывать
+        // простой пришлось по времени последних транзакций пулов).
+        //
+        // В лог идут только вид операции и сеть. Суммы, кошельки и ноты — нет:
+        // файл лежит на диске и уезжает в бэкапы, а privacy здесь не только
+        // клиентская, но и наша собственная.
+        let (op_label, net_label) = request_labels(&req);
+        let started = std::time::Instant::now();
+        println!("{} → {op_label} ({net_label})", stamp());
+
         let _guard = lock.lock().await;
         let resp = handle(&dev, &mainnet, &config, &req).await;
         drop(_guard);
+
+        println!(
+            "{} ← {op_label} ({net_label}) {} за {:.1}s",
+            stamp(),
+            if resp.is_ok() { "ok" } else { "ошибка" },
+            started.elapsed().as_secs_f32()
+        );
         // Конверт ответа собирает serde_json, а не format! с ручным
         // экранированием: `output` теперь и сам бывает JSON, и любая забытая
         // кавычка сделала бы тело неразборным для того, кто его читает.
@@ -116,6 +139,38 @@ async fn main() -> Result<()> {
         let _ = stream.write_all(json.as_bytes()).await;
         let _ = stream.shutdown().await;
     }
+}
+
+/// Метка времени журнала — UTC, секундная точность.
+///
+/// UTC, а не локальное время: рядом с этими строками кладут `supervisord.log`
+/// и сигнатуры транзакций, а те живут в UTC. Сервер при этом может стоять в
+/// любой зоне (на проде — CEST), и приводить одно к другому в момент разбора
+/// инцидента — лишний шанс ошибиться на два часа.
+fn stamp() -> String {
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Вид операции и сеть из тела запроса — только для журнала.
+///
+/// Разбирает тело отдельно от `handle`, а не переиспользует его разбор: цена —
+/// один `serde_json::from_str` на маленьком объекте против нескольких сетевых
+/// вызовов внутри самой операции, зато `handle` остаётся нетронутым. Тело,
+/// которое не разобралось, — тоже событие: пишем `?`, а причину дальше скажет
+/// сам `handle` в ответе.
+fn request_labels(body: &str) -> (String, String) {
+    let unknown = || "?".to_string();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return (unknown(), unknown());
+    };
+    let field = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(unknown)
+    };
+    (field("op"), field("network"))
 }
 
 /// Диспетчер: сеть+актив из запроса (чипы) → выбор бэкенда → allowlist → op.

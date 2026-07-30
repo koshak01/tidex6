@@ -5402,7 +5402,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.17.0"
+version = "2.17.1"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.17.0"
+version = "2.17.1"
 dependencies = [
  "aes-gcm",
  "ark-bn254",
@@ -5453,6 +5453,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "bytemuck",
+ "chrono",
  "serde",
  "serde_json",
  "sha2",
