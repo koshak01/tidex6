@@ -30,6 +30,10 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
+# Входящий запрос разбирается как JSON, а не поиском подстрок в теле: поле,
+# найденное `find("\"key\":\"")`, обрывается на первой кавычке и не знает, на
+# каком уровне вложенности его нашли.
+serde_json = "1"
 toml = "0.8"
 # Unified-клиент: пул-крипта (commitment/nullifier/дерево) + Groth16-прувер.
 # Чистые arkworks/light-poseidon — solana не тянут, конфликта с CT-версиями нет.
@@ -55,6 +59,10 @@ solana-transaction = "3"
 solana-message = "3"
 solana-hash = "3"
 solana-signature = "3"
+# Отличить «blockhash устарел, повтори» от настоящего отказа — по типу ошибки,
+# а не по словам в её тексте. Уже был в дереве транзитивно; объявлен явно,
+# потому что код на него ссылается.
+solana-transaction-error = "3"
 # Получение истории пула (реплей deposit-логов) без anchor-индексера.
 solana-transaction-status-client-types = "=4.0.0-rc.0"
 sha2 = "0.10"

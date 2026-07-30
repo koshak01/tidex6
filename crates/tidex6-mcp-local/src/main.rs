@@ -31,7 +31,13 @@ async fn main() -> Result<()> {
     let network = config.network()?;
     let tools = handler::LocalTools::new(config)?;
 
-    tracing::info!(?network, "tidex6 local MCP: ключ загружен, слушаю stdio");
+    // Лог по-английски: он попадает в кадр демо-записи и читают его не только
+    // мы. Комментарии остаются на русском — их читаем мы.
+    tracing::info!(
+        ?network,
+        wallet = %tools.wallet(),
+        "tidex6 local MCP ready: key loaded, listening on stdio"
+    );
 
     // Держим ссылку на работы: сервис забирает `tools` себе, а нам после его
     // остановки надо знать, не остался ли кто-то в полёте.
@@ -50,14 +56,14 @@ async fn main() -> Result<()> {
     while jobs.in_flight() > 0 && std::time::Instant::now() < deadline {
         tracing::info!(
             in_flight = jobs.in_flight(),
-            "клиент отключился, доделываю начатые платежи"
+            "client disconnected; finishing payments already in flight"
         );
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
     if jobs.in_flight() > 0 {
         tracing::error!(
             in_flight = jobs.in_flight(),
-            "выхожу, не дождавшись: платежи могли остаться незавершёнными"
+            "giving up the wait: payments may be left unfinished"
         );
     }
     Ok(())

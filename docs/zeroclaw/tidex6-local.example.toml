@@ -1,0 +1,41 @@
+# ~/.tidex6-local/config.toml — the local signing server (custody tier T2).
+#
+# Only needed for configuration (B) in config.example.toml. The hosted server
+# needs none of this: it holds no key.
+#
+# The directory must be 0700 and the key file must not be readable by group or
+# other. The server checks and refuses to start otherwise — a key a second
+# account on the machine can read is not a key, it is a shared secret.
+#
+#   mkdir -p ~/.tidex6-local && chmod 700 ~/.tidex6-local
+#   solana-keygen new -o ~/.tidex6-local/agent.json && chmod 600 ~/.tidex6-local/agent.json
+
+# A key that exists for this agent and nothing else. **Not your main wallet.**
+# Fund it with what you are willing to let an agent spend, and no more: the caps
+# below are the second line of defence, this is the first.
+keypair_path = "/Users/you/.tidex6-local/agent.json"
+
+# Your own RPC endpoint. Public endpoints rate-limit and are slow enough to make
+# a payment look hung.
+rpc_url = "https://devnet.helius-rpc.com/?api-key=REDACTED"
+
+# "devnet" or "mainnet". Devnet is the sane default while you get a feel for it;
+# a payment_request naming the other network is refused rather than quietly
+# redirected — nothing is worse than a person certain they paid for real.
+network = "devnet"
+
+[limits]
+# Enforced in code, before the first transaction is signed. A request over these
+# is refused with nothing sent — not partially executed and then rolled back,
+# because on a chain there is no rollback.
+per_payment = 5.0   # per single payment
+per_day     = 25.0  # rolling 24 hours, not a calendar day
+# Assets are not configurable here: USDC and USDT only, in the client. An agent
+# that can be talked into an arbitrary mint can be talked into a worthless one.
+
+# Optional: progress into a Telegram topic, so the operator sees each payment
+# land without asking the agent.
+# [notify]
+# bot_token = "REDACTED"
+# chat_id   = "-100REDACTED"
+# topic_id  = 0

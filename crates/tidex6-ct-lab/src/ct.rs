@@ -10,7 +10,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_keypair::{read_keypair_file, write_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client_api::client_error::Error as ClientError;
 use solana_signer::Signer;
+use solana_transaction_error::TransactionError;
 use solana_zk_sdk::encryption::{
     auth_encryption::AeKey,
     elgamal::{ElGamalKeypair, ElGamalPubkey},
@@ -20,7 +22,7 @@ use spl_token_2022::extension::{
     confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions, ExtensionType,
 };
 use spl_token_client::client::{ProgramRpcClient, ProgramRpcClientSendTransaction};
-use spl_token_client::token::{ProofAccountWithCiphertext, Token};
+use spl_token_client::token::{ProofAccountWithCiphertext, Token, TokenError};
 use spl_token_client::zk_proofs::confidential_mint_burn::{BurnAccountInfo, SupplyAccountInfo};
 use spl_token_client::zk_proofs::confidential_transfer::TransferAccountInfo;
 use spl_token_confidential_transfer_proof_generation::burn::BurnProofData;
@@ -835,28 +837,46 @@ where
         {
             Ok(_) => return Ok(()),
             Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("Blockhash not found") || msg.to_lowercase().contains("blockhash") {
-                    last = msg;
+                if is_blockhash_not_found(&e) {
+                    last = e.to_string();
                     continue;
                 }
-                return Err(anyhow!(msg)).context("create context");
+                return Err(anyhow!(e.to_string())).context("create context");
             }
         }
     }
     bail!("create context: {last} (retries exhausted)")
 }
 
-/// Ретрай Token-операции при "Blockhash not found" (Helius балансирует ноды:
+/// Устарел ли blockhash — вопрос к типу ошибки, а не к её формулировке.
+///
+/// Раньше здесь искалось слово «blockhash» в тексте. Такая проверка молча
+/// меняет поведение от чужой правки сообщения: сегодня она ретраит нужное,
+/// завтра — либо перестаёт (текст переписали), либо начинает повторять то, что
+/// повторять нельзя (слово попало в другую ошибку). `get_transaction_error`
+/// отвечает вариантом перечисления, и он от формулировок не зависит.
+fn is_blockhash_not_found(err: &TokenError) -> bool {
+    let TokenError::Client(inner) = err else {
+        return false;
+    };
+    let Some(client_err) = inner.downcast_ref::<ClientError>() else {
+        return false;
+    };
+    matches!(
+        client_err.kind().get_transaction_error(),
+        Some(TransactionError::BlockhashNotFound)
+    )
+}
+
+/// Ретрай Token-операции при устаревшем blockhash (Helius балансирует ноды:
 /// blockhash берётся с одной, симуляция идёт на отстающей). До 5 попыток с
 /// паузой; каждая попытка берёт свежий blockhash. Только для операций,
 /// безопасных к повтору после неудачной СИМУЛЯЦИИ (on-chain состояние при
 /// simulate-fail не меняется).
-async fn retry_blockhash<T, E, F, Fut>(what: &str, mut op: F) -> Result<T>
+async fn retry_blockhash<T, F, Fut>(what: &str, mut op: F) -> Result<T>
 where
-    E: std::fmt::Display,
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    Fut: std::future::Future<Output = std::result::Result<T, TokenError>>,
 {
     let mut last = String::new();
     for attempt in 0..5 {
@@ -866,12 +886,11 @@ where
         match op().await {
             Ok(v) => return Ok(v),
             Err(e) => {
-                let msg = e.to_string();
-                if msg.to_lowercase().contains("blockhash") {
-                    last = msg;
+                if is_blockhash_not_found(&e) {
+                    last = e.to_string();
                     continue;
                 }
-                return Err(anyhow!("{what}: {msg}"));
+                return Err(anyhow!("{what}: {e}"));
             }
         }
     }

@@ -80,7 +80,7 @@ pub fn seal_payment(
         memo.as_bytes(),
         auditors,
     )
-    .context("запечатать конверт")?;
+    .context("seal the envelope")?;
 
     Ok(SealedPayment {
         commitment,

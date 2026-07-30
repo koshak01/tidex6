@@ -104,9 +104,14 @@ async fn main() -> Result<()> {
         let _guard = lock.lock().await;
         let resp = handle(&dev, &mainnet, &config, &req).await;
         drop(_guard);
+        // Конверт ответа собирает serde_json, а не format! с ручным
+        // экранированием: `output` теперь и сам бывает JSON, и любая забытая
+        // кавычка сделала бы тело неразборным для того, кто его читает.
         let json = match resp {
-            Ok(output) => format!("{{\"ok\":true,\"output\":\"{}\"}}", esc(&output)),
-            Err(e) => format!("{{\"ok\":false,\"output\":\"{}\"}}", esc(&format!("{e:#}"))),
+            Ok(output) => serde_json::json!({"ok": true, "output": output}).to_string(),
+            Err(e) => {
+                serde_json::json!({"ok": false, "output": format!("{e:#}")}).to_string()
+            }
         };
         let _ = stream.write_all(json.as_bytes()).await;
         let _ = stream.shutdown().await;
@@ -114,8 +119,16 @@ async fn main() -> Result<()> {
 }
 
 /// Диспетчер: сеть+актив из запроса (чипы) → выбор бэкенда → allowlist → op.
-async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) -> Result<String> {
+async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -> Result<String> {
     use tidex6_core::network::{Asset, Network};
+    // Разбираем тело один раз и дальше читаем поля из объекта. Раньше каждое
+    // поле искалось в сырой строке по `"ключ":"`, и значение обрывалось на
+    // первой встреченной кавычке — вложенность, порядок полей и экранирование
+    // при этом не существовали. Для запроса, несущего сумму, кошелёк и подпись
+    // оплаты, такой разбор — не мелочь.
+    let req: serde_json::Value =
+        serde_json::from_str(body).context("request is not valid JSON")?;
+    let req = &req;
     let op = field_str(req, "op").context("missing op")?;
 
     // Health-readout (редко нужен UI — чипы сами источник истины).
@@ -298,7 +311,10 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             let commitment = hex32(&commitment).context("commitment: 32-byte hex")?;
             let envelope = hex_bytes(&envelope).context("envelope: hex")?;
 
-            let mut out = String::new();
+            // Прогресс работы: wrap, проверка оплаты, судьба fee-ноты. Он нужен
+            // человеку в браузере, но ответ службы — не он. Ответ строится в
+            // конце одним объектом, а это его поле.
+            let mut log = String::new();
             // Сколько комиссии реально удержано с оплаченного депозита (остаётся
             // 0 в legacy demo-пути без payment_sig — там комиссии нет).
             let mut collected_fee: u64 = 0;
@@ -358,7 +374,7 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 }
                 verify.context("verify payment")?;
                 let _ = writeln!(
-                    out,
+                    log,
                     "payment verified: {:.6} received from the connected wallet",
                     total as f64 / 1e6
                 );
@@ -405,30 +421,16 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             } else {
                 amount
             };
-            let _ = writeln!(out, "━━ wrap (confidential backing) ━━");
-            out.push_str(
+            let _ = writeln!(log, "━━ wrap (confidential backing) ━━");
+            log.push_str(
                 &ct::wrap(rpc.clone(), payer, wrap_amount)
                     .await
                     .context("wrap")?,
             );
-            let _ = writeln!(out, "\n━━ deposit (commitment + ML-KEM memo) ━━");
             let (sig, commit_hex) =
                 flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
                     .await
                     .context("deposit")?;
-            // JSON, а не фраза. Этот ответ читает программа: локальный
-            // MCP-сервер, браузер, завтра — чужая интеграция. Выковыривать
-            // подпись из предложения значит сделать формулировку частью
-            // протокола, и мы уже едва не показали из-за этого не ту
-            // транзакцию.
-            //
-            // Человеку JSON тоже читается: полей четыре, имена говорящие.
-            let _ = write!(
-                out,
-                "{{\"op\":\"deposit_browser\",\"commitment\":\"{commit_hex}\",\
-                 \"tx\":\"{sig}\",\"memo_bytes\":{}}}",
-                envelope.len()
-            );
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
             // Депозит пользователя уже on-chain, поэтому ошибку fee-ноты НЕ
             // пробрасываем: иначе успешный платёж вернул бы клиенту «fail». При
@@ -446,23 +448,39 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
                 .await
                 {
                     Ok((fsig, fcommit)) => {
-                        let _ = writeln!(out, "\n━━ fee collected privately (stealth note) ━━");
+                        let _ = writeln!(log, "\n━━ fee collected privately (stealth note) ━━");
                         let _ = writeln!(
-                            out,
+                            log,
                             "fee note ok\ncommitment: {fcommit}\nfee: {:.6}\ntx: {fsig}",
                             collected_fee as f64 / 1e6
                         );
                     }
                     Err(e) => {
                         let _ = writeln!(
-                            out,
+                            log,
                             "\n━━ fee note deferred (stays in operator confidential balance) ━━"
                         );
-                        let _ = writeln!(out, "fee note failed (non-fatal): {e}");
+                        let _ = writeln!(log, "fee note failed (non-fatal): {e}");
                     }
                 }
             }
-            Ok(out)
+            // Ответ — один объект, а не текст с объектом внутри. Этот ответ
+            // читает программа: локальный MCP-сервер, браузер, завтра — чужая
+            // интеграция. Выковыривать подпись из предложения значит сделать
+            // формулировку частью протокола, и мы уже едва не показали из-за
+            // этого не ту транзакцию — прозрачный перевод оператору вместо
+            // приватного депозита.
+            //
+            // Прогресс никуда не делся: он в `log`, и браузер показывает его
+            // человеку как раньше.
+            Ok(serde_json::json!({
+                "op": "deposit_browser",
+                "commitment": commit_hex,
+                "tx": sig.to_string(),
+                "memo_bytes": envelope.len(),
+                "log": log,
+            })
+            .to_string())
         }
         // Публичный скан конвертов пула для /receive/ и /auditor/. Отдаёт
         // JSON-массив финализированных memo (публичные байты) — расшифровка
@@ -582,24 +600,23 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
             let nh = hex32(&field_str(req, "nullifier_hash").context("nullifier_hash")?)
                 .context("nullifier_hash: 32-byte hex")?;
 
-            let mut out = String::new();
             let sig =
                 flow::withdraw_browser(rpc, payer, &recipient, proof_a, proof_b, proof_c, root, nh)
                     .await
                     .context("pool withdraw")?;
-            use std::fmt::Write as _;
             // Вывод из пула и выдача получателю — два шага, и в ответе оба.
-            // `payout` остаётся человекочитаемым: это отчёт службы о своей
-            // работе, его никто не разбирает.
+            // `payout` остаётся человекочитаемым — это отчёт службы о своей
+            // работе, — но лежит отдельным полем: подпись читается из `tx`, и
+            // выискивать её в отчёте больше некому.
             let payout = ct::cashout_to_address(rpc.clone(), payer, &recipient, amount)
                 .await
                 .context("cashout to recipient")?;
-            let _ = write!(
-                out,
-                "{{\"op\":\"withdraw_browser\",\"tx\":\"{sig}\",\"payout\":\"{}\"}}",
-                esc(&payout)
-            );
-            Ok(out)
+            Ok(serde_json::json!({
+                "op": "withdraw_browser",
+                "tx": sig.to_string(),
+                "payout": payout,
+            })
+            .to_string())
         }
         "mover" => ct::mover(rpc.clone(), payer).await,
         "cashout" => {
@@ -644,17 +661,18 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, req: &str) ->
     }
 }
 
-fn field_str(json: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\":\"");
-    let alt = format!("\"{key}\": \"");
-    let (start, off) = if let Some(p) = json.find(&needle) {
-        (p, needle.len())
-    } else {
-        (json.find(&alt)?, alt.len())
-    };
-    let s = start + off;
-    let end = json[s..].find('"')? + s;
-    Some(json[s..end].to_owned())
+/// Строковое поле запроса.
+///
+/// Числа и логические значения тоже принимаются как строки: клиенты пишут то
+/// `"revoke_window": 600`, то `"600"`, и отказывать одному из них было бы
+/// придирчивостью, а не строгостью.
+fn field_str(req: &serde_json::Value, key: &str) -> Option<String> {
+    match req.get(key)? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
 }
 
 /// байты → hex (для JSON-ответа memo_accounts).
@@ -694,34 +712,12 @@ fn hex_fixed<const N: usize>(s: &str) -> Option<[u8; N]> {
     })
 }
 
-fn field_num(json: &str, key: &str) -> Option<u64> {
-    for needle in [format!("\"{key}\":"), format!("\"{key}\": ")] {
-        if let Some(p) = json.find(&needle) {
-            let rest = json[p + needle.len()..].trim_start();
-            let end = rest
-                .find(|c: char| !c.is_ascii_digit())
-                .unwrap_or(rest.len());
-            if let Ok(v) = rest[..end].parse() {
-                return Some(v);
-            }
-        }
+/// Целое поле запроса — числом или строкой с числом.
+fn field_num(req: &serde_json::Value, key: &str) -> Option<u64> {
+    match req.get(key)? {
+        serde_json::Value::Number(n) => n.as_u64(),
+        serde_json::Value::String(s) => s.trim().parse().ok(),
+        _ => None,
     }
-    None
 }
 
-/// JSON-экранирование вывода (кавычки, слэши, переводы строк).
-fn esc(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 16);
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
-}

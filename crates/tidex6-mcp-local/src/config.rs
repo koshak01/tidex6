@@ -100,12 +100,12 @@ impl Config {
         let path = Self::path()?;
         let raw = std::fs::read_to_string(&path).with_context(|| {
             format!(
-                "нет конфига {}. Создайте его: keypair_path, rpc_url, network",
+                "no config at {}. Create it with: keypair_path, rpc_url, network",
                 path.display()
             )
         })?;
         let config: Self = toml::from_str(&raw)
-            .with_context(|| format!("{}: разбор не удался", path.display()))?;
+            .with_context(|| format!("{}: could not be parsed", path.display()))?;
         config.check_key_permissions()?;
         Ok(config)
     }
@@ -114,7 +114,7 @@ impl Config {
         if let Ok(explicit) = std::env::var("TIDEX6_LOCAL_CONFIG") {
             return Ok(PathBuf::from(explicit));
         }
-        let home = std::env::var("HOME").context("нет $HOME")?;
+        let home = std::env::var("HOME").context("no $HOME")?;
         Ok(Path::new(&home).join(".tidex6-local").join("config.toml"))
     }
 
@@ -126,11 +126,11 @@ impl Config {
     fn check_key_permissions(&self) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let meta = std::fs::metadata(&self.keypair_path)
-            .with_context(|| format!("нет ключа {}", self.keypair_path))?;
+            .with_context(|| format!("no key at {}", self.keypair_path))?;
         let mode = meta.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
             anyhow::bail!(
-                "{} доступен не только владельцу (права {:o}). Исправьте: chmod 600 {}",
+                "{} is readable by more than its owner (mode {:o}). Fix it: chmod 600 {}",
                 self.keypair_path,
                 mode,
                 self.keypair_path
@@ -143,7 +143,7 @@ impl Config {
         match self.network.as_str() {
             "mainnet" | "mainnet-beta" => Ok(Network::Mainnet),
             "devnet" => Ok(Network::Devnet),
-            other => anyhow::bail!("network: ожидалось mainnet или devnet, получено {other}"),
+            other => anyhow::bail!("network: expected mainnet or devnet, got {other}"),
         }
     }
 

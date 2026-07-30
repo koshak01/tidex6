@@ -5402,7 +5402,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.16.0"
+version = "2.17.0"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.16.0"
+version = "2.17.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254",
@@ -5454,6 +5454,7 @@ dependencies = [
  "ark-std",
  "bytemuck",
  "serde",
+ "serde_json",
  "sha2",
  "solana-cli-output",
  "solana-commitment-config",
@@ -5467,6 +5468,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction",
+ "solana-transaction-error",
  "solana-transaction-status-client-types",
  "solana-zk-elgamal-proof-interface",
  "solana-zk-sdk 7.0.1",

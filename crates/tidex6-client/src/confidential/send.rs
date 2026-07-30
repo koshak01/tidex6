@@ -77,7 +77,7 @@ impl PoolService {
             // навсегда, и человек видит молчание вместо ошибки.
             .timeout(std::time::Duration::from_secs(180))
             .build()
-            .context("http-клиент")?;
+            .context("http client")?;
         Ok(Self {
             base_url: base_url.into(),
             http,
@@ -85,15 +85,26 @@ impl PoolService {
     }
 
     /// Спросить, во что обойдётся платёж.
-    pub fn quote(&self, amount_micro: u64, asset: Asset, network: Network) -> Result<Quote> {
+    ///
+    /// `wallet` спрашивающего обязателен: реестровый гейт стоит на каждом шаге
+    /// службы, а не только на записи. Иначе даром отвечать на запросы мог бы
+    /// кто угодно, а место в реестре стоит ренты за аккаунт на цепочке.
+    pub fn quote(
+        &self,
+        amount_micro: u64,
+        asset: Asset,
+        network: Network,
+        wallet: &str,
+    ) -> Result<Quote> {
         let body = serde_json::json!({
             "step": "deposit_quote",
             "amount": micro_to_decimal(amount_micro),
             "asset": asset_slug(asset),
             "network": network_slug(network),
+            "wallet": wallet,
         });
-        let out = self.call(&body).context("котировка")?;
-        serde_json::from_str(&out).with_context(|| format!("котировка вернула не то: {out}"))
+        let out = self.call(&body).context("quote")?;
+        serde_json::from_str(&out).with_context(|| format!("the quote came back unreadable: {out}"))
     }
 
     /// Отдать оператору commitment и конверт: он завернёт сумму и положит в пул.
@@ -123,8 +134,8 @@ impl PoolService {
             "wallet": wallet,
             "payment_sig": payment_signature,
         });
-        let out = self.call(&body).context("депозит")?;
-        serde_json::from_str(&out).with_context(|| format!("депозит вернул не то: {out}"))
+        let out = self.call(&body).context("deposit")?;
+        serde_json::from_str(&out).with_context(|| format!("the deposit came back unreadable: {out}"))
     }
 
     /// Один вызов службы. Отказ службы — это отказ, а не пустой ответ.
@@ -139,14 +150,14 @@ impl PoolService {
             .post(format!("{}/api/deposit", self.base_url))
             .json(body)
             .send()
-            .context("служба пула недоступна")?;
+            .context("the pool service is unreachable")?;
 
         // Тело читаем текстом и разбираем сами. `.json()` на не-JSON says
         // «expected value at line 1 column 1» и выбрасывает само тело — а
         // именно оно и содержит причину: страница ошибки nginx, редирект,
         // заглушка. Диагностика без того, что пришло, отправляет искать не там.
         let status = response.status();
-        let body_text = response.text().context("не удалось прочитать ответ")?;
+        let body_text = response.text().context("could not read the reply")?;
         // 504 — обрыв обратного прокси, а не отказ службы: работа при этом
         // доводится до конца, и платёж доходит. Сказать «не прошло» было бы
         // враньём, за которое человек платит второй раз, поэтому говорим что
@@ -236,15 +247,16 @@ pub fn send_payment(
         .check(asset, amount_micro, None, spend, now)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    let quote = service.quote(amount_micro, asset, network)?;
+    let sender_wallet = signer.pubkey().to_string();
+    let quote = service.quote(amount_micro, asset, network, &sender_wallet)?;
 
     // Пул может быть регулируемым: его аудиторы добавляются к тем, кого назвал
     // отправитель, а не заменяют их.
     let mut all_auditors = auditors.to_vec();
     for hex_key in &quote.pool_auditors {
-        let bytes = hex_to_bytes(hex_key).context("аудитор пула: не hex")?;
+        let bytes = hex_to_bytes(hex_key).context("pool auditor: not hex")?;
         all_auditors.push(
-            ReaderAddress::from_bytes(&bytes).context("аудитор пула: неразборный адрес")?,
+            ReaderAddress::from_bytes(&bytes).context("pool auditor: unreadable address")?,
         );
     }
 
@@ -271,7 +283,7 @@ pub fn send_payment(
         amount_micro,
         asset,
         network,
-        &signer.pubkey().to_string(),
+        &sender_wallet,
         &payment_signature,
         revoke_window_secs,
     )?;
@@ -321,10 +333,10 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 fn hex_to_bytes(s: &str) -> Result<Vec<u8>> {
     if s.len() % 2 != 0 {
-        bail!("нечётная длина hex");
+        bail!("hex of odd length");
     }
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("не hex"))
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("not hex"))
         .collect()
 }

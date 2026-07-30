@@ -351,19 +351,33 @@ async fn fetch_and_parse_deposit(
 /// объяснения. Причина при этом штатная и понятная: подпись есть, потому что
 /// кошелёк подписал, а транзакция не долетела (истёк blockhash, оборвалась
 /// связь). Денег в этом случае не списано, и повторить платёж безопасно.
-fn absent_payment_tx(sig: &Signature, err: impl std::fmt::Display) -> anyhow::Error {
-    let text = err.to_string();
-    let is_absent = text.contains("invalid type: null")
-        || text.contains("Transaction not found")
-        || text.contains("not found");
-    if is_absent {
-        anyhow::anyhow!(
-            "payment transaction {sig} is not on chain — it was signed but never landed \
-             (an expired blockhash or a dropped connection). Nothing was charged; \
-             start the payment again."
-        )
-    } else {
-        anyhow::anyhow!("get payment tx: {text}")
+///
+/// **Отсутствие спрашивается у цепочки, а не вычитывается из текста ошибки.**
+/// Раньше здесь искались подстроки `not found` и подобные — но «ничего не
+/// списано, платите снова» это утверждение о деньгах человека, и выводить его
+/// из формулировки чужого сообщения нельзя: сетевой сбой с теми же словами
+/// («host not found») отправлял бы платить второй раз за уже прошедший платёж.
+/// `getSignatureStatuses` отвечает на этот вопрос фактом, а не намёком; когда
+/// же и он недоступен, мы честно не утверждаем о деньгах ничего.
+async fn absent_payment_tx(
+    rpc: &RpcClient,
+    sig: &Signature,
+    err: impl std::fmt::Display,
+) -> anyhow::Error {
+    match rpc.get_signature_statuses_with_history(&[*sig]).await {
+        Ok(response) => match response.value.into_iter().next().flatten() {
+            // Статус есть — транзакция на цепи, и упало что-то другое.
+            Some(_) => anyhow::anyhow!("get payment tx: {err}"),
+            None => anyhow::anyhow!(
+                "payment transaction {sig} is not on chain — it was signed but never landed \
+                 (an expired blockhash or a dropped connection). Nothing was charged; \
+                 start the payment again."
+            ),
+        },
+        Err(status_err) => anyhow::anyhow!(
+            "get payment tx: {err} (and the chain could not be asked whether {sig} landed: \
+             {status_err} — do not repeat the payment before checking)"
+        ),
     }
 }
 
@@ -386,10 +400,10 @@ pub async fn verify_token_payment(
         commitment: Some(CommitmentConfig::confirmed()),
         max_supported_transaction_version: Some(0),
     };
-    let tx = rpc
-        .get_transaction_with_config(sig, cfg)
-        .await
-        .map_err(|e| absent_payment_tx(sig, e))?;
+    let tx = match rpc.get_transaction_with_config(sig, cfg).await {
+        Ok(tx) => tx,
+        Err(e) => return Err(absent_payment_tx(rpc, sig, e).await),
+    };
     let meta = tx
         .transaction
         .meta

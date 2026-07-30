@@ -790,19 +790,22 @@ impl Tidex6Mcp {
     ///
     /// Не вышло — возвращаем простой адрес. Ссылка без заявки работает, просто
     /// сеть придётся выбрать руками.
-    async fn scan_link(&self, path: &str, wallet: Option<&str>, network: NetworkArg) -> String {
+    /// `role` передаётся явно, а не угадывается из `path`. Роль решает, чьим
+    /// ключом пойдёт скан — получателя или аудитора, — и выводить её из вида
+    /// адреса значит поставить это решение в зависимость от того, как однажды
+    /// назовут страницу.
+    async fn scan_link(
+        &self,
+        path: &str,
+        role: &str,
+        wallet: Option<&str>,
+        network: NetworkArg,
+    ) -> String {
         let plain = format!("{base}{path}", base = self.pay_base_url);
         let Some(wallet) = wallet else {
             return plain;
         };
-        match self
-            .create_scan_request(wallet, network, if path.contains("accountant") {
-                "audit"
-            } else {
-                "receive"
-            })
-            .await
-        {
+        match self.create_scan_request(wallet, network, role).await {
             Ok(id) => format!("{plain}?r={id}"),
             Err(_) => plain,
         }
@@ -1187,7 +1190,7 @@ impl Tidex6Mcp {
         let own = Self::caller_wallet(&ctx);
         let wallet = req.wallet.as_deref().or(own.as_deref());
         let standing = self.describe_wallet(wallet, "be paid", req.network).await?;
-        let link = self.scan_link("/receive/", wallet, req.network).await;
+        let link = self.scan_link("/receive/", "receive", wallet, req.network).await;
         let text = format!(
             "To find payments sent to you, open this link:\n\n\
              {link}\n\n\
@@ -1217,7 +1220,7 @@ impl Tidex6Mcp {
         let standing = self
             .describe_wallet(wallet, "be named as an auditor", req.network)
             .await?;
-        let link = self.scan_link("/accountant/", wallet, req.network).await;
+        let link = self.scan_link("/accountant/", "audit", wallet, req.network).await;
         let text = format!(
             "To read the payments disclosed to you, open this link:\n\n\
              {link}\n\n\

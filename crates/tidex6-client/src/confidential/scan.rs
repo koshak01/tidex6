@@ -103,7 +103,7 @@ pub fn scan(
 
     let accounts = rpc
         .get_program_ui_accounts_with_config(pool_program, config)
-        .context("прочитать конверты из пула")?;
+        .context("read the envelopes from the pool")?;
 
     let mut payments = Vec::new();
     for (_address, account) in &accounts {

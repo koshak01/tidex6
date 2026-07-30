@@ -54,7 +54,7 @@ impl LocalIdentity {
     pub fn from_keypair(keypair: &Keypair) -> Result<Self> {
         let signature = keypair.sign_message(IDENTITY_MESSAGE.as_bytes());
         let derived = identity::from_signature(signature.as_ref())
-            .context("вывести личность из подписи")?;
+            .context("derive the identity from the signature")?;
         let reader =
             ReaderAddress::from_secret(derived.mlkem_public.clone(), &derived.mlkem_secret);
 
@@ -95,9 +95,9 @@ impl LocalIdentity {
 /// касается материала подписи, и его стоит держать на виду.
 pub fn load_keypair(path: &str) -> Result<Keypair> {
     let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("прочитать ключ {path}"))?;
+        .with_context(|| format!("read the key {path}"))?;
     let bytes: Vec<u8> = serde_json::from_str(&raw)
-        .with_context(|| format!("{path}: ожидался массив байт, как у solana-keygen"))?;
+        .with_context(|| format!("{path}: expected a byte array, as solana-keygen writes"))?;
     Keypair::try_from(bytes.as_slice())
-        .map_err(|e| anyhow::anyhow!("{path}: не похоже на ключ Solana: {e}"))
+        .map_err(|e| anyhow::anyhow!("{path}: does not look like a Solana key: {e}"))
 }

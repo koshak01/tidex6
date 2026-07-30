@@ -1,0 +1,172 @@
+# ZeroClaw config for private Solana payments through tidex6.
+#
+# Secrets are redacted: every `enc2:…` value below is a placeholder. ZeroClaw
+# encrypts them at rest itself — put the plaintext in with `zeroclaw config set`
+# for the model API key and the bot token, and it will rewrite them in place.
+#
+# ⚠️ Do NOT run `zeroclaw config migrate`, and avoid `zeroclaw config set` for
+# anything under `[[mcp.servers]]`. Both rewrite this file in a way that inserts
+# an extra `default` alias level and detaches `headers` from the array element,
+# silently dropping the bearer token. Edit those by hand.
+
+schema_version = 3
+
+# ── Model ─────────────────────────────────────────────────────────────────
+
+[providers.models.anthropic.main]
+model   = "claude-sonnet-5"
+api_key = "enc2:REDACTED"
+
+# ── The payment server: pick ONE of the two blocks below ──────────────────
+#
+# They speak the same protocol and expose the same payment vocabulary. What
+# differs is who holds the key — which is to say, the custody tier.
+
+# (A) Hosted — T1. No key anywhere near the agent. Every payment tool returns a
+# link; a human signs in their own wallet. The bearer token is obtained by
+# signing a phrase with a Solana wallet in a browser, once, and authorises
+# preparing payments only.
+#
+# [[mcp.servers]]
+# name      = "tidex6"
+# transport = "http"
+# url       = "https://mcp.tidex6.com/mcp"
+# headers   = { Authorization = "Bearer REDACTED" }
+
+# (B) Local — T2. The key lives on the operator's own machine and the server
+# signs with it: payments are sent, not prepared. Bounded in code, not by
+# prompt: per-payment cap, daily cap, USDC/USDT only, recipient must already be
+# in the on-chain registry. Config lives in ~/.tidex6-local/config.toml (mode
+# 0700; the server refuses to start if the key file is group- or world-readable).
+[[mcp.servers]]
+name      = "tidex6"
+transport = "stdio"
+command   = "/path/to/tidex6/target/release/tidex6-mcp-local"
+args      = []
+
+[mcp.servers.env]
+
+[mcp_bundles.tidex6]
+servers = ["tidex6"]
+exclude = []
+
+# ── The agent ─────────────────────────────────────────────────────────────
+
+[agents.pay]
+model_provider = "anthropic.main"
+risk_profile   = "supervised"
+# Without this line the agent reaches no MCP server at all: an empty list here
+# means empty access, not open access.
+mcp_bundles    = ["tidex6"]
+skill_bundles  = ["tidex6"]
+enabled        = true
+acp_enable_mcp = false
+channels = []
+cron_jobs = []
+delegates = []
+
+[agents.pay.identity]
+format = "openclaw"
+
+[agents.pay.memory]
+# Remembers team wallet addresses so nobody re-types 44 base58 characters.
+backend = "sqlite"
+
+[agents.pay.precheck]
+enabled = true
+timeout_secs = 5
+
+[agents.pay.workspace]
+unrestricted_filesystem = false
+read_memory_from = []
+
+[agents.pay.workspace.access]
+
+[agents.pay.a2a]
+published = false
+exposed_skills = []
+
+[skill_bundles]
+[skill_bundles.tidex6]
+# Place SKILL.md at:
+#   ~/.zeroclaw/shared/skills/tidex6/private-payments/SKILL.md
+
+# ── Risk profile ──────────────────────────────────────────────────────────
+
+[risk_profiles.supervised]
+level                            = "supervised"
+workspace_only                   = true
+require_approval_for_medium_risk = true
+block_high_risk_commands         = true
+# The tidex6 tools are auto-approved in the hosted (A) configuration, and that
+# is not a relaxed gate but a consequence of what they are: none of them moves
+# money, they produce a LINK and read the public chain. Asking permission to
+# write a link means asking permission to ask permission.
+#
+# ⚠️ In the local (B) configuration, `payment_request` DOES spend. If you run
+# that one, remove it from this list so every payment stops at an approval
+# checkpoint, or keep the network set to devnet.
+auto_approve = ["file_read", "memory_recall", "web_fetch", "tool_search",
+                "tidex6__about", "tidex6__version", "tidex6__whoami", "tidex6__balance",
+                "tidex6__payment_quote", "tidex6__payment_status",
+                "tidex6__receive", "tidex6__audit", "tidex6__ceremony"]
+allowed_commands = ["git", "cargo", "ls", "cat", "grep", "date"]
+allowed_roots = []
+allowed_tools = []
+always_ask = []
+excluded_tools = []
+forbidden_paths = ["/etc", "/root", "/home", "/usr", "/bin", "/sbin", "/var", "/tmp",
+                   "~/.ssh", "~/.gnupg", "~/.aws", "~/.config"]
+shell_env_passthrough = []
+
+[risk_profiles.supervised.delegation_policy]
+mode = "forbidden"
+
+# ── Telegram ──────────────────────────────────────────────────────────────
+
+[channels.telegram.main]
+enabled      = true
+bot_token    = "enc2:REDACTED"
+# In a group the agent has to hear ordinary speech, not only @mentions: nobody
+# writes "send 5 USDC to 2GdZ…" through a mention.
+mention_only = false
+api_base_url = "https://api.telegram.org"
+approval_timeout_secs = 120
+excluded_tools = []
+interrupt_on_new_message = false
+stream_mode = "off"
+
+[gateway]
+paired_tokens = ["enc2:REDACTED"]
+
+[peer_groups.telegram_main]
+channel = "telegram.main"
+# Only this Telegram identity is served at all. Anyone else the bot meets gets
+# nothing — the allowlist is the outer door.
+external_peers = ["REDACTED_TELEGRAM_USER_ID"]
+admin_for_agent_scope = false
+agents = []
+ignore = []
+output_modality = "mirror"
+
+# ── Leak detector ─────────────────────────────────────────────────────────
+# Left ENABLED: real credential shapes (`sk-…`, AWS keys and the rest) are still
+# caught and stripped.
+#
+# The "high entropy means secret" heuristic has to go, and that is unavoidable
+# in this domain rather than careless. Everything this agent works with looks
+# like a leaked token: a base58 wallet address, a transaction signature, a
+# signing link. The very first Telegram reply came out with
+# `[REDACTED_HIGH_ENTROPY_TOKEN]` in place of an address — the detector was
+# stripping public data it is meant to display.
+#
+# None of it is secret by construction: the signing key lives in the person's
+# wallet (hosted mode) or in a 0700 file the model cannot read (local mode), and
+# the bearer token travels in an HTTP header, never in the reply text.
+#
+# Note: even with this off, the channel path still redacts bare addresses in some
+# builds — see zeroclaw#9486. The skill works around it by writing every address
+# as a Markdown link, whose destination is a protected span.
+[security.leak_detection]
+enabled             = true
+high_entropy_tokens = false

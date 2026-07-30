@@ -47,8 +47,8 @@ pub fn pay_operator(
 
     let rpc = RpcClient::new(rpc_url.to_string());
     let payer = signer.pubkey();
-    let operator: Pubkey = operator.parse().context("адрес оператора")?;
-    let mint: Pubkey = mint.parse().context("минт")?;
+    let operator: Pubkey = operator.parse().context("operator address")?;
+    let mint: Pubkey = mint.parse().context("mint")?;
     let token_program: Pubkey = TOKEN_PROGRAM.parse().expect("константа");
     let ata_program: Pubkey = ATA_PROGRAM.parse().expect("константа");
     let memo_program: Pubkey = MEMO_PROGRAM.parse().expect("константа");
@@ -96,7 +96,7 @@ pub fn pay_operator(
 
     let blockhash = rpc
         .get_latest_blockhash()
-        .context("получить свежий blockhash")?;
+        .context("fetch a fresh blockhash")?;
     let tx = Transaction::new_signed_with_payer(
         &[create_destination, transfer, memo],
         Some(&payer),
@@ -106,7 +106,7 @@ pub fn pay_operator(
 
     let signature = rpc
         .send_and_confirm_transaction(&tx)
-        .context("перевод оператору не подтвердился")?;
+        .context("the transfer to the operator was not confirmed")?;
     Ok(signature.to_string())
 }
 
