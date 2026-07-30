@@ -74,34 +74,42 @@ because hiding an amount and hiding a relationship are different problems:
 
 ### What is locked down and what is not
 
-Worth separating, because "immutable" is easy to claim about the wrong program:
+Worth separating, because "immutable" and "verified" are different claims and
+easy to make about the wrong program:
 
-| program | state |
-|---|---|
-| `CSDD31Zm…` — Groth16 verifier, mainnet | **upgrade authority renounced**, OtterSec-verified, immutable forever |
-| `AYTRKmF8…` — wUSDC pool | upgradeable, authority held by the operator; carries a `security_txt` block; build not verified yet |
-| `QGPYpwyM…` — wUSDT pool | same |
+| program | verified | upgradeable |
+|---|---|---|
+| `CSDD31Zm…` — Groth16 verifier | ✅ OtterSec | **no** — authority renounced, immutable forever |
+| `AYTRKmF8…` — wUSDC pool | ✅ OtterSec, commit `33c6b08` | yes, authority held by us |
+| `QGPYpwyM…` — wUSDT pool | ✅ OtterSec, commit `33c6b08` | yes, authority held by us |
+| `D1dCoBui…` — reader registry | ✅ OtterSec, commit `33c6b08` | yes, authority held by us |
 
-(Solscan renders `Security.txt: FALSE` for both pools. The block is there — dump
-the program and it starts at `=======BEGIN SECURITY.TXT V1=======`, with contacts
-and policy URL — so that flag is an indexing gap on their side, not a missing
-block. We mention it because a judge will see the FALSE before they see the
-bytes.)
+All four verifications point at one public commit, so anyone can rebuild the
+bytes that are running and compare:
 
-The payments in the video go through a pool, so the honest sentence is: the
-proof system underneath is locked and audited, the two-layer pools on top of it
-are not yet. **Whoever holds that upgrade authority can replace the pool program
-and take the privacy away retroactively** — today that is one wallet, ours. It
-stays that way while the hidden-amount layer is still being exercised, and the
-plan is the same road the verifier already walked: `security_txt` and OtterSec
-verification submitted, and the authority renounced once the trusted-setup
-ceremony has real contributors and there is something worth freezing. Those two
-are independent: verification proves the on-chain bytes came from a public
-commit and needs no redeploy, while renouncing is the irreversible one and waits
-for the ceremony.
+```
+verify.osec.io/status/AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU
+verify.osec.io/status/QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2
+verify.osec.io/status/D1dCoBuiRehhT24XTF8Dmhm9cFERpmfANLB1bb3aGxLJ
+```
 
-Anyone can check both claims in a browser in thirty seconds, which is exactly
-why they are written here rather than left for a judge to find.
+The three pools were verified on 2026-07-30, the day this was submitted, and
+getting there turned up something worth admitting: **the repository did not
+build for anyone but us.** One crate — the hosted MCP server — depended on a
+private crate outside the repository, and as a workspace member it broke `cargo
+build` in any clean clone. A verifier clones and builds on its own machine, so
+verification was impossible for a reason that had nothing to do with hashes. It
+is now its own workspace, and the successful verification is the proof that a
+stranger can build this.
+
+**What is still not locked down:** the upgrade authority of all three pools is a
+single wallet, ours. Whoever holds it can replace those programs and take the
+privacy away retroactively — verification proves what is running *today*, not
+what will run tomorrow. That is the honest limit of a verified-but-upgradeable
+program, and it stays this way deliberately: renouncing is irreversible, and the
+verifying key those pools carry is still a development key. It gets renounced
+when the trusted-setup ceremony has real contributors and there is something
+worth freezing.
 
 The listing names, among the patterns that count as craft, *"privacy as an
 installable capability — stealth addresses, hidden amounts, compliance viewing

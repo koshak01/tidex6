@@ -1,33 +1,35 @@
 **A payment agent that hides the payment, not the key**
 
 Paying contractors on a public chain publishes your payroll. Hiding everything
-doesn't fix it either: the accountant has to see every payment.
+doesn't fix it: the accountant has to see every payment.
 
 In Telegram: `pay 1 USDT to 2GdZ…, memo — July retainer, auditor 9BpK…`
 
 On chain: a commitment hash. No sender, no recipient, **no amount**. Once a month
 the accountant signs once in their own browser and reads every payment with
 amounts and memos — because the payer handed them that key. One chain, three
-viewers, three levels of sight.
+levels of sight.
 
 **Custody, both ways.** T1 hosted: no key held, agent prepares, human signs. T2
 local (in the video): key on my own machine, bounded in code — 5 per payment, 25
 per rolling day, USDC/USDT only, `amount` is an enum so "100 USDC" has no wire
 representation, and the recipient must already be in the on-chain registry, so a
-fresh attacker address is not a valid destination. Worst case for an injection: 5
-USDC to an address registered beforehand. Two transcripts in the write-up.
+fresh attacker address is not a valid destination. Worst case: 5 USDC to an
+address registered beforehand. Two transcripts in the write-up.
 
 **Tier 2 by your ladder.** Stock release binary, no plugin, no fork: ZeroClaw is
-an MCP client, tidex6 runs an MCP server.
+an MCP client, tidex6 an MCP server.
+
 
 tidex6 is Rust, live on mainnet: Token-2022 Confidential Transfers hide the
 amount, a Groth16 pool hides the link, ML-KEM-768 envelopes carry the note so the
 payer transmits nothing. Your listing names *"stealth addresses, hidden amounts,
-compliance viewing keys"* — that's these three, live.
+compliance viewing keys"* — these three, live.
 
-Reported, not hidden: the verifier is immutable and OtterSec-verified, the pools
-above it are not — we still hold their upgrade authority; what the operator sees
-on the send path; a dev verification key until the ceremony has contributors.
+Reported, not hidden: all four programs are OtterSec-verified against one public
+commit, but the pools stay upgradeable — that authority is one wallet, ours, so
+verification proves what runs today, not tomorrow; what the operator sees on the
+send path; a dev verification key until the ceremony has contributors.
 
 Write-up + configs + skill:
 <https://github.com/koshak01/tidex6/blob/master/docs/ZEROCLAW_SUBMISSION.md>
