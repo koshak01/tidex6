@@ -244,6 +244,19 @@ impl LocalTools {
         let auditors_were_named = !auditors.is_empty();
         let id = self.jobs.start();
 
+        // Дальше по ходу платежа каждый шаг пишет строку в лог. Не для отладки:
+        // оператор смотрит на процесс на своей машине, и «работает или висит»
+        // должно быть видно, не спрашивая агента. Сумм и назначения тут нет —
+        // они в конверте, а лог живёт на диске оператора и в его терминале.
+        tracing::info!(
+            job = %id,
+            amount = %micro_to_decimal(req.amount.micro()),
+            asset = %req.amount.symbol(),
+            to = %short_address(&req.recipient),
+            auditor = auditors_were_named,
+            "payment accepted; signing the transfer"
+        );
+
         if let Some(n) = &self.config.notify {
             n.say(&format!(
                 "Accepted: {amount} {symbol} → {to}{auditor}\n\
@@ -301,6 +314,11 @@ impl LocalTools {
                     jobs.set(&job_id, JobState::Paid {
                         signature: signature.to_string(),
                     });
+                    tracing::info!(
+                        job = %job_id,
+                        signature = %signature,
+                        "transfer confirmed; funds have left the wallet"
+                    );
                     if let Some(n) = &notify {
                         n.say(&format!(
                             "Transfer confirmed — {value} {symbol} left the wallet.\n\
@@ -342,6 +360,12 @@ impl LocalTools {
                              wallet alone can produce."
                         ));
                     }
+                    tracing::info!(
+                        job = %job_id,
+                        deposit = %sent.deposit_signature,
+                        commitment = %sent.commitment_hex,
+                        "deposit written to chain; payment complete"
+                    );
                     jobs.set(&job_id, JobState::Done {
                         signature: if sent.deposit_signature.is_empty() {
                             sent.payment_signature
@@ -379,6 +403,11 @@ impl LocalTools {
                             format!("Not sent: {text}\n\nNo money moved.")
                         });
                     }
+                    tracing::error!(
+                        job = %job_id,
+                        funds_moved,
+                        "payment failed: {text}"
+                    );
                     jobs.set(&job_id, JobState::Failed { reason: text, funds_moved });
                 }
             }
@@ -446,8 +475,8 @@ impl LocalTools {
 
     /// Кошелёк, которым этот сервер подписывает. Печатается в лог при старте:
     /// оператор должен видеть, какой ключ поднялся, не спрашивая агента.
-    pub fn wallet(&self) -> &str {
-        &self.identity.wallet
+    pub fn wallet(&self) -> String {
+        self.identity.wallet.to_string()
     }
 
     /// Общий скан для получателя и аудитора: отличается только ролью.
@@ -458,8 +487,25 @@ impl LocalTools {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let rpc = RpcClient::new(self.config.rpc_url.clone());
 
+        tracing::info!(
+            role = match role {
+                ReadAs::Recipient => "recipient",
+                ReadAs::Auditor => "auditor",
+            },
+            "scanning both pools with the local key"
+        );
+
         let mut steps = Steps::new();
-        let mut lines = Vec::new();
+        // Ждущие своего — отдельно от уже забранных. Список платежей растёт и
+        // никогда не убывает: он читается с цепочки, а из цепочки ничего не
+        // удаляется. Показывать его целиком значит через месяц отвечать
+        // простынёй, в которой то, что человеку нужно сделать сейчас, тонет
+        // среди того, что он сделал в марте.
+        let mut waiting: Vec<String> = Vec::new();
+        let mut collected: Vec<String> = Vec::new();
+        let mut unknown: Vec<String> = Vec::new();
+        // Сколько всего пришло, по активу — для итога одной строкой.
+        let mut totals: Vec<(&'static str, u64)> = Vec::new();
         let mut seen = 0usize;
 
         // Оба пула: у USDC и USDT свои программы, и человек не обязан помнить,
@@ -480,8 +526,10 @@ impl LocalTools {
             seen += report.envelopes_seen;
 
             let symbol = info.symbol.trim_start_matches('w');
+            let mut total = 0u64;
             for payment in report.payments {
-                lines.push(format!(
+                total += payment.amount_micro;
+                let line = format!(
                     "  {amount} {symbol} — {memo}",
                     amount = micro_to_decimal(payment.amount_micro),
                     memo = if payment.memo.is_empty() {
@@ -489,9 +537,28 @@ impl LocalTools {
                     } else {
                         &payment.memo
                     },
-                ));
+                );
+                match payment.is_collected {
+                    Some(false) => waiting.push(line),
+                    Some(true) => collected.push(line),
+                    // Аудитор нуллификатора не знает, и узел мог не ответить —
+                    // в обоих случаях честный ответ «неизвестно», а не догадка.
+                    None => unknown.push(line),
+                }
+            }
+            if total > 0 {
+                totals.push((symbol, total));
             }
         }
+
+        let mine = waiting.len() + collected.len() + unknown.len();
+        tracing::info!(
+            envelopes = seen,
+            mine,
+            waiting = waiting.len(),
+            collected = collected.len(),
+            "scan finished; decrypted locally"
+        );
 
         steps.done(
             "Fetching every envelope from both pools",
@@ -503,15 +570,51 @@ impl LocalTools {
         );
         steps.done(
             "Decrypting what is left with the local key",
-            &format!("{} yours", lines.len()),
+            &format!("{mine} yours"),
         );
 
-        let body = if lines.is_empty() {
+        let body = if mine == 0 {
             "Nothing addressed to this wallet.\n\nThat is a real answer, not a failure: \
              if a payment existed, this key would have opened it."
                 .to_string()
         } else {
-            format!("Found {}:\n\n{}", lines.len(), lines.join("\n"))
+            let sum = totals
+                .iter()
+                .map(|(symbol, total)| format!("{} {symbol}", micro_to_decimal(*total)))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            let mut body = format!("{mine} payments addressed to you, {sum} in total.\n");
+
+            // Сначала то, с чем можно что-то сделать. Заголовок пишем, только
+            // когда есть с чем сравнивать: при единственной группе он
+            // превращается в шум.
+            let groups = [
+                ("Waiting to be collected", &waiting),
+                ("Already collected", &collected),
+                ("Status unknown", &unknown),
+            ];
+            let non_empty = groups.iter().filter(|(_, g)| !g.is_empty()).count();
+            for (title, group) in groups {
+                if group.is_empty() {
+                    continue;
+                }
+                // Длинный хвост сворачиваем: подробности нужны про свежее, а
+                // «и ещё двадцать» — это уже количество, а не список.
+                const SHOWN: usize = 8;
+                if non_empty > 1 {
+                    body.push_str(&format!("\n{title} ({}):\n", group.len()));
+                } else {
+                    body.push('\n');
+                }
+                for line in group.iter().take(SHOWN) {
+                    body.push_str(line);
+                    body.push('\n');
+                }
+                if group.len() > SHOWN {
+                    body.push_str(&format!("  … and {} more\n", group.len() - SHOWN));
+                }
+            }
+            body.trim_end().to_string()
         };
 
         Ok(CallToolResult::success(vec![ContentBlock::text(format!(

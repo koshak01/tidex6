@@ -72,8 +72,36 @@ because hiding an amount and hiding a relationship are different problems:
   That slot carries the amount and the memo and *not* the spend material — the
   separation lives in the ciphertext, not in a rule someone promises to keep.
 
-The verifier program is immutable on mainnet (upgrade authority renounced) and
-OtterSec-verified.
+### What is locked down and what is not
+
+Worth separating, because "immutable" is easy to claim about the wrong program:
+
+| program | state |
+|---|---|
+| `CSDD31Zm…` — Groth16 verifier, mainnet | **upgrade authority renounced**, OtterSec-verified, immutable forever |
+| `AYTRKmF8…` — wUSDC pool | upgradeable, authority held by the operator; carries a `security_txt` block; build not verified yet |
+| `QGPYpwyM…` — wUSDT pool | same |
+
+(Solscan renders `Security.txt: FALSE` for both pools. The block is there — dump
+the program and it starts at `=======BEGIN SECURITY.TXT V1=======`, with contacts
+and policy URL — so that flag is an indexing gap on their side, not a missing
+block. We mention it because a judge will see the FALSE before they see the
+bytes.)
+
+The payments in the video go through a pool, so the honest sentence is: the
+proof system underneath is locked and audited, the two-layer pools on top of it
+are not yet. **Whoever holds that upgrade authority can replace the pool program
+and take the privacy away retroactively** — today that is one wallet, ours. It
+stays that way while the hidden-amount layer is still being exercised, and the
+plan is the same road the verifier already walked: `security_txt` and OtterSec
+verification submitted, and the authority renounced once the trusted-setup
+ceremony has real contributors and there is something worth freezing. Those two
+are independent: verification proves the on-chain bytes came from a public
+commit and needs no redeploy, while renouncing is the irreversible one and waits
+for the ceremony.
+
+Anyone can check both claims in a browser in thirty seconds, which is exactly
+why they are written here rather than left for a judge to find.
 
 The listing names, among the patterns that count as craft, *"privacy as an
 installable capability — stealth addresses, hidden amounts, compliance viewing
@@ -178,6 +206,10 @@ authority. Privacy from the public is complete; privacy from the operator on
 send is not. On the *receive* path the operator is absent entirely — the
 recipient reads the chain directly and decrypts locally, and the local server
 does this without any network hop to us at all.
+
+**The pool's upgrade authority** is a live risk and belongs in this list, not in
+the fine print — see the table above. A verifier that cannot change is only half
+the story while the program calling it can.
 
 **The verification key** for the Groth16 circuit came from a single machine, so
 proofs against it are forgeable by whoever ran that machine. Every mainnet

@@ -43,6 +43,12 @@ pub struct FoundPayment {
     pub rent_payer: Pubkey,
     /// До какого момента отправитель может вернуть платёж себе.
     pub revoke_deadline_unix: i64,
+    /// Забран ли платёж уже.
+    ///
+    /// `None` у аудитора: чтобы это узнать, нужен нуллификатор, а он лежит в
+    /// материале траты — том самом, которого в аудиторском слоте нет. То есть
+    /// «получено или нет» аудитору не видно не по недоделке, а по устройству.
+    pub is_collected: Option<bool>,
 }
 
 /// Что мы нашли и чем открывали.
@@ -106,6 +112,9 @@ pub fn scan(
         .context("read the envelopes from the pool")?;
 
     let mut payments = Vec::new();
+    // Параллельно списку платежей — адреса их PDA нуллификаторов, в том же
+    // порядке. Спросим все одним запросом, когда список соберётся.
+    let mut nullifier_pdas: Vec<Option<Pubkey>> = Vec::new();
     for (_address, account) in &accounts {
         let Some(raw) = account.data.decode() else {
             continue;
@@ -122,24 +131,66 @@ pub fn scan(
         }
 
         let found = match role {
-            ReadAs::Recipient => identity.open_as_recipient(&memo.data).map(|view| FoundPayment {
-                commitment: memo.commitment,
-                amount_micro: view.denomination,
-                memo: String::from_utf8_lossy(&view.memo).into_owned(),
-                rent_payer: memo.depositor,
-                revoke_deadline_unix: memo.created_ts + memo.revoke_window,
+            ReadAs::Recipient => identity.open_as_recipient(&memo.data).map(|view| {
+                // Нуллификатор есть только здесь — значит и «забрано ли» можно
+                // спросить только отсюда. Считаем хеш сразу, пока материал
+                // траты под рукой; наружу уходит адрес PDA, не сам секрет.
+                let nullifier_pda = nullifier_pda(&view.nullifier, pool_program);
+                (
+                    FoundPayment {
+                        commitment: memo.commitment,
+                        amount_micro: view.denomination,
+                        memo: String::from_utf8_lossy(&view.memo).into_owned(),
+                        rent_payer: memo.depositor,
+                        revoke_deadline_unix: memo.created_ts + memo.revoke_window,
+                        is_collected: None,
+                    },
+                    nullifier_pda,
+                )
             }),
-            ReadAs::Auditor => identity.open_as_auditor(&memo.data).map(|view| FoundPayment {
-                commitment: memo.commitment,
-                amount_micro: view.denomination,
-                memo: String::from_utf8_lossy(&view.memo).into_owned(),
-                rent_payer: memo.depositor,
-                revoke_deadline_unix: memo.created_ts + memo.revoke_window,
+            ReadAs::Auditor => identity.open_as_auditor(&memo.data).map(|view| {
+                (
+                    FoundPayment {
+                        commitment: memo.commitment,
+                        amount_micro: view.denomination,
+                        memo: String::from_utf8_lossy(&view.memo).into_owned(),
+                        rent_payer: memo.depositor,
+                        revoke_deadline_unix: memo.created_ts + memo.revoke_window,
+                        is_collected: None,
+                    },
+                    None,
+                )
             }),
         };
 
-        if let Some(payment) = found {
+        if let Some((payment, pda)) = found {
             payments.push(payment);
+            nullifier_pdas.push(pda);
+        }
+    }
+
+    // Кто из найденных уже забран. Один пакетный запрос на всех: PDA
+    // нуллификатора существует ровно тогда, когда платёж потрачен, и это факт с
+    // цепочки, а не догадка по нашим записям — записей у нас и нет.
+    //
+    // Не получилось спросить — оставляем `None`. «Неизвестно» честнее, чем
+    // «не забран» из сетевого сбоя: во втором случае человек пойдёт забирать
+    // то, что уже забрал, и получит отказ от программы вместо ответа от нас.
+    if nullifier_pdas.iter().any(Option::is_some) {
+        let to_ask: Vec<Pubkey> = nullifier_pdas.iter().flatten().copied().collect();
+        // `getMultipleAccounts` ограничен сотней адресов за раз.
+        let mut existence = Vec::with_capacity(to_ask.len());
+        for chunk in to_ask.chunks(100) {
+            match rpc.get_multiple_accounts(chunk) {
+                Ok(accounts) => existence.extend(accounts.into_iter().map(|a| Some(a.is_some()))),
+                Err(_) => existence.extend(std::iter::repeat_n(None, chunk.len())),
+            }
+        }
+        let mut answers = existence.into_iter();
+        for (payment, pda) in payments.iter_mut().zip(nullifier_pdas.iter()) {
+            if pda.is_some() {
+                payment.is_collected = answers.next().flatten();
+            }
         }
     }
 
@@ -147,6 +198,16 @@ pub fn scan(
         envelopes_seen: accounts.len(),
         payments,
     })
+}
+
+/// Адрес PDA нуллификатора: он существует ровно тогда, когда платёж потрачен.
+///
+/// `None`, если хеш не посчитался — тогда про этот платёж мы просто не знаем,
+/// забран он или нет, и так и скажем.
+fn nullifier_pda(nullifier: &[u8; 32], pool_program: &Pubkey) -> Option<Pubkey> {
+    let nullifier = tidex6_core::types::Nullifier::from_bytes(*nullifier);
+    let hash = nullifier.derive_hash().ok()?;
+    Some(Pubkey::find_program_address(&[b"nullifier", hash.as_bytes()], pool_program).0)
 }
 
 /// Разобранный аккаунт конверта.

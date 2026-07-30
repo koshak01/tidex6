@@ -11,6 +11,14 @@
 
 schema_version = 3
 
+# The locale of the tool descriptions — and, as it turns out, the language the
+# agent answers in. Left unset, ZeroClaw takes the host locale; on a machine set
+# to anything but English the model receives its own tools described in that
+# language and answers in it, including to English questions. A rule in the skill
+# does not win against this: the language of the interface outweighs a request in
+# the text.
+locale = "en"
+
 # ── Model ─────────────────────────────────────────────────────────────────
 
 [providers.models.anthropic.main]
