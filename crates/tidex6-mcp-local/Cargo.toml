@@ -6,8 +6,8 @@ license.workspace = true
 description = "tidex6 MCP server for a local signer: the agent pays with its own key, no browser"
 
 [dependencies]
-tidex6-client = { path = "../tidex6-client" }
-tidex6-core = { path = "../tidex6-core" }
+tidex6-client = { version = "2.17.0", path = "../tidex6-client" }
+tidex6-core = { version = "2.17.0", path = "../tidex6-core" }
 
 anyhow = { workspace = true }
 # `transport-io` даёт stdio: MCP-клиент запускает нас процессом и говорит
