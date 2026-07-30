@@ -121,10 +121,12 @@ pub struct DepositEvent {
 /// Minimum size, in bytes, of a `memo_payload` accepted by
 /// [`handle_deposit`]. ADR-012 envelope wire-format minimum:
 ///
+/// ```text
 ///     header (4)                          // version + flags + cipher_len
 ///   + ciphertext block (28 + plaintext)   // 12 nonce + 16 tag + 0 bytes
 ///   + recipient wrap-K slot (60)
 ///   = 92 bytes
+/// ```
 ///
 /// This is the floor for an envelope with *empty* plaintext and no
 /// auditor slot — i.e. the smallest legal `MemoEnvelope::to_bytes`
@@ -138,11 +140,13 @@ pub const MEMO_PAYLOAD_MIN_LEN: usize = 92;
 
 /// Maximum size, in bytes, of a `memo_payload`. ADR-012 ceiling:
 ///
+/// ```text
 ///     header (4)
 ///   + ciphertext (28 + 256 plaintext)     // max plaintext
 ///   + recipient wrap (60)
 ///   + optional auditor wrap (92)
 ///   = 440 bytes
+/// ```
 ///
 /// Rounded up to 512 for headroom; enforced on-chain so a malformed
 /// or absurdly large instruction cannot bloat the transaction
