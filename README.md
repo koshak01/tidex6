@@ -19,6 +19,30 @@ tidex6 is a Rust-native, open-source framework that lets Solana developers add f
 
 ---
 
+## What builds from a clean clone
+
+Everything in this repository builds with `cargo build --release` after a plain
+`git clone`, and the on-chain programs build reproducibly in Docker via
+`solana-verify build`. Three crates are deliberately outside the workspace and
+build on their own terms:
+
+| crate | how to build it | why it is separate |
+|---|---|---|
+| `crates/tidex6-prover-wasm` | `wasm-pack build` | targets `wasm32-unknown-unknown` and pulls browser-only crates |
+| `crates/tidex6-ct-lab` | `cargo build --manifest-path crates/tidex6-ct-lab/Cargo.toml` | pinned to newer `spl-token-2022` / `solana-*` than the workspace |
+| `crates/tidex6-mcp` | `cargo build --manifest-path crates/tidex6-mcp/Cargo.toml` | **needs a checkout of our internal core (`forge`) next to this repo**, so it cannot build for anyone else |
+
+The last one is worth stating plainly rather than leaving to be discovered: the
+hosted MCP server depends on a private crate outside this repository. While it
+was a workspace member, `cargo build` failed in a clean clone for everybody who
+does not have that checkout — which is everybody but us — and for the same reason
+a program verifier could not build the repository on its own machine. It is now
+its own workspace. Nothing else here depends on it: the payment protocol, the
+programs, the SDK, the CLI and the local MCP server (`crates/tidex6-mcp-local`)
+are all self-contained.
+
+---
+
 ## Quick start — CLI
 
 Three commands, no setup beyond a Solana mainnet wallet at

@@ -27,6 +27,15 @@ exclude = [
     "crates/tidex6-ct-lab",
     # wasm-only feasibility-проба CT-крипто в браузере.
     "crates/tidex6-ct-wasm-probe",
+    # Размещённый MCP-сервер: единственный крейт, который тянет зависимость
+    # ВНЕ этого репозитория — `forge-mcp` из соседнего чекаута кузни. Пока он
+    # был членом workspace, `cargo build` в чистом клоне падал у любого, у кого
+    # рядом нет forge, — то есть у всех, кроме нас. Публичный репозиторий обязан
+    # собираться сам по себе, и это же условие верификации on-chain программ:
+    # верификатор клонирует репозиторий и собирает, а чужого пути у него нет.
+    # Собирается отдельно, при живом чекауте кузни:
+    # `cargo build --manifest-path crates/tidex6-mcp/Cargo.toml`
+    "crates/tidex6-mcp",
 ]
 members = [
     "crates/tidex6-circuits",
@@ -37,7 +46,6 @@ members = [
     "crates/tidex6-core",
     "crates/tidex6-day1",
     "crates/tidex6-indexer",
-    "crates/tidex6-mcp",
     "crates/tidex6-mcp-local",
     "crates/tidex6-notifier-client",
     "crates/tidex6-ui-shared",
