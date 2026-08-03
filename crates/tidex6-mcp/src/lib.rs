@@ -18,10 +18,12 @@
 //! rather than the server's configuration: mainnet unless the caller says
 //! devnet.
 
+pub mod ceremony_ui;
 pub mod handler;
 pub mod quote;
 pub mod registry;
 
+pub use ceremony_ui::complete_session as complete_ceremony_session;
 pub use handler::{CreateRequest, ReadStatus, Tidex6Mcp};
 
 /// Кошелёк того, чьим токеном сделан вызов.
