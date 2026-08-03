@@ -84,3 +84,6 @@ video/*.mov
 # собственный lock. Это lock библиотеки, а не приложения: пусть решает тот, кто
 # её собирает, а в репозитории он только создавал бы конфликты.
 crates/tidex6-mcp/Cargo.lock
+
+# X Ads CAPI token (never commit)
+pixel.access.txt
