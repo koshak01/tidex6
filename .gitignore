@@ -87,3 +87,5 @@ crates/tidex6-mcp/Cargo.lock
 
 # X Ads CAPI token (never commit)
 pixel.access.txt
+
+google.api.txt
