@@ -1,0 +1,9 @@
+{
+  "program": "tidex6_private_transfer.aleo",
+  "version": "0.1.0",
+  "description": "",
+  "license": "MIT",
+  "leo": "4.4.0",
+  "dependencies": null,
+  "dev_dependencies": null
+}
