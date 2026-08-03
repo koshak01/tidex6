@@ -1,8 +1,8 @@
-# tidex6-wusdc-cli — клиент к verify-only wUSDC-пулу (init / deposit / withdraw).
+# tidex6-wusdc-cli
 #
-# On-chain вызовы (anchor-client) + Groth16-proof (tidex6-circuits). CT-часть
-# (перемещение wUSDC релеером) — отдельно в tidex6-ct-lab (несовместимые
-# solana-версии). Здесь только Groth16-слой пула (связь).
+# Stealth demo CLI (send / collect / audit) — thin wrappers over
+# tidex6-client::confidential (same path as local MCP).
+# Legacy bins: init / deposit / withdraw (verify-only pool tree).
 
 [package]
 name = "tidex6-wusdc-cli"
@@ -20,12 +20,22 @@ tidex6-wusdc-pool = { path = "../../programs/tidex6-wusdc-pool", features = ["no
 tidex6-core = { path = "../tidex6-core" }
 tidex6-circuits = { path = "../tidex6-circuits" }
 tidex6-indexer = { path = "../tidex6-indexer" }
+# Скан конвертов и забор stealth-ноты — та же библиотека, что у MCP и у сайта.
+tidex6-client = { path = "../tidex6-client" }
 anyhow = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 solana-keypair = "3"
+solana-pubkey = "3"
+solana-rpc-client = "3"
+toml = "0.9"
+ark-bn254 = { workspace = true }
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 ark-std = "0.5"
 solana-signature = "3"
+rayon = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 [lints]
 workspace = true

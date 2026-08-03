@@ -35,11 +35,16 @@ pub struct FoundPayment {
     pub amount_micro: u64,
     /// Назначение, как его написал отправитель.
     pub memo: String,
+    /// Когда конверт **появился on-chain** (deposit / `created_ts` memo-аккаунта).
+    ///
+    /// Это дата **отправки / появления**, не момент audit/collect вызова.
+    pub sent_at_unix: i64,
     /// Кто оплатил ренту за аккаунт конверта.
     ///
     /// **Не отправитель платежа.** В нашем потоке аккаунт открывает оператор,
     /// и принимать это поле за «от кого пришло» — ошибка, которая выглядит
     /// правдоподобно. Оставлено как техническая деталь, а не как атрибуция.
+    /// В audit UI **не показываем**.
     pub rent_payer: Pubkey,
     /// До какого момента отправитель может вернуть платёж себе.
     pub revoke_deadline_unix: i64,
@@ -48,7 +53,33 @@ pub struct FoundPayment {
     /// `None` у аудитора: чтобы это узнать, нужен нуллификатор, а он лежит в
     /// материале траты — том самом, которого в аудиторском слоте нет. То есть
     /// «получено или нет» аудитору не видно не по недоделке, а по устройству.
+    /// Получатель (`ReadAs::Recipient`) заполняет через PDA nullifier.
     pub is_collected: Option<bool>,
+    /// Чем этот платёж забирается. `None` у аудитора — в его слоте этого нет.
+    ///
+    /// Выносится наружу, потому что забрать платёж без него нельзя, а забирать
+    /// его надо: до этого получатель мог только смотреть на свои деньги.
+    /// Разделение ролей от этого не страдает — оно живёт в шифротексте, а не в
+    /// том, какие поля мы решили показать.
+    pub spend: Option<SpendMaterial>,
+}
+
+/// Секрет и нуллификатор одной ноты — то, чем она тратится.
+///
+/// Отдельным типом, а не парой полей в `FoundPayment`: так `Option` says «есть
+/// или нет» один раз, и невозможно случайно получить половину материала.
+#[derive(Clone)]
+pub struct SpendMaterial {
+    pub secret: [u8; 32],
+    pub nullifier: [u8; 32],
+}
+
+// Ручной `Debug`: производный напечатал бы секрет в логе при первом же
+// `{:?}` на платеже, а логи уезжают в файлы и в чужие глаза.
+impl std::fmt::Debug for SpendMaterial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SpendMaterial(<скрыт>)")
+    }
 }
 
 /// Что мы нашли и чем открывали.
@@ -139,9 +170,14 @@ pub fn scan(
                         commitment: memo.commitment,
                         amount_micro: view.denomination,
                         memo: String::from_utf8_lossy(&view.memo).into_owned(),
+                        sent_at_unix: memo.created_ts,
                         rent_payer: memo.depositor,
                         revoke_deadline_unix: memo.created_ts + memo.revoke_window,
                         is_collected: None,
+                        spend: Some(SpendMaterial {
+                            secret: view.secret,
+                            nullifier: view.nullifier,
+                        }),
                     },
                     nullifier_pda,
                 )
@@ -152,9 +188,12 @@ pub fn scan(
                         commitment: memo.commitment,
                         amount_micro: view.denomination,
                         memo: String::from_utf8_lossy(&view.memo).into_owned(),
+                        sent_at_unix: memo.created_ts,
                         rent_payer: memo.depositor,
                         revoke_deadline_unix: memo.created_ts + memo.revoke_window,
                         is_collected: None,
+                        // Аудитору тратить нечем — этого нет в его слоте.
+                        spend: None,
                     },
                     None,
                 )

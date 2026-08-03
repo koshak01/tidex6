@@ -9,15 +9,21 @@
 //! между ними — кто держит ключ и чем отвечает инструмент, а не какой код
 //! исполняется.
 
+pub mod collect;
 pub mod limits;
 pub mod local;
 pub mod note;
+pub mod prover_runtime;
 pub mod scan;
 pub mod send;
 pub mod transfer;
 
+pub use collect::{
+    CollectWaitingResult, Collected, CollectedNote, collect, collect_waiting, collect_with_progress,
+};
 pub use limits::{DailySpend, LimitError, Limits};
 pub use local::{LocalIdentity, load_keypair};
 pub use note::{SealedPayment, seal_payment};
-pub use scan::{FoundPayment, ReadAs, ScanReport, scan};
+pub use prover_runtime::{init_prover_runtime, prover_runtime_status};
+pub use scan::{FoundPayment, ReadAs, ScanReport, SpendMaterial, scan};
 pub use send::{PoolService, Quote, SentPayment, send_payment};

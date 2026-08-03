@@ -1,41 +1,57 @@
-# tidex6-mcp-local
+# tidex6-mcp-local (rewritten)
 
-An MCP server that sends private Solana payments **with a key on your own
-machine** — no browser, no link, no hosted service in the signing path.
+Local stdio MCP = **same libraries as the stealth CLI** (`send` / `collect` / `audit`).
 
-Point any MCP client at it (Claude, ZeroClaw, anything speaking stdio) and the
-agent can pay, receive and audit. What bounds it is not the prompt but the code:
+## Blocker fixes
 
-- a per-payment cap and a rolling 24-hour cap, checked before the first
-  transaction;
-- USDC and USDT only, not configurable;
-- amounts are an enum, so "send 4,999" is not expressible on the wire and an
-  injection has no way to say it;
-- the recipient must already exist in the on-chain reader registry, so a fresh
-  attacker address is not a valid destination;
-- the key file must not be readable by group or other, or the server refuses to
-  start.
+| | CLI | Broken MCP | Now |
+|--|-----|------------|-----|
+| prove | OS main | `spawn_blocking` + rayon storm | dedicated OS thread |
+| rayon | default | multi‑GB thrash under soft timeout | **1 thread** via `init_prover_runtime()` |
+| hang forever | process exits | orphan 100% CPU after UI restart | **120s hard timeout → `exit(99)`** |
+| multi instance | n/a | restart leaves old process | **reap same PPID siblings** at start |
+| tracing | none | default `RUST_LOG=info` on whole process | **`warn` + our crates only** (see below) |
 
-There is a hosted sibling that holds no key at all and returns a link for a human
-to sign. Same tool names, same skill, different custody. Which one you run is the
-question this crate exists to let you answer.
+**Rayon** comes from `ark-groth16` (`default = ["parallel"]`), not our crate.
 
-## Status
+### Tracing thrash (2026-08-03)
 
-Live on Solana mainnet. The verifier program
-[`CSDD31Zm…`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd)
-is immutable and OtterSec-verified; the pools and the reader registry are
-verified and still upgradeable.
+`arkworks` / R1CS crates use `tracing`. A default filter of global `info` turns
+`prove_withdraw` into a multi‑GB event storm (stuck past `prove_withdraw_start`,
+RSS multi‑GB, 120s `HARD_TIMEOUT`). The same note without that filter finishes
+in ~2 s at ~55 MB.
 
-**Pre-audit.** The verifying key comes from a single-contributor trusted setup, so
-proofs against it are forgeable by whoever ran that setup. A public ceremony is
-live at [ceremony.tidex6.com](https://ceremony.tidex6.com) and needs
-contributors — it takes a minute in a browser, spends nothing, and authorises no
-payment. Until it finalises, do not use this to secure real funds.
+Default filter is now:
 
-- Repository: <https://github.com/koshak01/tidex6>
-- Docs: [THE_LEGEND](https://github.com/koshak01/tidex6/blob/master/docs/release/THE_LEGEND.md) ·
-  [PROJECT_BRIEF](https://github.com/koshak01/tidex6/blob/master/docs/release/PROJECT_BRIEF.md) ·
-  [security](https://github.com/koshak01/tidex6/blob/master/docs/release/security.md)
+```text
+warn,tidex6_mcp_local=info,rmcp=info
+```
 
-License: MIT OR Apache-2.0.
+Override with `RUST_LOG` only if you accept the cost (`RUST_LOG=info` will thrash
+again on collect/prove).
+
+**Selftest (no stdio):** `tidex6-mcp-local selftest-collect mainnet`  
+**Root cause write-up:** `docs/SECURITY_NOTE_SPAWN_BLOCKING_PROVE.md`  
+**Offline A/B:** `cargo run --release -p tidex6-wusdc-cli --bin repro_mcp_hang -- all`
+
+Steady-state prove is ~50–60 MB / few seconds.
+
+**Session (Grok):** no session UUID in env. Isolation = **PPID** (parent Grok/stdio host). On start we `kill -9` other `tidex6-mcp-local` with the **same parent** only — not other apps’ MCP.
+
+**No** subprocess CLI. Logs: stderr `mcp-local LOG …` / `BOOT …` / `heartbeat …`.
+
+## Tools
+
+| tool | library |
+|------|---------|
+| `whoami` | config key |
+| `send` | `send_payment` |
+| `collect` | `collect_waiting` (network only) |
+| `audit` | `scan(Auditor)` |
+
+Config: `~/.tidex6-local/config.toml`  
+Proving key: `~/.tidex6-local/withdraw_pk_depth20.bin`
+
+```bash
+cargo build --release -p tidex6-mcp-local
+```

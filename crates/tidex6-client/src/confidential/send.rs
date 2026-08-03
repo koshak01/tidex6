@@ -139,16 +139,94 @@ impl PoolService {
             .with_context(|| format!("the deposit came back unreadable: {out}"))
     }
 
+    /// Где нота лежит в дереве: индекс листа, соседи по пути и корень.
+    ///
+    /// Спрашивается у службы, а не считается здесь: полное дерево живёт у неё,
+    /// и держать копию ради одной ноты значило бы перечитывать цепочку.
+    pub fn merkle_path(
+        &self,
+        commitment_hex: &str,
+        asset: Asset,
+        network: Network,
+        wallet: &str,
+    ) -> Result<crate::confidential::collect::MerklePath> {
+        let body = serde_json::json!({
+            "step": "merkle_path",
+            "commitment": commitment_hex,
+            "asset": asset_slug(asset),
+            "network": network_slug(network),
+            "wallet": wallet,
+        });
+        let out = self.call(&body).context("merkle path")?;
+        serde_json::from_str(&out)
+            .with_context(|| format!("the tree path came back unreadable: {out}"))
+    }
+
+    /// Отдать готовое доказательство: транзакцию в верификатор шлёт служба.
+    ///
+    /// Секрет ноты сюда не попадает — только доказательство и публичные входы.
+    /// Получатель связан доказательством: подменить его по дороге нельзя, эту
+    /// проверку делает программа, а не наша вежливость.
+    #[allow(clippy::too_many_arguments)]
+    pub fn withdraw(
+        &self,
+        proof_a_hex: &str,
+        proof_b_hex: &str,
+        proof_c_hex: &str,
+        merkle_root_hex: &str,
+        nullifier_hash_hex: &str,
+        recipient: &str,
+        amount_micro: u64,
+        asset: Asset,
+        network: Network,
+        wallet: &str,
+    ) -> Result<String> {
+        let body = serde_json::json!({
+            "step": "withdraw_browser",
+            "proof_a": proof_a_hex,
+            "proof_b": proof_b_hex,
+            "proof_c": proof_c_hex,
+            "merkle_root": merkle_root_hex,
+            "nullifier_hash": nullifier_hash_hex,
+            "recipient": recipient,
+            "amount": micro_to_decimal(amount_micro),
+            "asset": asset_slug(asset),
+            "network": network_slug(network),
+            "wallet": wallet,
+        });
+        let out = self.call(&body).context("withdraw")?;
+        // Ответ службы — объект с подписью; на всякий случай принимаем и голую
+        // строку, чтобы смена формы ответа не роняла забор уже ушедших денег.
+        #[derive(Deserialize)]
+        struct WithdrawReply {
+            #[serde(alias = "signature")]
+            tx: String,
+        }
+        match serde_json::from_str::<WithdrawReply>(&out) {
+            Ok(reply) => Ok(reply.tx),
+            Err(_) => Ok(out.trim().to_string()),
+        }
+    }
+
     /// Один вызов службы. Отказ службы — это отказ, а не пустой ответ.
     fn call(&self, body: &serde_json::Value) -> Result<String> {
         #[derive(Deserialize)]
         struct Reply {
             ok: bool,
+            #[serde(default)]
             output: String,
+            // Other fields (error, step, …) intentionally ignored here.
+            // On failure we return the full raw body_text, not a re-built message.
         }
+        let url = format!("{}/api/deposit", self.base_url);
+        let step = body
+            .get("step")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+
         let response = self
             .http
-            .post(format!("{}/api/deposit", self.base_url))
+            .post(&url)
             .json(body)
             .send()
             .context("the pool service is unreachable")?;
@@ -176,14 +254,19 @@ impl PoolService {
             );
         }
 
+        // Parse only to decide ok vs error. On failure we surface the **raw
+        // wire body** — no rephrase, no substring "humanize". Industrial rule:
+        // the operator must see exactly what the service returned.
         let reply: Reply = serde_json::from_str(&body_text).with_context(|| {
             format!(
-                "служба пула ответила не JSON (HTTP {status}): {}",
-                body_text.chars().take(300).collect::<String>()
+                "pool service non-JSON (HTTP {status} step={step}): {body_text}"
             )
         })?;
         if !reply.ok {
-            bail!("{}", reply.output);
+            // Entire response as received. Do not rebuild message from fields.
+            bail!(
+                "pool service error step={step} http={status} raw={body_text}"
+            );
         }
         Ok(reply.output)
     }

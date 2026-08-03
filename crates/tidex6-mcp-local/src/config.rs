@@ -17,32 +17,42 @@ pub struct Config {
     /// Ключ, которым подписываются платежи. Формат `solana-keygen`.
     pub keypair_path: String,
 
-    /// Узел Solana. Публичные узлы медленные и режут по частоте — свой или
-    /// платный.
-    pub rpc_url: String,
+    /// Узел Solana для mainnet. Публичные узлы медленные и режут по частоте —
+    /// свой или платный.
+    pub rpc_mainnet: String,
+
+    /// Узел Solana для devnet.
+    pub rpc_devnet: String,
 
     /// Служба пула: у кого спрашивать котировку и кто заворачивает сумму.
     #[serde(default = "default_pool_service")]
     pub pool_service: String,
-
-    /// `mainnet` | `devnet`.
-    #[serde(default = "default_network")]
-    pub network: String,
 
     /// Сколько времени у получателя, чтобы забрать платёж, прежде чем
     /// отправитель сможет вернуть его себе.
     #[serde(default = "default_revoke_window")]
     pub revoke_window_secs: i64,
 
+    /// Ключ доказательства для забора — тот же файл, что у браузера.
+    ///
+    /// Отдельным полем, а не поиском по каталогам: сервер запускает MCP-клиент
+    /// своей строкой запуска, и рабочий каталог у него какой угодно. Молчание
+    /// означает `~/.tidex6-local/withdraw_pk_depth20.bin` — файл кладут рядом с
+    /// конфигом, туда же, где ключ.
+    #[serde(default)]
+    pub proving_key_path: Option<String>,
+
     /// Потолки. Отсутствие секции означает умолчания из библиотеки, а они
     /// намеренно тесные.
     #[serde(default)]
     pub limits: LimitsToml,
 
-    /// Куда досылать ход работы. Нет секции — сервер работает молча, и
-    /// состояние спрашивают через `payment_status`.
+    /// Устарело: local MCP не шлёт Telegram (у конечных пользователей MCP
+    /// нет TG-настроек). Поле читается для совместимости со старыми
+    /// config.toml и **игнорируется**.
     #[serde(default)]
-    pub notify: Option<crate::notify::Notify>,
+    #[allow(dead_code)]
+    pub notify: Option<toml::Value>,
 }
 
 /// Потолки в том виде, в каком их пишет человек: в токенах, не в микро-единицах.
@@ -74,11 +84,6 @@ impl Default for LimitsToml {
 
 fn default_pool_service() -> String {
     "https://tidex6.com".to_string()
-}
-fn default_network() -> String {
-    // Devnet по умолчанию: настоящие деньги должны быть выбором, а не тем, во
-    // что попадаешь, ничего не написав.
-    "devnet".to_string()
 }
 fn default_revoke_window() -> i64 {
     24 * 3600
@@ -139,12 +144,42 @@ impl Config {
         Ok(())
     }
 
-    pub fn network(&self) -> Result<Network> {
-        match self.network.as_str() {
-            "mainnet" | "mainnet-beta" => Ok(Network::Mainnet),
-            "devnet" => Ok(Network::Devnet),
-            other => anyhow::bail!("network: expected mainnet or devnet, got {other}"),
+    /// Узел для сети, которую попросили в запросе.
+    ///
+    /// Сеть больше не свойство процесса: один ключ Solana действителен в обеих
+    /// сетях, поэтому держать два сервера ради этого незачем. Раньше сервер
+    /// знал одну сеть и отказывал на запрос про другую — человеку приходилось
+    /// помнить, какой из двух серверов он сейчас спрашивает, и это ровно тот
+    /// вид знания, которое забывают в неподходящий момент.
+    pub fn rpc_for(&self, network: Network) -> &str {
+        match network {
+            Network::Mainnet => &self.rpc_mainnet,
+            Network::Devnet => &self.rpc_devnet,
         }
+    }
+
+    /// Где лежит ключ доказательства. Проверяется существование: отказ здесь
+    /// понятнее, чем «файл не найден» из середины забора, когда человек уже
+    /// думает, что деньги идут.
+    pub fn proving_key(&self) -> Result<PathBuf> {
+        let path = match &self.proving_key_path {
+            Some(explicit) => PathBuf::from(explicit),
+            None => {
+                let home = std::env::var("HOME").context("no $HOME")?;
+                Path::new(&home)
+                    .join(".tidex6-local")
+                    .join("withdraw_pk_depth20.bin")
+            }
+        };
+        if !path.exists() {
+            anyhow::bail!(
+                "no proving key at {}. Collecting needs the same key the browser uses — \
+                 copy crates/tidex6-circuits/artifacts/withdraw_pk_depth20.bin there, \
+                 or name another path in proving_key_path",
+                path.display()
+            );
+        }
+        Ok(path)
     }
 
     /// Потолки в микро-единицах, как их понимает библиотека.
