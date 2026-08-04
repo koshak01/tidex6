@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
+use uuid::Uuid;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use solana_keypair::Keypair;
@@ -32,6 +33,9 @@ fn log(_tag: &str, _msg: &str) {}
 /// Hard ceiling for collect/send library work.
 /// Target: healthy path ≈ CLI (≤~30s); allow ~CLI×3 headroom, not minutes.
 pub const HEAVY_TIMEOUT_SECS: u64 = 120;
+
+/// Public ceremony origin (same as hosted MCP default).
+const CEREMONY_BASE: &str = "https://ceremony.tidex6.com";
 
 /// Run library work on a dedicated OS thread (like CLI `main`), hard timeout.
 async fn run_on_os_thread<T, F>(label: &'static str, f: F) -> Result<T, McpError>
@@ -201,13 +205,76 @@ impl LocalTools {
         log("whoami", "enter");
         let limits = self.config.limits();
         let text = format!(
-            "wallet={}\nper_payment={} per_day={}\nnetworks: pass network=mainnet|devnet\ntools: send|payments|collect|audit (same library as CLI)",
+            "wallet={}\nper_payment={} per_day={}\nnetworks: pass network=mainnet|devnet\ntools: about|ceremony|send|payments|collect|audit|whoami",
             self.identity.wallet,
             micro_to_decimal(limits.per_payment),
             micro_to_decimal(limits.per_day),
         );
         log("whoami", "exit");
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+    }
+
+    /// Package / custody marker — same role as hosted `about` (version check after deploy).
+    #[tool(
+        description = "tidex6-mcp-local version, custody mode (T2 local key), and ceremony link. Call this to verify the MCP is the right binary (expect version in text)."
+    )]
+    async fn about(&self, Parameters(_): Parameters<Empty>) -> Result<CallToolResult, McpError> {
+        let version = env!("CARGO_PKG_VERSION");
+        let text = format!(
+            "tidex6-mcp-local {version}\n\
+             custody: T2 local — spending key on this machine (not hosted mcp.tidex6.com)\n\
+             tools: about|ceremony|whoami|send|payments|collect|audit\n\
+             ceremony: {CEREMONY_BASE}/\n\
+             Call `ceremony` for contribute URL with ?s= session nonce."
+        );
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.structured_content = Some(serde_json::json!({
+            "version": version,
+            "package": "tidex6-mcp-local",
+            "custody": "T2_local",
+            "ceremony_base": CEREMONY_BASE,
+        }));
+        Ok(result)
+    }
+
+    /// Public trusted-setup ceremony — same shape as hosted MCP 2.18+ (URL-first + nonce).
+    #[tool(
+        description = "Trusted-setup ceremony status and contribute link. Returns CONTRIBUTE_URL with ?s=nonce first. Call when user asks about ceremony, development key, or wants to contribute. $0, no deposit."
+    )]
+    async fn ceremony(&self, Parameters(_): Parameters<Empty>) -> Result<CallToolResult, McpError> {
+        let nonce = Uuid::new_v4().to_string();
+        let contribute_url = format!("{CEREMONY_BASE}/?s={nonce}");
+        let (total, unique) = ceremony_counts().await;
+
+        let counts = match (total, unique) {
+            (Some(t), Some(u)) => {
+                format!("{t} contributions · {u} distinct wallets (wallets matter for 1-of-N)")
+            }
+            _ => "count unavailable (fetch failed); link still works".into(),
+        };
+
+        let text = format!(
+            "CONTRIBUTE_URL: {contribute_url}\n\
+             NONCE: {nonce}\n\
+             MCP: tidex6-mcp-local {version}\n\n\
+             Trusted-setup ceremony — $0, no deposit, ~1 min in the browser.\n\
+             {counts}\n\
+             One contribution per wallet. Offer once; a no is an answer.\n\
+             Transcript: {CEREMONY_BASE}/transcript/",
+            version = env!("CARGO_PKG_VERSION"),
+        );
+
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.structured_content = Some(serde_json::json!({
+            "contributions": total,
+            "distinct_wallets": unique,
+            "url": contribute_url,
+            "base_url": format!("{CEREMONY_BASE}/"),
+            "nonce": nonce,
+            "version": env!("CARGO_PKG_VERSION"),
+            "package": "tidex6-mcp-local",
+        }));
+        Ok(result)
     }
 
     /// Same as CLI `send` → `send_payment`.
@@ -590,11 +657,13 @@ impl LocalTools {
 impl ServerHandler for LocalTools {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
+        info.server_info.name = "tidex6-mcp-local".into();
+        info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info.instructions = Some(
-            "tidex6 local MCP = send|payments|collect|audit|whoami. Same libraries. \
-             payments = recipient list (date, amount, memo, received?) — read-only. \
-             collect only after user says yes. audit = auditor (date, amount, memo; no sender). \
-             No jobs/Telegram. Heavy work on OS thread; RAYON=1."
+            "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami. \
+             about = version + custody T2. ceremony = CONTRIBUTE_URL with ?s= first (public setup). \
+             payments = recipient list (read-only). collect only after user says yes. \
+             audit = auditor view. Heavy send/collect on OS thread; RAYON=1."
                 .into(),
         );
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
@@ -623,6 +692,41 @@ impl LocalTools {
                     None,
                 )
             })
+    }
+}
+
+/// Public transcript counts (no auth). Fail soft → (None, None).
+async fn ceremony_counts() -> (Option<usize>, Option<usize>) {
+    let url = format!("{CEREMONY_BASE}/transcript/log.json");
+    let fetch = tokio::task::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .ok()?;
+        let v: serde_json::Value = client.get(&url).send().ok()?.json().ok()?;
+        // log.json is either an array of contributions or { contributions: [...] }
+        let arr = v
+            .as_array()
+            .cloned()
+            .or_else(|| {
+                v.get("contributions")
+                    .and_then(|c| c.as_array())
+                    .cloned()
+            })?;
+        let total = arr.len();
+        let mut wallets = std::collections::HashSet::new();
+        for c in &arr {
+            if let Some(name) = c.get("name").and_then(|n| n.as_str()) {
+                wallets.insert(name.to_string());
+            } else if let Some(w) = c.get("wallet").and_then(|n| n.as_str()) {
+                wallets.insert(w.to_string());
+            }
+        }
+        Some((total, wallets.len()))
+    });
+    match fetch.await {
+        Ok(Some((t, u))) => (Some(t), Some(u)),
+        _ => (None, None),
     }
 }
 

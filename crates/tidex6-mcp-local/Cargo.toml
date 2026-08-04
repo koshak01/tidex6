@@ -32,6 +32,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Pin thread count before arkworks (parallel feature → rayon).
 rayon = "1"
+# Ceremony session nonces (public contribute URL ?s=).
+uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true
