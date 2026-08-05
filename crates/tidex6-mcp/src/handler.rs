@@ -45,6 +45,12 @@ fn ceremony_tool_meta() -> Meta {
 /// How much to send. The pool works in fixed denominations, so an arbitrary
 /// number is not representable — which also means an injected instruction
 /// cannot ask for one.
+///
+/// The fee is 1% with a 0.1 floor, and the floor is the real cost of a private
+/// payment: rent for the memo account holding the envelope plus the fees for
+/// `deposit` and every `append_memo`, all of which are the same whatever the
+/// amount. So the 0.1 denominations cost 0.1 to send 0.1 — usable on devnet,
+/// pointless on mainnet.
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AmountArg {
@@ -299,7 +305,9 @@ fn render_memo(kind: MemoKind, value: Option<&str>) -> Result<Option<String>, St
             format!("invoice {number}")
         }
         (MemoKind::Invoice, None) => {
-            return Err("memo_kind is 'invoice', so memo must carry the invoice number".to_string());
+            return Err(
+                "memo_kind is 'invoice', so memo must carry the invoice number".to_string(),
+            );
         }
     };
     Ok(Some(text))
@@ -904,7 +912,9 @@ impl Tidex6Mcp {
             tidex6_core::network::Asset::Wusdc,
             tidex6_core::network::Asset::Wusdt,
         ] {
-            let Some(info) = net.asset(asset) else { continue };
+            let Some(info) = net.asset(asset) else {
+                continue;
+            };
             let Some(mint) = info.underlying_mint else {
                 continue;
             };
@@ -984,7 +994,10 @@ impl Tidex6Mcp {
         // Текст кладётся и в структуру: клиент, получив структурную часть,
         // показывает ЕЁ ВМЕСТО содержимого, и человеческий ответ пропадает
         // целиком. Напоролись на этом дважды — с `about` и с `whoami`.
-        structured.insert("wallet".into(), serde_json::Value::String(wallet.to_string()));
+        structured.insert(
+            "wallet".into(),
+            serde_json::Value::String(wallet.to_string()),
+        );
         structured.insert(
             "network".into(),
             serde_json::Value::String(req.network.name().to_string()),
@@ -1168,7 +1181,9 @@ impl Tidex6Mcp {
         let contribute_url = format!("{url}?s={nonce}");
 
         let counts = match &state {
-            Ok((t, u)) => format!("{t} contributions · {u} distinct wallets (wallets matter for 1-of-N)"),
+            Ok((t, u)) => {
+                format!("{t} contributions · {u} distinct wallets (wallets matter for 1-of-N)")
+            }
             Err(e) => format!("count unavailable ({e}); link still works"),
         };
 
@@ -1297,7 +1312,9 @@ impl Tidex6Mcp {
         let own = Self::caller_wallet(&ctx);
         let wallet = req.wallet.as_deref().or(own.as_deref());
         let standing = self.describe_wallet(wallet, "be paid", req.network).await?;
-        let link = self.scan_link("/receive/", "receive", wallet, req.network).await;
+        let link = self
+            .scan_link("/receive/", "receive", wallet, req.network)
+            .await;
         let text = format!(
             "To find payments sent to you, open this link:\n\n\
              {link}\n\n\
@@ -1327,7 +1344,9 @@ impl Tidex6Mcp {
         let standing = self
             .describe_wallet(wallet, "be named as an auditor", req.network)
             .await?;
-        let link = self.scan_link("/accountant/", "audit", wallet, req.network).await;
+        let link = self
+            .scan_link("/accountant/", "audit", wallet, req.network)
+            .await;
         let text = format!(
             "To read the payments disclosed to you, open this link:\n\n\
              {link}\n\n\
@@ -1373,7 +1392,12 @@ impl Tidex6Mcp {
         // До реестра и до ссылки: если платить нечем, всё остальное — работа
         // впустую, а человеку идти никуда не надо.
         let funds_note = self
-            .check_funds(sender.as_deref(), req.amount, quote.total_micro, req.network)
+            .check_funds(
+                sender.as_deref(),
+                req.amount,
+                quote.total_micro,
+                req.network,
+            )
             .await?;
 
         // Resolve wallets into published locks (ADR-019). "Not registered" is
@@ -1501,9 +1525,7 @@ impl Tidex6Mcp {
     }
 
     /// Resolve a wallet into whatever it has published on chain.
-    async fn resolve(&self, wallet: &Pubkey, network: NetworkArg)
-        -> Result<Lookup, McpError>
-    {
+    async fn resolve(&self, wallet: &Pubkey, network: NetworkArg) -> Result<Lookup, McpError> {
         registry::lookup(&self.http, self.rpc_for(network), wallet).await
     }
 

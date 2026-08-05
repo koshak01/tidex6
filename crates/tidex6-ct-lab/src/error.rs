@@ -119,7 +119,11 @@ impl OpError {
     }
 
     /// Confirm не пришёл: tx **могла** уйти. Всегда `Unknown` + signature если есть.
-    pub fn confirm_uncertain(stage: &str, signature: Option<String>, detail: impl Into<String>) -> Self {
+    pub fn confirm_uncertain(
+        stage: &str,
+        signature: Option<String>,
+        detail: impl Into<String>,
+    ) -> Self {
         let mut e = Self::new(
             ErrorCode::ConfirmUncertain,
             stage,

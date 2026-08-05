@@ -904,10 +904,7 @@ async fn close_ctxs(token: &TokenClient, payer: &Keypair, ctxs: &[&Keypair]) -> 
         let c_pk = c.pubkey();
         retry_blockhash("close context", || {
             token.confidential_transfer_close_context_state_account(
-                &c_pk,
-                &payer_pk,
-                &payer_pk,
-                &signers,
+                &c_pk, &payer_pk, &payer_pk, &signers,
             )
         })
         .await?;

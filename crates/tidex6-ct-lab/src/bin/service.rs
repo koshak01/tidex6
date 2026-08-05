@@ -199,8 +199,7 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
     // первой встреченной кавычке — вложенность, порядок полей и экранирование
     // при этом не существовали. Для запроса, несущего сумму, кошелёк и подпись
     // оплаты, такой разбор — не мелочь.
-    let req: serde_json::Value =
-        serde_json::from_str(body).context("request is not valid JSON")?;
+    let req: serde_json::Value = serde_json::from_str(body).context("request is not valid JSON")?;
     let req = &req;
     let op = field_str(req, "op").context("missing op")?;
 
@@ -346,6 +345,7 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
             let fee = config.fee_micro(amount);
             let total = amount + fee;
             let underlying = ct::usdc_mint(); // active asset уже выставлен по чипу
+
             // Pool-level аудиторы (regulated pool): браузер добавит их auditor-
             // слоты в envelope депозита, чтобы регулятор/биржа читали весь пул.
             let auditors_json = config
@@ -406,8 +406,8 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 let commitment_hex = field_str(req, "commitment")
                     .filter(|s| !s.trim().is_empty())
                     .context("commitment required for payment binding")?;
-                let sig = solana_signature::Signature::from_str(&sig_str)
-                    .context("payment_sig parse")?;
+                let sig =
+                    solana_signature::Signature::from_str(&sig_str).context("payment_sig parse")?;
                 let mint: solana_pubkey::Pubkey =
                     ct::usdc_mint().parse().context("underlying mint")?;
                 // Отправитель = подключённый кошелёк; verify проверит, что платил
@@ -803,4 +803,3 @@ fn field_num(req: &serde_json::Value, key: &str) -> Option<u64> {
         _ => None,
     }
 }
-

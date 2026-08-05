@@ -279,7 +279,7 @@ impl LocalTools {
 
     /// Same as CLI `send` → `send_payment`.
     #[tool(
-        description = "CLI send: private payment. Params: recipient, amount, network, optional auditor/memo/lifetime. Blocks ~15–30s. Final JSON ok/done."
+        description = "CLI send: private payment. Params: recipient, amount, network, optional auditor/memo/lifetime. Blocks ~15–30s. Final JSON ok/done. Fee is 1% with a 0.1 floor, so on mainnet the 0.1 denominations cost 0.1 to send 0.1 — they are for devnet testing, not real payments."
     )]
     async fn send(&self, Parameters(req): Parameters<SendReq>) -> Result<CallToolResult, McpError> {
         log("send", "enter");
