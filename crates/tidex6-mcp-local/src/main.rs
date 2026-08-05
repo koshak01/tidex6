@@ -52,9 +52,7 @@ fn main() -> Result<()> {
 
 /// Cold path through the same binary as MCP, without stdio protocol.
 fn selftest_collect(net: &str) -> Result<()> {
-    use tidex6_client::confidential::{
-        LocalIdentity, PoolService, collect_waiting, load_keypair,
-    };
+    use tidex6_client::confidential::{LocalIdentity, PoolService, collect_waiting, load_keypair};
     use tidex6_core::network::Network;
 
     let network = match net {
@@ -179,9 +177,8 @@ async fn async_main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "warn,tidex6_mcp_local=info,rmcp=info".into()
-            }),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "warn,tidex6_mcp_local=info,rmcp=info".into()),
         )
         .init();
 
@@ -229,21 +226,21 @@ fn reap_same_session_siblings() {
         let mut parts = line.split_whitespace();
         let Some(pid_s) = parts.next() else { continue };
         let Some(ppid_s) = parts.next() else { continue };
-        let Ok(pid) = pid_s.parse::<u32>() else { continue };
-        let Ok(ppid) = ppid_s.parse::<u32>() else { continue };
+        let Ok(pid) = pid_s.parse::<u32>() else {
+            continue;
+        };
+        let Ok(ppid) = ppid_s.parse::<u32>() else {
+            continue;
+        };
         if pid == me {
             continue;
         }
         if ppid != my_ppid {
             // Different host session / different client — do not touch.
-            eprintln!(
-                "mcp-local BOOT skip foreign pid={pid} ppid={ppid} (mine ppid={my_ppid})"
-            );
+            eprintln!("mcp-local BOOT skip foreign pid={pid} ppid={ppid} (mine ppid={my_ppid})");
             continue;
         }
-        eprintln!(
-            "mcp-local BOOT reap sibling same-session pid={pid} ppid={ppid} (me={me})"
-        );
+        eprintln!("mcp-local BOOT reap sibling same-session pid={pid} ppid={ppid} (me={me})");
         let _ = std::process::Command::new("kill")
             .args(["-9", &pid.to_string()])
             .status();

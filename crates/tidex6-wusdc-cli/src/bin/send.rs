@@ -49,9 +49,7 @@ fn main() -> Result<()> {
     }
 
     let network = parse_network(args.first().map(String::as_str))?;
-    let amount_key = args
-        .get(1)
-        .context("нужен номинал (usdc0_1 / usdt1 / …)")?;
+    let amount_key = args.get(1).context("нужен номинал (usdc0_1 / usdt1 / …)")?;
     let (asset, amount_micro, symbol) = parse_amount(amount_key)?;
     let recipient_str = args
         .get(2)
@@ -66,11 +64,7 @@ fn main() -> Result<()> {
         match args[i].as_str() {
             "--auditor" => {
                 i += 1;
-                auditor = Some(
-                    args.get(i)
-                        .context("--auditor needs address")?
-                        .clone(),
-                );
+                auditor = Some(args.get(i).context("--auditor needs address")?.clone());
             }
             "--memo" => {
                 i += 1;
@@ -125,7 +119,10 @@ fn main() -> Result<()> {
         say(&format!("auditor:   {a}"));
     }
     say(&format!("network:   {network:?}"));
-    say(&format!("amount:    {} {symbol}", amount_micro as f64 / 1e6));
+    say(&format!(
+        "amount:    {} {symbol}",
+        amount_micro as f64 / 1e6
+    ));
     say(&format!("lifetime:  {revoke_window_secs}s"));
     if !memo.is_empty() {
         say(&format!("memo:      {memo}"));
@@ -164,10 +161,7 @@ fn main() -> Result<()> {
         sent.deposit_signature
     ));
     say(&format!("commitment: {}", sent.commitment_hex));
-    say(&format!(
-        "https://solscan.io/tx/{}",
-        sent.deposit_signature
-    ));
+    say(&format!("https://solscan.io/tx/{}", sent.deposit_signature));
     say(&format!(
         "TIME send {symbol}: {:.2}s (pay {:.2}s + deposit {:.2}s)",
         total.as_secs_f64(),
@@ -179,11 +173,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn lookup_reader(
-    rpc: &RpcClient,
-    wallet: &str,
-    role: &str,
-) -> Result<ReaderAddress> {
+fn lookup_reader(rpc: &RpcClient, wallet: &str, role: &str) -> Result<ReaderAddress> {
     let pk: solana_pubkey::Pubkey = wallet.parse().with_context(|| format!("{role} address"))?;
     tidex6_client::registry::lookup(rpc, &pk)?
         .map(|e| e.address)
@@ -237,14 +227,12 @@ fn parse_lifetime(s: &str) -> Result<i64> {
 }
 
 fn print_help() {
-    say(
-        "send — private payment (same library as local MCP)\n\n\
+    say("send — private payment (same library as local MCP)\n\n\
          Usage:\n  \
          send <mainnet|devnet> <amount> <recipient> [--auditor ADDR] [--memo TEXT] [--lifetime 12h]\n\n\
          amount: usdc0_1 usdc1 usdc2 usdc3 usdc5 usdc10\n         \
                  usdt0_1 usdt1 usdt2 usdt3 usdt5 usdt10\n\n\
-         Signer: keypair_path in ~/.tidex6-local/config.toml",
-    );
+         Signer: keypair_path in ~/.tidex6-local/config.toml");
 }
 
 fn say(line: &str) {

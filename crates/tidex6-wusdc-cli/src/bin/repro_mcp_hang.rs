@@ -15,8 +15,8 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -83,7 +83,8 @@ fn prepare(pk_path: &PathBuf) -> Result<Prepared> {
     }
     tr("prepare", "witness_ok", t0, &mut peak);
 
-    let key_bytes = std::fs::read(pk_path).with_context(|| format!("read {}", pk_path.display()))?;
+    let key_bytes =
+        std::fs::read(pk_path).with_context(|| format!("read {}", pk_path.display()))?;
     tr("prepare", "pk_read_ok", t0, &mut peak);
     let pk = ProvingKey::<Bn254>::deserialize_uncompressed_unchecked(&key_bytes[..])?;
     tr("prepare", "pk_deser_ok", t0, &mut peak);
@@ -103,8 +104,7 @@ fn prepare(pk_path: &PathBuf) -> Result<Prepared> {
 }
 
 fn do_prove(p: &Prepared) -> Result<()> {
-    let sibling_refs: [&[u8; 32]; WITHDRAW_TREE_DEPTH] =
-        std::array::from_fn(|i| &p.siblings[i]);
+    let sibling_refs: [&[u8; 32]; WITHDRAW_TREE_DEPTH] = std::array::from_fn(|i| &p.siblings[i]);
     let witness = WithdrawWitness::<WITHDRAW_TREE_DEPTH> {
         secret: &p.secret,
         nullifier: &p.nullifier,
@@ -331,12 +331,7 @@ fn run_orphan_stack(p: &Arc<Prepared>) -> Result<(u128, u64)> {
             })
             .await
         }));
-        tr(
-            "orphan_stack",
-            &format!("spawned_{i}"),
-            t0,
-            &mut peak,
-        );
+        tr("orphan_stack", &format!("spawned_{i}"), t0, &mut peak);
         // Soft "timeout" — we stop awaiting this one and spawn another.
         std::thread::sleep(Duration::from_millis(100));
         peak = peak.max(rss_kb());

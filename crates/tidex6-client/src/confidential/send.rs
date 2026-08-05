@@ -219,10 +219,7 @@ impl PoolService {
             // On failure we return the full raw body_text, not a re-built message.
         }
         let url = format!("{}/api/deposit", self.base_url);
-        let step = body
-            .get("step")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let step = body.get("step").and_then(|v| v.as_str()).unwrap_or("?");
 
         let response = self
             .http
@@ -258,15 +255,11 @@ impl PoolService {
         // wire body** — no rephrase, no substring "humanize". Industrial rule:
         // the operator must see exactly what the service returned.
         let reply: Reply = serde_json::from_str(&body_text).with_context(|| {
-            format!(
-                "pool service non-JSON (HTTP {status} step={step}): {body_text}"
-            )
+            format!("pool service non-JSON (HTTP {status} step={step}): {body_text}")
         })?;
         if !reply.ok {
             // Entire response as received. Do not rebuild message from fields.
-            bail!(
-                "pool service error step={step} http={status} raw={body_text}"
-            );
+            bail!("pool service error step={step} http={status} raw={body_text}");
         }
         Ok(reply.output)
     }

@@ -27,9 +27,11 @@ struct Config {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        say("audit — list payments disclosed to the config wallet as auditor\n\n\
+        say(
+            "audit — list payments disclosed to the config wallet as auditor\n\n\
              Usage:\n  audit <mainnet|devnet>\n\n\
-             Scans USDC + USDT. Key: ~/.tidex6-local/config.toml");
+             Scans USDC + USDT. Key: ~/.tidex6-local/config.toml",
+        );
         return Ok(());
     }
     let network = match args.first().map(String::as_str) {

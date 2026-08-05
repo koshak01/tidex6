@@ -137,10 +137,7 @@ pub fn collect_waiting(
     init_prover_runtime();
 
     let wallet = identity.wallet.to_string();
-    let rpc = RpcClient::new_with_timeout(
-        rpc_url.to_string(),
-        std::time::Duration::from_secs(60),
-    );
+    let rpc = RpcClient::new_with_timeout(rpc_url.to_string(), std::time::Duration::from_secs(60));
     let mut notes: Vec<CollectedNote> = Vec::new();
     let mut waiting_found = 0usize;
     let mut stopped_by: Option<String> = None;

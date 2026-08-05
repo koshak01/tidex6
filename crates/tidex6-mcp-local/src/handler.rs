@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
-use uuid::Uuid;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use solana_keypair::Keypair;
@@ -18,6 +17,7 @@ use tidex6_client::confidential::{
 };
 use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::network::{Asset, Network};
+use uuid::Uuid;
 
 use crate::config::Config;
 
@@ -281,22 +281,36 @@ impl LocalTools {
     #[tool(
         description = "CLI send: private payment. Params: recipient, amount, network, optional auditor/memo/lifetime. Blocks ~15–30s. Final JSON ok/done."
     )]
-    async fn send(
-        &self,
-        Parameters(req): Parameters<SendReq>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn send(&self, Parameters(req): Parameters<SendReq>) -> Result<CallToolResult, McpError> {
         log("send", "enter");
         let network = req.network.to_net();
         let network_defaulted = matches!(req.network, NetworkArg::Devnet);
-        let life = match req.lifetime.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let life = match req
+            .lifetime
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             None => self.config.revoke_window_secs,
             Some(s) => parse_lifetime(s).map_err(|e| McpError::invalid_params(e, None))?,
         };
-        log("send", &format!("network={:?} amount={} life={life}", network, req.amount.symbol()));
+        log(
+            "send",
+            &format!(
+                "network={:?} amount={} life={life}",
+                network,
+                req.amount.symbol()
+            ),
+        );
 
         log("send", "registry_recipient");
         let recipient = self.reader_address(&req.recipient, "recipient", network)?;
-        let auditors = match req.auditor.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let auditors = match req
+            .auditor
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(a) => {
                 log("send", "registry_auditor");
                 vec![self.reader_address(a, "auditor", network)?]
@@ -410,7 +424,9 @@ impl LocalTools {
             "message": "Payment on chain. Do not report delivered.",
         });
         log("send", "exit ok");
-        Ok(CallToolResult::success(vec![ContentBlock::text(body.to_string())]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
     }
 
     /// Та же библиотека, что CLI: `collect_waiting` in-process (без child-костыля).
@@ -480,7 +496,9 @@ impl LocalTools {
                 "ok": false, "done": true, "funds_moved": false, "status": "failed",
                 "network": net_name, "to": recipient, "error": err,
             });
-            return Ok(CallToolResult::success(vec![ContentBlock::text(body.to_string())]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                body.to_string(),
+            )]));
         }
 
         let partial = result.stopped_by.is_some();
@@ -497,7 +515,9 @@ impl LocalTools {
             "error": result.stopped_by,
             "message": "Collected. Confirmed on chain.",
         });
-        Ok(CallToolResult::success(vec![ContentBlock::text(body.to_string())]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
     }
 
     /// Auditor view: when created, amount, memo. No sender / no collect.
@@ -515,10 +535,7 @@ impl LocalTools {
 
         let text = run_on_os_thread("audit_scan", move || {
             log("audit_scan", "rpc");
-            let rpc = RpcClient::new_with_timeout(
-                rpc_url,
-                std::time::Duration::from_secs(60),
-            );
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
             let mut out = String::new();
             let mut mine = 0usize;
             let mut seen = 0usize;
@@ -708,11 +725,7 @@ async fn ceremony_counts() -> (Option<usize>, Option<usize>) {
         let arr = v
             .as_array()
             .cloned()
-            .or_else(|| {
-                v.get("contributions")
-                    .and_then(|c| c.as_array())
-                    .cloned()
-            })?;
+            .or_else(|| v.get("contributions").and_then(|c| c.as_array()).cloned())?;
         let total = arr.len();
         let mut wallets = std::collections::HashSet::new();
         for c in &arr {
@@ -782,5 +795,3 @@ fn parse_lifetime(s: &str) -> Result<i64, String> {
     }
     Ok(secs)
 }
-
-

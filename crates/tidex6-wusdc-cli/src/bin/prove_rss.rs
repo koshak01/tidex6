@@ -72,14 +72,9 @@ fn main() -> Result<()> {
     let root = tree.root();
     let nullifier_hash = nullifier.derive_hash().context("nullifier hash")?;
 
-    let sibling_bytes: Vec<[u8; 32]> = proof
-        .siblings
-        .iter()
-        .map(|c| *c.as_bytes())
-        .collect();
+    let sibling_bytes: Vec<[u8; 32]> = proof.siblings.iter().map(|c| *c.as_bytes()).collect();
     assert_eq!(sibling_bytes.len(), WITHDRAW_TREE_DEPTH);
-    let sibling_refs: [&[u8; 32]; WITHDRAW_TREE_DEPTH] =
-        std::array::from_fn(|i| &sibling_bytes[i]);
+    let sibling_refs: [&[u8; 32]; WITHDRAW_TREE_DEPTH] = std::array::from_fn(|i| &sibling_bytes[i]);
     let mut path_indices = [false; WITHDRAW_TREE_DEPTH];
     for (i, bit) in path_indices.iter_mut().enumerate() {
         *bit = (proof.leaf_index >> i) & 1 == 1;
@@ -90,8 +85,8 @@ fn main() -> Result<()> {
 
     // ── 2. Read PK file ──────────────────────────────────────────────
     mark("pk_read_start", t0, &mut prev);
-    let key_bytes = std::fs::read(&pk_path)
-        .with_context(|| format!("read {}", pk_path.display()))?;
+    let key_bytes =
+        std::fs::read(&pk_path).with_context(|| format!("read {}", pk_path.display()))?;
     eprintln!(
         "prove_rss: meta pk_path={} file_bytes={}",
         pk_path.display(),

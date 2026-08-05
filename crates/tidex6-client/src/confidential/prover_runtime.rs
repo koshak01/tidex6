@@ -57,5 +57,7 @@ pub fn prover_runtime_status() -> String {
     let cpus = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(0);
-    format!("RAYON_NUM_THREADS={env} available_parallelism={cpus} (ark-groth16 parallel→rayon pinned when possible)")
+    format!(
+        "RAYON_NUM_THREADS={env} available_parallelism={cpus} (ark-groth16 parallel→rayon pinned when possible)"
+    )
 }

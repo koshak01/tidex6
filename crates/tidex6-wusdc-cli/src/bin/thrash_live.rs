@@ -117,26 +117,17 @@ fn main() -> Result<()> {
                     "thrash_live: OS thread entered rss_kb={} peak={}",
                     peak_t, peak_t
                 );
-                let r = collect_waiting(
-                    &rpc2,
-                    &svc2,
-                    &id2,
-                    &pk2,
-                    net,
-                    &to,
-                    |step| {
-                        let r = rss_kb();
-                        peak_t = peak_t.max(r);
-                        // только редкие вехи prove
-                        if step.contains("prove") || step.contains("merkle") || step.contains("scan")
-                        {
-                            eprintln!(
-                                "thrash_live: on_step={step} rss_kb={r} peak={peak_t} lib_ms={}",
-                                t_lib.elapsed().as_millis()
-                            );
-                        }
-                    },
-                );
+                let r = collect_waiting(&rpc2, &svc2, &id2, &pk2, net, &to, |step| {
+                    let r = rss_kb();
+                    peak_t = peak_t.max(r);
+                    // только редкие вехи prove
+                    if step.contains("prove") || step.contains("merkle") || step.contains("scan") {
+                        eprintln!(
+                            "thrash_live: on_step={step} rss_kb={r} peak={peak_t} lib_ms={}",
+                            t_lib.elapsed().as_millis()
+                        );
+                    }
+                });
                 eprintln!(
                     "thrash_live: OS thread done ok={} peak_kb={} lib_ms={}",
                     r.is_ok(),
