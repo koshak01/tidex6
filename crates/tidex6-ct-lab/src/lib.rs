@@ -8,5 +8,8 @@
 
 pub mod config;
 pub mod ct;
+pub mod error;
 pub mod flow;
 pub mod pool;
+
+pub use error::{ErrorCode, FundsMoved, OpError};

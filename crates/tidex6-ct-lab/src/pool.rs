@@ -499,15 +499,81 @@ fn hex32(s: &str) -> Option<[u8; 32]> {
 }
 
 /// Собирает, подписывает payer'ом и отправляет одну инструкцию; ждёт confirmed.
+///
+/// Ошибки — `OpError` (структура), не «unable to confirm… insufficient…» как
+/// единственный смысл. Send и confirm **разведены**: если send вернул signature,
+/// а confirm нет — `ConfirmUncertain` + signature, `funds_moved = unknown`.
+/// Человек/агент обязан проверить explorer, а не читать «мало денег».
 pub async fn send_ix(rpc: &RpcClient, payer: &Keypair, ix: Instruction) -> Result<String> {
-    let blockhash = rpc
-        .get_latest_blockhash()
-        .await
-        .context("latest blockhash")?;
+    use crate::error::{ErrorCode, FundsMoved, OpError};
+
+    let blockhash = rpc.get_latest_blockhash().await.map_err(|e| {
+        OpError::new(
+            ErrorCode::Rpc,
+            "send_ix",
+            "Не удалось взять blockhash у RPC.",
+            FundsMoved::No,
+        )
+        .with_detail(e.to_string())
+    })?;
     let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[payer], blockhash);
-    let sig = rpc
-        .send_and_confirm_transaction(&tx)
-        .await
-        .context("send transaction")?;
-    Ok(sig.to_string())
+
+    // 1) Send — если здесь отказ, on-chain обычно ещё пусто.
+    //    `get_transaction_error()` — enum, не поиск слова в Display.
+    let sig = match rpc.send_transaction(&tx).await {
+        Ok(sig) => sig,
+        Err(e) => {
+            if let Some(tx_err) = e.get_transaction_error() {
+                return Err(OpError::from_transaction_error("send_ix", &tx_err).into());
+            }
+            return Err(OpError::new(
+                ErrorCode::Rpc,
+                "send_ix",
+                "RPC отклонил отправку транзакции (до confirm). Обычно деньги ещё не двигались.",
+                FundsMoved::No,
+            )
+            .with_detail(e.to_string())
+            .into());
+        }
+    };
+    let sig_str = sig.to_string();
+
+    // 2) Confirm с опросом статуса — не один send_and_confirm с boilerplate
+    //    про fee-payer, который web раньше переводил в «недостаточно средств».
+    let mut last_detail = String::new();
+    for attempt in 0..40 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        match rpc.confirm_transaction(&sig).await {
+            Ok(true) => return Ok(sig_str),
+            Ok(false) => {
+                last_detail = "confirm returned false".into();
+            }
+            Err(e) => {
+                last_detail = e.to_string();
+                if let Some(tx_err) = e.get_transaction_error() {
+                    return Err(OpError::from_transaction_error("send_ix", &tx_err)
+                        .with_signature(&sig_str)
+                        .into());
+                }
+            }
+        }
+        // Явный статус подписи важнее boolean confirm: Helius/ноды расходятся.
+        if let Ok(resp) = rpc.get_signature_statuses(&[sig]).await {
+            if let Some(Some(status)) = resp.value.first() {
+                if let Some(err) = &status.err {
+                    return Err(OpError::from_transaction_error("send_ix", err)
+                        .with_signature(&sig_str)
+                        .into());
+                }
+                // err == None и есть confirmation → успех
+                if status.confirmation_status.is_some() || status.confirmations.is_some() {
+                    return Ok(sig_str);
+                }
+            }
+        }
+    }
+
+    Err(OpError::confirm_uncertain("send_ix", Some(sig_str), last_detail).into())
 }

@@ -130,10 +130,28 @@ async fn main() -> Result<()> {
         // Конверт ответа собирает serde_json, а не format! с ручным
         // экранированием: `output` теперь и сам бывает JSON, и любая забытая
         // кавычка сделала бы тело неразборным для того, кто его читает.
+        // Ошибка — всегда объект `error` (code/message/funds_moved/…).
+        // `output` дублирует message для старых клиентов; смысл не «сырой
+        // anyhow», а уже классифицированный текст. Web **не** humanize'ит
+        // подстроки Solana.
         let json = match resp {
             Ok(output) => serde_json::json!({"ok": true, "output": output}).to_string(),
             Err(e) => {
-                serde_json::json!({"ok": false, "output": format!("{e:#}")}).to_string()
+                let op = tidex6_ct_lab::OpError::from_anyhow("service", &e);
+                eprintln!(
+                    "{} error code={:?} stage={} funds_moved={:?} sig={:?}",
+                    stamp(),
+                    op.code,
+                    op.stage,
+                    op.funds_moved,
+                    op.signature
+                );
+                serde_json::json!({
+                    "ok": false,
+                    "output": op.message,
+                    "error": op,
+                })
+                .to_string()
             }
         };
         let _ = stream.write_all(json.as_bytes()).await;
@@ -658,14 +676,24 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
             let sig =
                 flow::withdraw_browser(rpc, payer, &recipient, proof_a, proof_b, proof_c, root, nh)
                     .await
-                    .context("pool withdraw")?;
-            // Вывод из пула и выдача получателю — два шага, и в ответе оба.
-            // `payout` остаётся человекочитаемым — это отчёт службы о своей
-            // работе, — но лежит отдельным полем: подпись читается из `tx`, и
-            // выискивать её в отчёте больше некому.
-            let payout = ct::cashout_to_address(rpc.clone(), payer, &recipient, amount)
-                .await
-                .context("cashout to recipient")?;
+                    .map_err(|e| {
+                        // Сохранить OpError из send_ix, не завернуть в «pool withdraw: …».
+                        tidex6_ct_lab::OpError::from_anyhow("pool_withdraw", &e)
+                    })?;
+            // Вывод из пула и выдача получателю — два шага. Если второй упал
+            // после первого — нота уже с nullifier: это funds_moved=yes, не
+            // «попробуй ещё раз collect».
+            let payout = match ct::cashout_to_address(rpc.clone(), payer, &recipient, amount).await
+            {
+                Ok(payout) => payout,
+                Err(e) => {
+                    return Err(tidex6_ct_lab::OpError::cashout_after_withdraw(
+                        sig.to_string(),
+                        format!("{e:#}"),
+                    )
+                    .into());
+                }
+            };
             Ok(serde_json::json!({
                 "op": "withdraw_browser",
                 "tx": sig.to_string(),
