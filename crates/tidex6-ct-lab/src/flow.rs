@@ -112,6 +112,30 @@ pub async fn deposit_browser(
     const MEMO_CHUNK: usize = 800;
     let total_len = envelope.len() as u32;
     let first = &envelope[..envelope.len().min(MEMO_CHUNK)];
+
+    // Цепочка НЕ атомарна, и платят в ней двое: USDC отправителя уходят раньше
+    // (pay_operator), а deposit + append_memo оплачивает оператор своим SOL.
+    // Пока проверки не было, нехватка SOL у оператора всплывала на середине:
+    // нота уже в дереве, конверт дописан частично — и достать её не может ни
+    // получатель (расшифровывать нечего), ни отправитель. Поэтому стоимость
+    // считаем ДО первой транзакции и отказываем, пока ничего не двинулось.
+    preflight_operator_sol(rpc, payer, envelope.len(), first.len(), MEMO_CHUNK).await?;
+
+    // Конверт — на диск до первой отправки. Прогресс записи хранит сам
+    // memo-аккаунт (`written_len`/`is_finalized`), так что для доделки
+    // прерванного депозита не хватает ровно конверта: сервер его не генерит
+    // (self-custody) и второй раз ниоткуда не получит.
+    let dir = tidex6_dir()?;
+    let pending_path = format!("{dir}/envelope-{}.json", hex(&commitment[..8]));
+    let pending_json = format!(
+        "{{\n  \"commitment\": \"{}\",\n  \"envelope\": \"{}\",\n  \"revoke_window\": {}\n}}\n",
+        hex(&commitment),
+        hex(envelope),
+        revoke_window
+    );
+    write_owner_only_trunc(&pending_path, pending_json.as_bytes())
+        .context("сохранить конверт до депозита")?;
+
     let ix = pool::build_deposit_ix(&payer.pubkey(), commitment, total_len, revoke_window, first);
     let sig = pool::send_ix(rpc, payer, ix)
         .await
@@ -131,7 +155,62 @@ pub async fn deposit_browser(
             .context("append_memo send")?;
         offset = end;
     }
+
+    // Конверт дописан целиком — сохранённая копия больше не нужна.
+    let _ = std::fs::remove_file(&pending_path);
     Ok((sig, hex(&commitment)))
+}
+
+/// Хватит ли оператору SOL на весь депозит: рента memo-аккаунта под конверт
+/// плюс комиссии всех транзакций цепочки (`deposit` + N × `append_memo`).
+///
+/// Вызывается до первой отправки — единственный момент, когда отказ ничего не
+/// стоит. Ошибка идёт кодом `FeePayerSol` с `FundsMoved::No`, чтобы вызывающий
+/// видел структурно: деньги не двигались, повтор безопасен.
+async fn preflight_operator_sol(
+    rpc: &RpcClient,
+    payer: &Keypair,
+    envelope_len: usize,
+    first_len: usize,
+    chunk: usize,
+) -> Result<()> {
+    use crate::error::{ErrorCode, FundsMoved, OpError};
+
+    // Layout MemoAccount — см. pool::parse_memo_account.
+    const MEMO_ACCOUNT_HEAD: usize = 8 + 32 + 32 + 8 + 8 + 4 + 4 + 1 + 1 + 4;
+    const LAMPORTS_PER_SIG: u64 = 5_000;
+
+    let appends = envelope_len.saturating_sub(first_len).div_ceil(chunk) as u64;
+    let rent = rpc
+        .get_minimum_balance_for_rent_exemption(MEMO_ACCOUNT_HEAD + envelope_len)
+        .await
+        .context("rent для memo-аккаунта")?;
+    let fees = LAMPORTS_PER_SIG * (1 + appends);
+    // Половина сверху — на приоритетные комиссии и рента ATA, если её ещё нет.
+    let needed = (rent + fees) * 3 / 2;
+
+    let balance = rpc
+        .get_balance(&payer.pubkey())
+        .await
+        .context("баланс оператора")?;
+    if balance >= needed {
+        return Ok(());
+    }
+    Err(OpError::new(
+        ErrorCode::FeePayerSol,
+        "deposit_preflight",
+        "Оператору не хватает SOL на депозит — операция не начиналась, деньги не двигались.",
+        FundsMoved::No,
+    )
+    .with_detail(format!(
+        "operator {} has {:.6} SOL, needs ~{:.6} SOL ({} tx + rent for {}-byte envelope)",
+        payer.pubkey(),
+        balance as f64 / 1e9,
+        needed as f64 / 1e9,
+        1 + appends,
+        envelope_len
+    ))
+    .into())
 }
 
 /// Приватный сбор комиссии (ADR-016 этап 4): депонирует stealth-ноту на `fee`,
