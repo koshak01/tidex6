@@ -43,10 +43,35 @@ are all self-contained.
 
 ---
 
-## Quick start — CLI
+## Quick start — stablecoins (USDC / USDT)
 
-Three commands, no setup beyond a Solana mainnet wallet at
-`~/.config/solana/id.json`:
+The pools in production move **USDC and USDT with the amount hidden on chain**.
+Two ways in, neither of which needs this repository built from source:
+
+**In a browser** — [tidex6.com](https://tidex6.com), any Solana wallet. The
+proof is generated inside your tab; the secret never leaves it.
+
+**From an AI agent or the command line** — the local MCP server signs with a
+key that stays on your machine, under limits enforced in code:
+
+```bash
+cargo install tidex6-mcp-local
+```
+
+```json
+{ "mcpServers": { "tidex6": { "command": "tidex6-mcp-local", "args": [] } } }
+```
+
+Tools: `send`, `payments`, `collect`, `audit`, `whoami`. Full description in
+[`crates/tidex6-mcp-local/README.md`](crates/tidex6-mcp-local/README.md).
+
+## Quick start — the original SOL pool
+
+The `tidex6` CLI below talks to the **v0.1 fixed-denomination SOL pool**, which
+predates the stablecoin pools and remains available — it carries no issuer
+`freeze_authority`, which is the reason to keep it. Amounts there are visible on
+chain; only the link between sender and recipient is hidden. For hidden amounts
+use the stablecoin path above.
 
 ```bash
 # Generate a tidex6 identity (spending + viewing key).
