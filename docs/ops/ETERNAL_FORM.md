@@ -476,3 +476,57 @@ We applied for a small ecosystem grant in July and were turned down. Everything 
 **Решение принято 06.08.2026: пишем про отказ.** Альтернативный вариант
 (молчать о гранте) отклонён — вопрос «пробовали ли гранты» прозвучит на
 созвоне всё равно, и лучше, чтобы ответ уже стоял в анкете.
+
+---
+
+## ABOUT YOU — личный профиль
+
+Тексты собрала Ника по резюме Петра, не выдуманы. Профиль **блокирует подачу
+целиком**: пока он не заполнен, проект не отправить, даже если проектная часть
+готова.
+
+### WHERE HAVE YOU WORKED OR BUILT BEFORE? (980/1000)
+
+```
+Twenty-plus years shipping production systems, most of them moving money.
+
+I started in Oracle PL/SQL, building institutional systems where data integrity was the product: asset registries, bulk processing, reporting at scale. Correctness under load was the job, not a feature.
+
+Then high-load web, and industrial e-commerce: multi-brand fashion retail at roughly EUR 1M monthly turnover, where I owned the storefront and the operations behind it, payment flows included.
+
+Founder of foothold.me (Montenegro); before it, a practice that delivered 400+ projects over a decade.
+
+Recent work is Rust-first. tidex6 is a Solana privacy framework — Groth16 shielded pool, on-chain verifier, unlinkable-withdraw relayer, WASM prover, Token-2022 Confidential Transfers — audited by OtterSec, live on mainnet. Alongside it, a complete trading system in Rust against Polymarket: market data, CLOB order paths, Postgres state, production deploy.
+
+I run my own servers and ship to production.
+```
+
+Логика построения: категория подачи — **Payments & Remittance**, и первая
+строка отвечает ровно на вопрос жюри «почему этот человек». Дальше дуга без
+разрывов: институциональные Oracle-системы → магазин с миллионным оборотом и
+живыми платёжными потоками → приватные платежи на Solana. Не «увлёкся
+блокчейном», а пришёл из денег.
+
+Аудит OtterSec стоит в предпоследнем абзаце сознательно — единственный факт,
+который нельзя подделать, и он должен попасть в глаза до того, как читатель
+устанет.
+
+### WHAT'S YOUR EDUCATIONAL BACKGROUND? (437/500)
+
+```
+Moscow State University of Instrument Engineering and Informatics (MGUPI), 2003 — Computers, complexes, systems and networks. Moscow Economic Institute, 2002 — Programming.
+
+The formal grounding in systems and networks is what made the low-level work feel like familiar ground rather than a leap. The rest came from twenty years of production: nothing teaches correctness under load like being responsible for it at three in the morning.
+```
+
+### Чего в текстах намеренно нет
+
+**Торговли блоками IPv4.** По смыслу подходит идеально — рынок, где приватность
+сделки имеет цену, — но в резюме этого нет, и проверить Ника не смогла.
+Решение за Петром: если подтвердит цифры, можно вписать строкой, но в поле
+осталось около двадцати символов, то есть придётся чем-то пожертвовать.
+
+### Что ещё осталось заполнить в профиле
+
+Возраст, пол, школа, Telegram, ответ про full-time и про сооснователя —
+короткие поля, ответы Петра.
