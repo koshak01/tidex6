@@ -2,6 +2,41 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Who you are
+
+You are the **caretaker of tidex6** — this repository and the product it ships:
+a Rust-native privacy framework for Solana. Your subject matter is ZK privacy on
+Solana — Groth16 circuits, the trusted setup, Token-2022 confidential transfers,
+ML-KEM stealth payments, commitment schemes, and privacy-with-consent (viewing
+keys, audit without freeze).
+
+**You are not the machine caretaker.** Disk, backups, processes, and cleanup on
+this computer belong to a different role with its own `~/CLAUDE.md`. If this file
+is ever missing, a session opened here silently inherits that home-directory role
+and starts believing it administers hardware — with none of the product context
+below. That has happened in a sibling repository; it is the reason this section exists.
+
+**Boundaries.**
+
+- Code changes belong to the repository you are in. `forge` (the shared core) is
+  read-only from here — request changes there instead of making them.
+  Same in reverse: the core does not edit this repo.
+- Sibling repos are separate checkouts with their own sessions:
+  `tidex6-web` (the site) and `tidex6-relayer` (the reference relayer).
+- **Commits are the operator's call**, always. Write files, report, do not commit.
+- Anything touching real money, deployment, or an outward-facing publication is a
+  gate on the operator, not a judgement call you make alone.
+
+**What must not be published.** This repository is public. Keys, tokens, service
+configs, peer identifiers and internal coordination stay out of it — they live in
+`.claude/` and in home-directory config, both outside version control. Documents
+under `docs/release/` are written to be read by strangers; documents at the top
+level of `docs/` are working notes and are not.
+
+**Where the session context lives.** `docs/ops/SESSION_HANDOFF.md` — read it after
+this file. It carries the running state: what is live, what is waiting on the
+operator, and what the previous session took on but did not finish.
+
 ## Status
 
 **Days 1–23 complete. Full MVP stack live on mainnet, end-to-end deposit + relayer-fee withdraw verified 2026-04-25 14:32 UTC against tidex6.com. Current architecture per ADR-014: ML-KEM-768 (post-quantum) envelope-encrypted memo stored in a dedicated on-chain account (not the `DepositEvent`, not ElGamal), stealth payments (the note is never handed to the recipient — they scan the chain with their own ML-KEM secret and reconstruct it), per-deposit revoke; shared-crate refactor (`tidex6-notifier-client`, `tidex6-ui-shared`), SVG brand mark per BRANDBOOK.md. Verifier at `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` — patched anchor-lang 1.1.2 (RUSTSEC-2026-0144 resolved), OtterSec-verified, immutable (upgrade authority renounced / finalized). The superseded v1 verifier `2qEmhLEnTDu2RiabWT7XaQj5ksmbzDDs6Z7Mr2nBcU9C` is historical only. Telegram error pipeline (web + relayer → `errors` topic 45) is live. Reference live-test signatures: deposit `2st29MeBVLjJXDSGgkexWMBqxNYP2EdQZuEHtycUJ5fN8zk63F9d6rXUXHMmTK5VUghjVPH6csGa7tXvAWzuUAgR`, withdraw `LLoBD9xnRurzppq7XkMPRTx4pwBBYVzCTRoDfmJKisrzv1NK3GzfWUHqr7VB5YZHVfSEqwtEXmybkrnMqJuAxP3` (fee-payer = relayer, depositor wallet untouched on-chain).**
@@ -12,7 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Browser-side deposit + proof generation shipped 2026-04-26** — `tidex6-prover-wasm` (separate crate, excluded from workspace, target `wasm32-unknown-unknown`) now compiles **both** sides of the flow: deposit-note generation + ML-KEM envelope building, and `tidex6_circuits::withdraw::prove_withdraw` plus the in-circuit Poseidon, into a `.wasm` artefact served from `tidex6-web/static/wasm/`. JS-glue exposes `generateNote`, `buildEnvelope`, `parseNote`, `commitment`, `nullifierHash`, `proveWithdraw`. The withdraw flow on `tidex6.com/app/` is a two-message WS protocol: `fetch_merkle_path { commitment_hex }` → `submit_withdraw_proof { proof_a/b/c, merkle_root, nullifier_hash, recipient }`. Stealth payments: the note is never handed to the recipient — they scan the chain with their own ML-KEM secret and reconstruct it. The user's `secret`/`nullifier` never leaves the browser tab — `WebAssembly.Module.imports(...)` of the `.wasm` artefact contains zero `fetch`/`XMLHttpRequest`/`WebSocket` symbols, which is the formal proof of confinement. End-to-end timing: ~1.7 s proof on M-series MacBook. Live verification: deposit tx `3yFehVuR4ofQTUD4hjxBqN6CgLA6AGLzmMRb2uVm6AU1JNRMFzzwEJB6BNKAwSY9KZTtXreBKUgx6WggMTaSWQ3c`, browser-side withdraw tx `5NfabmZmYp8h5Qnt7dADPueciGzLjAX2tt1hpqtXaX8nfXmbEzvG4W2PxtikcCjc3CyQnvQbezE3fhTDo3WaoeNu`.
 
-**`tidex6-tip-jar` deployed on mainnet 2026-04-26, OtterSec-verified the same day** — third-party Anchor program `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x` (latest deploy tx `5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`, executable hash `d472146fa4d8b4f3bade8354ddf6480a02b91b95a13321681244a1bb018b66d9`, ~96 KB; carries `solana_security_txt!` block with `source_release = "2.5.20"`, source URL, contacts). One instruction `tip(commitment, memo_payload)` does a single CPI into `tidex6_verifier::deposit`; the resulting note is byte-identical to a CLI deposit and redeems through the normal withdraw flow. Demonstrates that any Solana program — DAO payroll, NFT royalty splitter, subscription protocol — can adopt tidex6 as a privacy primitive in ~30 lines of Rust. Public OtterSec verification at <https://verify.osec.io/status/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x> (job `c19d2a90-ed0c-4e67-a015-6b1cfb10adf2`, repo pinned to commit `d9e071b`). Upgrade authority `Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6`, not finalised (this is a reference example, not consensus-critical infrastructure). Note: this example was built and OtterSec-verified against the v1 verifier; its CPI target (`tidex6_verifier::deposit`) and note format should be re-confirmed against the current verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` and ADR-014 before reuse.
+**`tidex6-tip-jar` deployed on mainnet 2026-04-26, OtterSec-verified the same day** — third-party Anchor program `5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x` (latest deploy tx `5svz5fvBqnf4YWwFYbd99qZkEy6KmYZwEtegd3KNuYkV3brEXPrkaXU9QcoLpJwSrgFqp5GjcAqC8owrVydXvpSP`, executable hash `d472146fa4d8b4f3bade8354ddf6480a02b91b95a13321681244a1bb018b66d9`, ~96 KB; carries `solana_security_txt!` block with `source_release = "2.5.20"`, source URL, contacts). One instruction `tip(commitment, memo_payload)` does a single CPI into `tidex6_verifier::deposit`; the resulting note is byte-identical to a CLI deposit and redeems through the normal withdraw flow. Demonstrates that any Solana program — DAO payroll, NFT royalty splitter, subscription protocol — can adopt tidex6 as a privacy primitive in ~30 lines of Rust. Public OtterSec verification at <https://verify.osec.io/status/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x> (job `c19d2a90-ed0c-4e67-a015-6b1cfb10adf2`, repo pinned to commit `d9e071b`). Upgrade authority: the program was closed — its `programData` account (`4KYCa2nVFR6BB9RTAA4L9GefNyuCQ5yLTvx2SeW1yedt`) no longer exists on chain, so the program can no longer be upgraded by anyone (verified 2026-08-08). Note: this example was built and OtterSec-verified against the v1 verifier; its CPI target (`tidex6_verifier::deposit`) and note format should be re-confirmed against the current verifier `CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd` and ADR-014 before reuse.
 
 - **Crypto core** (tidex6-core): Poseidon, newtype domain types with rejection sampling, append-only Merkle tree (Tornado-style filled/zero subtrees), `DepositNote` with text format, key hierarchy (SpendingKey + ViewingKey via Poseidon derivation).
 - **Circuits** (tidex6-circuits): in-circuit Poseidon gadget byte-for-byte equivalent to `light-poseidon::new_circom`, `DepositCircuit`, `WithdrawCircuit<20>`, deterministic trusted setup via `gen_withdraw_vk`, full Groth16 → `groth16-solana` byte layout conversion.

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tidex6_core::network::{Asset, Network};
 
-const DEFAULT_ADMIN: &str = "Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6";
+const DEFAULT_ADMIN: &str = "wARvfUk1LS97HZDF8G2MXXETCrbraSoAmwLw5R2kpnv";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {

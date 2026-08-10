@@ -40,7 +40,7 @@ square brand mark out of the box.
 
 3. **Proof of ownership:** Solscan will ask you to sign a challenge
    string with the program's `upgrade-authority` keypair
-   (`Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6`). Run:
+   (`wARvfUk1LS97HZDF8G2MXXETCrbraSoAmwLw5R2kpnv`). Run:
 
    ```bash
    solana sign-offchain-message <their-challenge> \
@@ -105,7 +105,7 @@ Fields to fill:
    https://solscan.io/tx/2JR7CADCrj5BWgJKoGU2rCkcRy3vjqBoCLKGnUoJEhGtPjy28ooeShDVwi2sCwt4waaeJnnC2myBT5wzwwAnHmBg
 
 3. Same upgrade authority as the verified main verifier program
-   (Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6) — the canonical
+   (wARvfUk1LS97HZDF8G2MXXETCrbraSoAmwLw5R2kpnv) — the canonical
    tidex6 project key.
 
 4. Project website lists this program ID:
