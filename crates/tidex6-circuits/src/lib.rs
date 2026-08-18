@@ -30,6 +30,7 @@
 pub mod ceremony;
 pub mod circom_qap;
 pub mod deposit;
+pub mod evm_solidity;
 pub mod mpc;
 pub mod poseidon_gadget;
 pub mod solana_bytes;

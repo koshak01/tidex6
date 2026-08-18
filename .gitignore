@@ -112,3 +112,8 @@ docs/aleo/PEER_REQUEST_EN.md
 docs/ads/x_ads.env
 server.json
 category.txt
+
+# Foundry (contracts/)
+contracts/out/
+contracts/cache/
+contracts/lib/
