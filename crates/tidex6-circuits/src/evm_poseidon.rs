@@ -74,9 +74,12 @@ pub fn render_poseidon_t3() -> String {
         "unexpected round-constant count: dependency changed its parameter set"
     );
 
+    // Each round is its own `[a, b, c]` triple: the Solidity type is
+    // `uint256[3][rounds]`, and a flat list of `width * rounds` values does
+    // not implicitly convert to it.
     let ark_literal = ark
         .chunks(params.width)
-        .map(|round| format!("        {}", round.join(", ")))
+        .map(|round| format!("            [{}]", round.join(", ")))
         .collect::<Vec<_>>()
         .join(",\n");
 
@@ -85,7 +88,7 @@ pub fn render_poseidon_t3() -> String {
         .iter()
         .map(|row| {
             let cells: Vec<String> = row.iter().map(fr_decimal).collect();
-            format!("        [{}]", cells.join(", "))
+            format!("            [{}]", cells.join(", "))
         })
         .collect::<Vec<_>>()
         .join(",\n");
