@@ -24,6 +24,18 @@ interface IERC20 {
 /// @dev Multichain, not cross-chain. This pool knows nothing about any other
 ///      chain's state and must never be taught to: deposits made here are
 ///      withdrawn here.
+///
+/// @dev On recipient binding — the Solana pool has a known weakness here
+///      (GAP-2). There the recipient is bound as `reduce_mod_bn254(pubkey)`,
+///      and since a pubkey is 256 bits against a ~254-bit field, the map
+///      collides: `reduce(P) == reduce(P + r)`. A relayer could swap the
+///      recipient for a different, unspendable account and the proof would
+///      still verify.
+///
+///      That does not happen here. An EVM address is 160 bits, far below the
+///      field order, so `uint256(uint160(addr))` is injective — there is no
+///      second address with the same field element. Never introduce a
+///      reduction on this path; `test_addressToFieldIsInjective` guards it.
 contract Tidex6Pool {
     /// Depth of the incremental tree. Fixed at compile time in the circuit.
     uint256 public constant TREE_DEPTH = 20;

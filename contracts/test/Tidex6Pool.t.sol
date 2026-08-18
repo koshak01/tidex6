@@ -175,4 +175,36 @@ contract Tidex6PoolTest is Test {
         pool.deposit(COMMITMENT);
         vm.stopPrank();
     }
+
+    /// @notice GAP-2 on Solana does not exist here, and must not be introduced.
+    /// @dev On Solana the recipient is bound to the proof as
+    ///      `reduce_mod_bn254(pubkey)`. A Solana pubkey is 256 bits and the
+    ///      field is ~254, so the map loses information: `reduce(P)` equals
+    ///      `reduce(P + r)`. A malicious relayer could swap the recipient for
+    ///      `P + r` — a different account, the same field element, a proof that
+    ///      still verifies, and funds sent somewhere unspendable.
+    ///
+    ///      An EVM address is 160 bits, comfortably below the 254-bit field
+    ///      order, so `uint256(uint160(addr))` is injective and no such
+    ///      collision exists. This test pins that down: if anyone ever
+    ///      introduces a reduction here, the largest possible address would
+    ///      stop round-tripping and this fails.
+    function test_addressToFieldIsInjective() public pure {
+        uint256 fieldOrder =
+            21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
+        address maxAddress = address(type(uint160).max);
+        uint256 asField = uint256(uint160(maxAddress));
+
+        assertLt(asField, fieldOrder, "an address must fit the scalar field with room to spare");
+        assertEq(
+            address(uint160(asField)),
+            maxAddress,
+            "address must survive the round trip through a field element"
+        );
+
+        // The Solana collision partner, P + r, is far outside address range —
+        // it cannot be written as an address at all.
+        assertGt(asField + fieldOrder, uint256(type(uint160).max), "P + r must not be an address");
+    }
 }
