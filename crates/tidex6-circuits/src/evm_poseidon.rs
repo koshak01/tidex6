@@ -74,24 +74,43 @@ pub fn render_poseidon_t3() -> String {
         "unexpected round-constant count: dependency changed its parameter set"
     );
 
-    // Each round is its own `[a, b, c]` triple: the Solidity type is
-    // `uint256[3][rounds]`, and a flat list of `width * rounds` values does
-    // not implicitly convert to it.
-    let ark_literal = ark
-        .chunks(params.width)
-        .map(|round| format!("            [{}]", round.join(", ")))
-        .collect::<Vec<_>>()
-        .join(",\n");
+    // Rounds are emitted unrolled, with the constants as literals in the
+    // code rather than an array built in memory on every call. Building a
+    // 65x3 array cost ~250k gas per hash; a leaf insertion is twenty hashes,
+    // and five million gas per deposit is not a product.
+    let half = full_rounds / 2;
+    let mut rounds_body = String::new();
+    for round in 0..(full_rounds + partial_rounds) {
+        let base = round * params.width;
+        let (c0, c1, c2) = (&ark[base], &ark[base + 1], &ark[base + 2]);
+        let full_sbox = round < half || round >= half + partial_rounds;
 
-    let mds_literal = params
-        .mds
-        .iter()
-        .map(|row| {
-            let cells: Vec<String> = row.iter().map(fr_decimal).collect();
-            format!("            [{}]", cells.join(", "))
-        })
-        .collect::<Vec<_>>()
-        .join(",\n");
+        rounds_body.push_str(&format!("\n        // round {round}\n"));
+        rounds_body.push_str(&format!("        s0 = addmod(s0, {c0}, F);\n"));
+        rounds_body.push_str(&format!("        s1 = addmod(s1, {c1}, F);\n"));
+        rounds_body.push_str(&format!("        s2 = addmod(s2, {c2}, F);\n"));
+        if full_sbox {
+            rounds_body.push_str("        s0 = _pow5(s0);\n");
+            rounds_body.push_str("        s1 = _pow5(s1);\n");
+            rounds_body.push_str("        s2 = _pow5(s2);\n");
+        } else {
+            rounds_body.push_str("        s0 = _pow5(s0);\n");
+        }
+        rounds_body.push_str("        (s0, s1, s2) = _mix(s0, s1, s2);\n");
+    }
+
+    let mds_constants = {
+        let mut out = String::new();
+        for (i, row) in params.mds.iter().enumerate() {
+            for (j, cell) in row.iter().enumerate() {
+                out.push_str(&format!(
+                    "    uint256 private constant M{i}{j} = {};\n",
+                    fr_decimal(cell)
+                ));
+            }
+        }
+        out
+    };
 
     format!(
         r#"// SPDX-License-Identifier: MIT
@@ -107,28 +126,16 @@ pragma solidity ^0.8.20;
 ///           cargo run --bin export_solidity_poseidon --release
 ///
 /// @dev {full_rounds} full rounds, {partial_rounds} partial rounds, S-box x^5.
+///      Rounds are unrolled and the constants live in the bytecode: building
+///      them in memory on every call cost roughly 250k gas per hash, and a
+///      leaf insertion needs twenty of them.
 library PoseidonT3 {{
     /// BN254 scalar field modulus.
     uint256 internal constant F =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    uint256 internal constant FULL_ROUNDS = {full_rounds};
-    uint256 internal constant PARTIAL_ROUNDS = {partial_rounds};
-
-    /// Round constants, {rounds} rounds x 3 state elements.
-    function roundConstants() internal pure returns (uint256[3][{rounds}] memory ark) {{
-        ark = [
-{ark_literal}
-        ];
-    }}
-
-    /// MDS matrix.
-    function mds() internal pure returns (uint256[3][3] memory matrix) {{
-        matrix = [
-{mds_literal}
-        ];
-    }}
-
+    // MDS matrix.
+{mds_constants}
     /// @notice Poseidon(left, right) — the Merkle parent hash.
     /// @dev Reverts when an input is not a field element: a silent reduction
     ///      would hash something other than what the caller passed, and the
@@ -137,80 +144,47 @@ library PoseidonT3 {{
         require(left < F, "PoseidonT3: left not a field element");
         require(right < F, "PoseidonT3: right not a field element");
 
-        uint256[3][{rounds}] memory ark = roundConstants();
-        uint256[3][3] memory m = mds();
-
-        // State starts with the domain tag (zero for the circom parameter set),
-        // then the inputs.
-        uint256[3] memory state;
-        state[0] = 0;
-        state[1] = left;
-        state[2] = right;
-
-        uint256 halfFull = FULL_ROUNDS / 2;
-
-        for (uint256 round = 0; round < halfFull; round++) {{
-            state = _addRoundConstants(state, ark[round]);
-            state = _sboxFull(state);
-            state = _mix(state, m);
-        }}
-
-        for (uint256 round = halfFull; round < halfFull + PARTIAL_ROUNDS; round++) {{
-            state = _addRoundConstants(state, ark[round]);
-            state[0] = _pow5(state[0]);
-            state = _mix(state, m);
-        }}
-
-        for (uint256 round = halfFull + PARTIAL_ROUNDS; round < FULL_ROUNDS + PARTIAL_ROUNDS; round++) {{
-            state = _addRoundConstants(state, ark[round]);
-            state = _sboxFull(state);
-            state = _mix(state, m);
-        }}
-
-        return state[0];
+        // State starts with the domain tag (zero for the circom parameter
+        // set), then the inputs.
+        uint256 s0 = 0;
+        uint256 s1 = left;
+        uint256 s2 = right;
+{rounds_body}
+        return s0;
     }}
 
-    function _addRoundConstants(uint256[3] memory state, uint256[3] memory ark)
-        private
-        pure
-        returns (uint256[3] memory)
-    {{
-        state[0] = addmod(state[0], ark[0], F);
-        state[1] = addmod(state[1], ark[1], F);
-        state[2] = addmod(state[2], ark[2], F);
-        return state;
-    }}
-
-    function _sboxFull(uint256[3] memory state) private pure returns (uint256[3] memory) {{
-        state[0] = _pow5(state[0]);
-        state[1] = _pow5(state[1]);
-        state[2] = _pow5(state[2]);
-        return state;
-    }}
-
+    /// x^5 in the scalar field.
     function _pow5(uint256 value) private pure returns (uint256) {{
         uint256 squared = mulmod(value, value, F);
         uint256 quartic = mulmod(squared, squared, F);
         return mulmod(quartic, value, F);
     }}
 
-    function _mix(uint256[3] memory state, uint256[3][3] memory m)
+    /// Multiply the state by the MDS matrix.
+    function _mix(uint256 s0, uint256 s1, uint256 s2)
         private
         pure
-        returns (uint256[3] memory)
+        returns (uint256, uint256, uint256)
     {{
-        uint256[3] memory mixed;
-        for (uint256 i = 0; i < 3; i++) {{
-            uint256 accumulator = 0;
-            for (uint256 j = 0; j < 3; j++) {{
-                accumulator = addmod(accumulator, mulmod(m[i][j], state[j], F), F);
-            }}
-            mixed[i] = accumulator;
-        }}
-        return mixed;
+        return (
+            addmod(
+                addmod(mulmod(M00, s0, F), mulmod(M01, s1, F), F),
+                mulmod(M02, s2, F),
+                F
+            ),
+            addmod(
+                addmod(mulmod(M10, s0, F), mulmod(M11, s1, F), F),
+                mulmod(M12, s2, F),
+                F
+            ),
+            addmod(
+                addmod(mulmod(M20, s0, F), mulmod(M21, s1, F), F),
+                mulmod(M22, s2, F),
+                F
+            )
+        );
     }}
 }}
 "#,
-        rounds = full_rounds + partial_rounds,
     )
 }
