@@ -66,6 +66,36 @@ const RELAYER: [u8; 20] = [
 /// Fee paid to the relayer, in the token's smallest unit.
 const FEE: u64 = 1_000_000;
 
+
+/// EIP-55 checksummed form of an address.
+///
+/// Solidity rejects an all-lowercase address literal on purpose: the mixed
+/// case carries a checksum, so a single mistyped character will not compile.
+/// Emitting the lowercase form and letting a human "fix" it by hand defeats
+/// exactly the protection that exists to catch a wrong payout address.
+fn to_checksum_address(address: &[u8; 20]) -> String {
+    use sha3::{Digest, Keccak256};
+
+    let lower: String = address.iter().map(|b| format!("{b:02x}")).collect();
+    let hash = Keccak256::digest(lower.as_bytes());
+
+    let mut out = String::with_capacity(42);
+    out.push_str("0x");
+    for (index, ch) in lower.chars().enumerate() {
+        let nibble = if index % 2 == 0 {
+            hash[index / 2] >> 4
+        } else {
+            hash[index / 2] & 0x0f
+        };
+        if ch.is_ascii_digit() || nibble < 8 {
+            out.push(ch);
+        } else {
+            out.push(ch.to_ascii_uppercase());
+        }
+    }
+    out
+}
+
 /// An EVM address as a field element: left-padded to 32 bytes. Always below
 /// the modulus, since an address is 160 bits.
 fn address_to_field_bytes(address: &[u8; 20]) -> [u8; 32] {
@@ -196,8 +226,8 @@ fn main() {
   "commitment": "{commitment}",
   "root": "{root}",
   "nullifierHash": "{nullifier_hash}",
-  "recipient": "0x{recipient_hex}",
-  "relayer": "0x{relayer_hex}",
+  "recipient": "{recipient_hex}",
+  "relayer": "{relayer_hex}",
   "fee": "{fee}",
   "a": ["{a0}", "{a1}"],
   "b": [["{b00}", "{b01}"], ["{b10}", "{b11}"]],
@@ -208,8 +238,8 @@ fn main() {
         commitment = decimal_from_be(commitment.as_bytes()),
         root = decimal_from_be(merkle_root.as_bytes()),
         nullifier_hash = decimal_from_be(nullifier_hash.as_bytes()),
-        recipient_hex = RECIPIENT.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-        relayer_hex = RELAYER.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        recipient_hex = to_checksum_address(&RECIPIENT),
+        relayer_hex = to_checksum_address(&RELAYER),
         fee = FEE,
         a0 = a_pair[0],
         a1 = a_pair[1],

@@ -51,8 +51,8 @@ contract Tidex6PoolTest is Test {
     Tidex6Verifier internal verifier;
 
     address internal depositor = address(0xD3);
-    address internal recipient = 0xa439ad519046ccd7056ddf74fbaac99d740bdf09;
-    address internal relayer = 0x8f4f72dd4421bc39af3b3ff145e0702f6ac95fb9;
+    address internal recipient = 0xA439Ad519046CCd7056Ddf74fbaAc99d740Bdf09;
+    address internal relayer = 0x8f4f72DD4421Bc39af3b3Ff145e0702F6AC95fb9;
 
     uint256 internal constant DENOMINATION = 100_000_000;
     uint256 internal constant FEE = 1000000;
