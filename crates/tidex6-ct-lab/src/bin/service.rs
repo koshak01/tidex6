@@ -138,13 +138,28 @@ async fn main() -> Result<()> {
             Ok(output) => serde_json::json!({"ok": true, "output": output}).to_string(),
             Err(e) => {
                 let op = tidex6_ct_lab::OpError::from_anyhow("service", &e);
+                // `detail` — единственное место, где лежит настоящая причина:
+                // `message` шаблонный и пишется по коду, у `Internal` он один и
+                // тот же для мёртвого RPC-ключа, пустого кошелька оператора и
+                // отказа гейта. Без него журнал службы 19.08.2026 отвечал
+                // «code=Internal» на все пять отказов подряд, и причину пришлось
+                // доставать из журнала ws — то есть журнал был у того, кто
+                // ошибку переслал, но не у того, кто её сделал.
+                //
+                // Приватность от этого не страдает: тот же текст уже пишет ws
+                // рядом, в тот же каталог, и в нём нет ни сумм клиента, ни его
+                // нот — только то, что сказал узел или наш собственный шаг.
                 eprintln!(
-                    "{} error code={:?} stage={} funds_moved={:?} sig={:?}",
+                    "{} error code={:?} stage={} funds_moved={:?} sig={:?}{}",
                     stamp(),
                     op.code,
                     op.stage,
                     op.funds_moved,
-                    op.signature
+                    op.signature,
+                    op.detail
+                        .as_deref()
+                        .map(|d| format!("\n  причина: {d}"))
+                        .unwrap_or_default()
                 );
                 serde_json::json!({
                     "ok": false,
@@ -190,6 +205,26 @@ fn request_labels(body: &str) -> (String, String) {
     };
     (field("op"), field("network"))
 }
+
+/// Стадии платёжного замка (`~/.tidex6-wusdc/spent/<sig>.used`).
+///
+/// Замок столбит подпись оплаты, чтобы одним платежом нельзя было сделать два
+/// депозита. Но «занято» и «отработано» — разные вещи, и раньше файл этого не
+/// различал: он ставился ДО проверки оплаты и снимался только если упала сама
+/// проверка. Сбой на любом шаге ПОСЛЕ неё оставлял замок навсегда — деньги у
+/// оператора, депозита у человека нет, повторить нельзя. Ровно это случилось
+/// 19.08.2026 с платежом 21:42: `wrap` не подтвердился, и оплата сгорела.
+///
+/// Поэтому в файле лежит стадия, и по ней решается судьба повтора:
+/// `verified` — оплата зачтена, on-chain ещё ничего не двигали: повтор законен;
+/// `wrapping` — начали заворачивать, исход неизвестен: вслепую не повторяем;
+/// `wrapped` — оборот прошёл, депозит нет: доводит оператор;
+/// `done` — депозит состоялся: настоящий replay.
+/// Пустой файл (замки старого формата) считаем `done` — безопасная сторона.
+const STAGE_VERIFIED: &str = "verified";
+const STAGE_WRAPPING: &str = "wrapping";
+const STAGE_WRAPPED: &str = "wrapped";
+const STAGE_DONE: &str = "done";
 
 /// Диспетчер: сеть+актив из запроса (чипы) → выбор бэкенда → allowlist → op.
 async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -> Result<String> {
@@ -391,6 +426,9 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
             // Сколько комиссии реально удержано с оплаченного депозита (остаётся
             // 0 в legacy demo-пути без payment_sig — там комиссии нет).
             let mut collected_fee: u64 = 0;
+            // Путь платёжного замка — нужен и после блока проверки оплаты, где
+            // в него пишутся стадии оборота и депозита (см. STAGE_*).
+            let mut payment_lock: Option<String> = None;
             // Продукт-модель: отправитель уже заплатил (amount + fee) оператору
             // со своего кошелька (Phantom). Проверяем перевод по payment_sig
             // ПЕРЕД wrap — иначе депозит был бы бесплатным (клиент прислал бы
@@ -415,9 +453,10 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 let sender: solana_pubkey::Pubkey =
                     wallet.parse().context("connected wallet pubkey")?;
                 // Anti-replay, TOCTOU-safe: атомарно застолбить sig через
-                // `create_new` lockfile ДО verify. Если файл уже есть — sig занят
-                // (повтор или параллельная гонка). Если verify упадёт — снимаем
-                // lock, чтобы валидный повтор с тем же sig был возможен.
+                // `create_new` lockfile ДО verify. Если файл уже есть — заход по
+                // этой оплате уже был, и что с ним стало, говорит записанная в
+                // нём стадия (STAGE_*). Повтор разрешаем ровно в одном случае:
+                // прошлый заход зачёл оплату и упал, не сдвинув ничего on-chain.
                 let home = std::env::var("HOME").context("HOME")?;
                 let spent_dir = format!("{home}/.tidex6-wusdc/spent");
                 std::fs::create_dir_all(&spent_dir).ok();
@@ -428,10 +467,30 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                     .open(&lock_path)
                 {
                     Ok(_) => {}
-                    Err(_) => anyhow::bail!(
-                        "this payment was already used for a deposit (replay rejected)"
-                    ),
+                    Err(_) => {
+                        let stage = std::fs::read_to_string(&lock_path).unwrap_or_default();
+                        match stage.trim() {
+                            // Деньги отправителя у оператора, депозита нет —
+                            // человек вправе получить своё без второй оплаты.
+                            STAGE_VERIFIED => {}
+                            STAGE_WRAPPING => anyhow::bail!(
+                                "this payment was taken but the deposit did not finish, and \
+                                 the chain has not said how it ended — the operator has to \
+                                 settle it by hand. Do not pay again."
+                            ),
+                            STAGE_WRAPPED => anyhow::bail!(
+                                "this payment was taken and the funds are already wrapped, \
+                                 but the deposit did not finish — the operator completes it. \
+                                 Do not pay again."
+                            ),
+                            // `done` и пустые замки старого формата.
+                            _ => anyhow::bail!(
+                                "this payment was already used for a deposit (replay rejected)"
+                            ),
+                        }
+                    }
                 }
+                payment_lock = Some(lock_path.clone());
                 let verify = pool::verify_token_payment(
                     rpc,
                     &sig,
@@ -446,6 +505,9 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                     let _ = std::fs::remove_file(&lock_path);
                 }
                 verify.context("verify payment")?;
+                // Оплата зачтена, on-chain пока не двигали ничего: с этой
+                // отметкой повтор после сбоя ниже останется возможным.
+                let _ = std::fs::write(&lock_path, STAGE_VERIFIED);
                 let _ = writeln!(
                     log,
                     "payment verified: {:.6} received from the connected wallet",
@@ -495,15 +557,31 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 amount
             };
             let _ = writeln!(log, "━━ wrap (confidential backing) ━━");
+            // С этой секунды деньги оператора могут сдвинуться, и чем кончился
+            // оборот, знает только цепочка: `wrap` — не одна транзакция, а
+            // перевод в vault, настройка конфиденциального аккаунта и депозит
+            // в него. Отметку ставим ДО вызова, а не после: сбой в середине
+            // как раз и есть тот случай, ради которого стадия заведена.
+            if let Some(path) = payment_lock.as_deref() {
+                let _ = std::fs::write(path, STAGE_WRAPPING);
+            }
             log.push_str(
                 &ct::wrap(rpc.clone(), payer, wrap_amount)
                     .await
                     .context("wrap")?,
             );
+            if let Some(path) = payment_lock.as_deref() {
+                let _ = std::fs::write(path, STAGE_WRAPPED);
+            }
             let (sig, commit_hex) =
                 flow::deposit_browser(rpc, payer, commitment, &envelope, revoke)
                     .await
                     .context("deposit")?;
+            // Депозит на цепочке — оплата отработана полностью, и повтор по
+            // ней теперь настоящий replay.
+            if let Some(path) = payment_lock.as_deref() {
+                let _ = std::fs::write(path, STAGE_DONE);
+            }
             // Комиссия — отдельной приватной нотой (невидима снаружи как fee).
             // Депозит пользователя уже on-chain, поэтому ошибку fee-ноты НЕ
             // пробрасываем: иначе успешный платёж вернул бы клиенту «fail». При
