@@ -82,7 +82,20 @@ contract Tidex6Pool {
     /// rather than creating a note the depositor cannot distinguish.
     mapping(uint256 => bool) public commitmentKnown;
 
-    event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 newRoot, address depositor);
+    /// @notice A note was funded.
+    /// @param envelope The sealed envelope for the recipient — opaque to the
+    ///        chain, meaningful only to whoever holds the key it was sealed
+    ///        for. Carried in the log rather than storage: a log byte costs 8
+    ///        gas against 20 000 for a storage slot, and nothing on chain ever
+    ///        needs to read this back. The recipient scans logs, the same way
+    ///        they scan the pool's memo accounts on Solana.
+    event Deposit(
+        uint256 indexed commitment,
+        uint256 leafIndex,
+        uint256 newRoot,
+        address depositor,
+        bytes envelope
+    );
     event Withdrawal(uint256 indexed nullifierHash, address indexed recipient, address relayer, uint256 fee);
 
     error NotAFieldElement();
@@ -115,9 +128,19 @@ contract Tidex6Pool {
 
     /// @notice Deposit one note.
     /// @param commitment Poseidon(secret, nullifier), computed by the client.
+    /// @param envelope The sealed envelope for the recipient, produced in the
+    ///        sender's browser before anything left it. The pool does not read
+    ///        it and could not: it is encrypted to a key only the recipient
+    ///        can derive.
     /// @dev The pool never sees the secret. It only learns that some
     ///      commitment was funded — which is the entire point.
-    function deposit(uint256 commitment) external {
+    ///
+    ///      The envelope travels with the deposit rather than in a separate
+    ///      call because the two must not come apart: a commitment without an
+    ///      envelope is money nobody can find, and an envelope without a
+    ///      commitment points at nothing. On Solana the same pairing is held
+    ///      by writing both in one flow; here one transaction does it.
+    function deposit(uint256 commitment, bytes calldata envelope) external {
         if (commitment >= F) revert NotAFieldElement();
         if (commitmentKnown[commitment]) revert CommitmentAlreadyUsed();
         if (nextLeafIndex >= (1 << TREE_DEPTH)) revert TreeFull();
@@ -131,7 +154,7 @@ contract Tidex6Pool {
         uint256 leafIndex = nextLeafIndex;
         uint256 newRoot = _appendLeaf(leafIndex, commitment);
 
-        emit Deposit(commitment, leafIndex, newRoot, msg.sender);
+        emit Deposit(commitment, leafIndex, newRoot, msg.sender, envelope);
     }
 
     /// @notice Withdraw a note to `recipient`, optionally paying a relayer.

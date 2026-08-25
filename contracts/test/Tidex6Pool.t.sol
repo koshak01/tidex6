@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {Tidex6Pool, IERC20} from "../src/Tidex6Pool.sol";
 import {Tidex6Verifier} from "../src/Tidex6Verifier.sol";
 
@@ -60,6 +60,11 @@ contract Tidex6PoolTest is Test {
     uint256 internal constant DENOMINATION = 1_000_000;
     uint256 internal constant FEE = 100000;
 
+    /// Заглушка конверта: на длину и содержимое контракт не смотрит, но в
+    /// вызове он должен быть — иначе тест не заметил бы, что конверт потерян
+    /// по дороге.
+    bytes internal constant ENVELOPE = hex"0102030405060708";
+
     uint256 internal constant COMMITMENT = 21133731795125218879770237676509304824224234338153766379440246562756965142916;
     uint256 internal constant EXPECTED_ROOT = 9320035109223905669555919870974467834898477155077275771998462004481757406537;
     uint256 internal constant NULLIFIER_HASH = 3228837805036640562887160086138756906643146730490387571226220750860647184912;
@@ -92,7 +97,7 @@ contract Tidex6PoolTest is Test {
     /// same commitment. Disagreement means locked deposits.
     function test_rootMatchesRust() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         assertEq(
             pool.currentRoot(),
@@ -101,10 +106,35 @@ contract Tidex6PoolTest is Test {
         );
     }
 
+    /// Конверт обязан доехать до лога — по нему получатель находит платёж.
+    ///
+    /// Без этой проверки потерю конверта не заметил бы никто: депозит прошёл
+    /// бы, дерево выросло, деньги легли в пул, а получатель никогда бы о них
+    /// не узнал — искать ему было бы нечего. Молчаливый отказ, самый дорогой
+    /// вид.
+    function test_depositEmitsEnvelope() public {
+        vm.recordLogs();
+        vm.prank(depositor);
+        pool.deposit(COMMITMENT, ENVELOPE);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool found = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] != keccak256("Deposit(uint256,uint256,uint256,address,bytes)")) {
+                continue;
+            }
+            (, , , bytes memory envelope) =
+                abi.decode(logs[i].data, (uint256, uint256, address, bytes));
+            assertEq(envelope, ENVELOPE, "the envelope in the log is not the one deposited");
+            found = true;
+        }
+        assertTrue(found, "no Deposit event carried an envelope");
+    }
+
     /// End to end: deposit, then withdraw with a real proof.
     function test_depositThenWithdraw() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         uint256 recipientBefore = token.balanceOf(recipient);
         uint256 relayerBefore = token.balanceOf(relayer);
@@ -127,7 +157,7 @@ contract Tidex6PoolTest is Test {
     /// The double-spend guard. Spending the same note twice must fail.
     function test_rejectsDoubleSpend() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         pool.withdraw(pA, pB, pC, EXPECTED_ROOT, NULLIFIER_HASH, recipient, relayer, FEE);
 
@@ -139,7 +169,7 @@ contract Tidex6PoolTest is Test {
     /// recipient is a public input, so changing it invalidates the proof.
     function test_rejectsRedirectedRecipient() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         address thief = address(0xBAD);
         vm.expectRevert(Tidex6Pool.InvalidProof.selector);
@@ -149,7 +179,7 @@ contract Tidex6PoolTest is Test {
     /// Nor raise its own fee, for the same reason.
     function test_rejectsRaisedFee() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         vm.expectRevert(Tidex6Pool.InvalidProof.selector);
         pool.withdraw(pA, pB, pC, EXPECTED_ROOT, NULLIFIER_HASH, recipient, relayer, FEE + 1);
@@ -158,7 +188,7 @@ contract Tidex6PoolTest is Test {
     /// A root the pool never produced must not authorise anything.
     function test_rejectsUnknownRoot() public {
         vm.prank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
 
         vm.expectRevert(Tidex6Pool.RootNotRecent.selector);
         pool.withdraw(pA, pB, pC, EXPECTED_ROOT + 1, NULLIFIER_HASH, recipient, relayer, FEE);
@@ -173,9 +203,9 @@ contract Tidex6PoolTest is Test {
     /// cannot tell apart.
     function test_rejectsRepeatedCommitment() public {
         vm.startPrank(depositor);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
         vm.expectRevert(Tidex6Pool.CommitmentAlreadyUsed.selector);
-        pool.deposit(COMMITMENT);
+        pool.deposit(COMMITMENT, ENVELOPE);
         vm.stopPrank();
     }
 
