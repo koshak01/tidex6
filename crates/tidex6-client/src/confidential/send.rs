@@ -40,6 +40,18 @@ pub struct Quote {
     /// платежу помимо того, кого назвал отправитель.
     #[serde(default)]
     pub pool_auditors: Vec<String>,
+    /// Пропустит ли служба этот депозит: `ok`, `needs_approval`, `over_cap`.
+    ///
+    /// Спрашивается здесь, потому что платёж уходит РАНЬШЕ депозита: сначала
+    /// отправитель переводит оператору `total`, и только потом просит завернуть
+    /// сумму в пул. Если допуска нет, узнать об этом надо до перевода, а не
+    /// после — иначе деньги списаны, депозита нет, и вернуть их может только
+    /// оператор руками.
+    ///
+    /// Пустое значение означает старую службу, которая поля не присылает; такую
+    /// не блокируем — она вела себя как «ok» и до этой правки.
+    #[serde(default)]
+    pub gate: String,
 }
 
 /// Чем кончилась отправка.
@@ -326,6 +338,22 @@ pub fn send_payment(
 
     let sender_wallet = signer.pubkey().to_string();
     let quote = service.quote(amount_micro, asset, network, &sender_wallet)?;
+
+    // Спрашиваем о допуске ДО перевода. Ниже деньги уходят оператору, и только
+    // потом он просит службу завернуть их в пул; отказ на том шаге означает
+    // списанные деньги без депозита, а вернуть их может лишь оператор руками.
+    // 25.08.2026 так и произошло — кошелёк не был в белом списке mainnet, и
+    // 1.1 USDC зависли между двумя шагами.
+    match quote.gate.as_str() {
+        "" | "ok" => {}
+        "needs_approval" => anyhow::bail!(
+            "this wallet is not allowed to deposit on mainnet — nothing was sent.              The operator adds it to the allow-list; the browser flow can also ask              for a one-off approval, an agent cannot."
+        ),
+        "over_cap" => anyhow::bail!(
+            "the amount is above what the service accepts on mainnet right now —              nothing was sent. Try a smaller one."
+        ),
+        other => anyhow::bail!("the service did not allow this deposit ({other}) — nothing was sent"),
+    }
 
     // Пул может быть регулируемым: его аудиторы добавляются к тем, кого назвал
     // отправитель, а не заменяют их.
