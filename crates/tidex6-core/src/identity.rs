@@ -81,8 +81,17 @@ sign it on a tidex6 site you trust — check the domain your wallet shows above.
 
 Version: 2";
 
-/// Ed25519 signature length — what a wallet's `signMessage` returns.
+/// Ed25519 signature length — what a Solana wallet's `signMessage` returns.
 pub const SIGNATURE_LEN: usize = 64;
+
+/// secp256k1 signature length — what an EVM wallet returns from `personal_sign`.
+///
+/// Те же 64 байта подписи плюс байт восстановления (`v`). Он к секрету
+/// отношения не имеет, но входит в подпись, которую отдаёт кошелёк, и обязан
+/// участвовать в выводе ключа: иначе один и тот же кошелёк давал бы разный
+/// ключ в зависимости от того, отбросили мы этот байт или нет, и человек
+/// потерял бы доступ к своим платежам от одной правки в коде.
+pub const SIGNATURE_LEN_SECP256K1: usize = 65;
 
 const DOMAIN_SPEND: &[u8] = b"tidex6/identity/v1/spend";
 const DOMAIN_MLKEM: &[u8] = b"tidex6/identity/v1/mlkem";
@@ -99,8 +108,8 @@ pub struct DerivedIdentity {
 /// Errors from deriving an identity.
 #[derive(Debug, thiserror::Error)]
 pub enum IdentityError {
-    /// The signature was not 64 bytes — not an ed25519 signature.
-    #[error("signature must be {SIGNATURE_LEN} bytes, got {got}")]
+    /// Подпись не той длины: ни ed25519 (64), ни secp256k1 (65).
+    #[error("signature must be {SIGNATURE_LEN} or {SIGNATURE_LEN_SECP256K1} bytes, got {got}")]
     BadSignatureLength { got: usize },
 
     /// Rejection sampling failed to find a valid field element. With a uniform
@@ -120,7 +129,15 @@ pub enum IdentityError {
 /// a different, unrelated identity — which is a feature for rotation and a
 /// footgun otherwise, so callers should not invent their own message.
 pub fn from_signature(signature: &[u8]) -> Result<DerivedIdentity, IdentityError> {
-    if signature.len() != SIGNATURE_LEN {
+    // Две длины, потому что цепи подписывают по-разному: Solana отдаёт 64
+    // байта ed25519, EVM — 65 байт secp256k1. Ключ читателя при этом один и
+    // тот же по смыслу: он выводится из подписи и ни от какой цепи не зависит.
+    //
+    // Байты подписи идут в вывод целиком, как пришли. Никаких «отбросим
+    // лишний байт для единообразия»: ключ обязан быть воспроизводим ровно
+    // одной операцией над тем, что вернул кошелёк, иначе завтрашняя правка
+    // отрежет человека от его же платежей.
+    if signature.len() != SIGNATURE_LEN && signature.len() != SIGNATURE_LEN_SECP256K1 {
         return Err(IdentityError::BadSignatureLength {
             got: signature.len(),
         });

@@ -9,6 +9,11 @@ fn main() {
         "currentRoot()",
         "mint(address,uint256)",
         "decimals()",
+        "publishReader(uint8,bytes)",
+        "readerOf(address)",
+        "isRegistered(address)",
+        "matchesPublished(address,bytes)",
+        "ReaderPublished(address,uint8,bytes)",
         "Deposit(uint256,uint256,uint256,address,bytes)",
     ] {
         let mut h = Keccak256::new();
