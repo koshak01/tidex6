@@ -64,7 +64,15 @@ const RELAYER: [u8; 20] = [
 ];
 
 /// Fee paid to the relayer, in the token's smallest unit.
-const FEE: u64 = 1_000_000;
+///
+/// 0.1 of a token at six decimals — the same floor the Solana side charges, and
+/// the same shape of number a person sees in the interface. It was a whole
+/// token here, which is invisible while the fixture is only a fixture: the test
+/// used a denomination of 100, so a fee of 1 looked ordinary. On a pool whose
+/// denomination is one token, that same fixture hands the recipient nothing and
+/// the entire payment to the relayer — the withdrawal succeeds and the money
+/// goes to the wrong place, which is the worst way for a demo to be wrong.
+const FEE: u64 = 100_000;
 
 
 /// EIP-55 checksummed form of an address.
