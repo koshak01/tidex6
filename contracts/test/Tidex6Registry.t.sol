@@ -115,4 +115,50 @@ contract Tidex6RegistryTest is Test {
         assertTrue(registry.isRegistered(alice));
         assertFalse(registry.isRegistered(bob), "publishing for one wallet registered another");
     }
+    /// Отзыв убирает ключ: отправителю говорят, что платить сюда нельзя.
+    ///
+    /// Это случай утёкшего секрета. Пока запись жива, реестр отвечает «можно», а
+    /// платёж, запечатанный скомпрометированным ключом, хуже неудачного — он
+    /// молча неизвлекаем владельцем и читается тем, у кого утечка.
+    function test_revokeRemovesTheKey() public {
+        bytes memory key = _key(3);
+        vm.prank(alice);
+        registry.publishReader(2, key);
+        assertTrue(registry.isRegistered(alice));
+
+        vm.prank(alice);
+        registry.revokeReader();
+
+        assertFalse(registry.isRegistered(alice), "the key survived revocation");
+        assertFalse(registry.matchesPublished(alice, key), "the revoked key still matches");
+        (bytes32 hash, uint8 version, uint64 at) = registry.readerOf(alice);
+        assertEq(hash, bytes32(0));
+        assertEq(version, 0);
+        assertEq(at, 0);
+    }
+
+    /// Отзывать нечего — это отказ, а не тихое «готово».
+    ///
+    /// Иначе человек поверит, что закрыл утечку, которой у него не было, — или
+    /// что закрыл её не на том кошельке.
+    function test_revokeWithoutEntryReverts() public {
+        vm.prank(bob);
+        vm.expectRevert(Tidex6Registry.NothingToRevoke.selector);
+        registry.revokeReader();
+    }
+
+    /// После отзыва можно опубликовать снова — отзыв не приговор кошельку.
+    function test_canPublishAgainAfterRevoke() public {
+        vm.prank(alice);
+        registry.publishReader(2, _key(1));
+        vm.prank(alice);
+        registry.revokeReader();
+
+        bytes memory fresh = _key(9);
+        vm.prank(alice);
+        registry.publishReader(3, fresh);
+
+        assertTrue(registry.isRegistered(alice));
+        assertTrue(registry.matchesPublished(alice, fresh));
+    }
 }

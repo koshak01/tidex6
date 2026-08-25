@@ -9,12 +9,22 @@ repository, with no hidden backdoor slipped in between.
 ## Published hashes
 
 Built with `crates/tidex6-prover-wasm/build-reproducible.sh`
-(rustc `1.95.0`, wasm-pack `0.13.1`):
+(rustc `1.95.0`, wasm-pack `0.15.0`):
 
 | Artifact | sha256 |
 |----------|--------|
-| `tidex6_prover_wasm_bg.wasm` | `e3337e5471d4c80f1c48eb8ecb2c24ccd89a88b8e02625824d409f62cf57e0dd` |
-| `tidex6_prover_wasm.js` (glue) | `d9cf205dbcb344d188984b0657228d3b01e08149eca0eec3e8a973af1619f481` |
+| `tidex6_prover_wasm_bg.wasm` | `4026871ababa456dafec3729655cb9ff758c7120cd4316b997a423552673a336` |
+| `tidex6_prover_wasm.js` (glue) | `3cbbf067d92ea8876da00ba69cf23450e876183ab7dfddc1da60aadb75c09479` |
+
+Rebuilt on 2026-08-25, when the identity derivation started accepting the
+65-byte signature an EVM wallet returns, so that a wallet on the second chain
+can publish a reader key of its own.
+
+**The wasm-pack version moved with it**, from `0.13.1` to `0.15.0`. It is named
+here for the same reason rustc is: `wasm-opt` runs as part of the build, and a
+different version of it optimises differently. Building this source with the
+old wasm-pack will produce a different hash — not a tampered artefact, a
+differently optimised one. Reproducing means matching both pins.
 
 These hashes are pinned by the commit that carries this file. When the prover is
 rebuilt, this table and `src/verify_hash.rs::REPRODUCIBLE_WASM_SHA256` in

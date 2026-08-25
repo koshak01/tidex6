@@ -11,6 +11,8 @@ fn main() {
         "decimals()",
         "publishReader(uint8,bytes)",
         "readerOf(address)",
+        "revokeReader()",
+        "ReaderRevoked(address)",
         "isRegistered(address)",
         "matchesPublished(address,bytes)",
         "ReaderPublished(address,uint8,bytes)",

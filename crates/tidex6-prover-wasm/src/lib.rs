@@ -108,7 +108,11 @@ pub fn identity_message() -> String {
 /// reappears. The signature itself never leaves this tab, and neither do the
 /// keys derived from it.
 ///
-/// Pass the raw 64 bytes returned by the wallet's `signMessage`.
+/// Pass the raw signature bytes the wallet returned, unchanged: 64 from a
+/// Solana wallet, 65 from an EVM one (the extra byte is secp256k1's recovery
+/// id). Both go into the derivation whole — trimming one "for consistency"
+/// would derive a different identity and lock its owner out of the payments
+/// already sealed to the published key.
 #[wasm_bindgen(js_name = identityFromSignature)]
 pub fn identity_from_signature(signature: &[u8]) -> Result<Identity, JsError> {
     let derived = tidex6_core::identity::from_signature(signature)

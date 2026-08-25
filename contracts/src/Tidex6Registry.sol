@@ -45,7 +45,11 @@ contract Tidex6Registry {
     /// @param reader The key itself, 1216 bytes.
     event ReaderPublished(address indexed wallet, uint8 version, bytes reader);
 
+    /// @notice A wallet withdrew its key: it can no longer be paid privately.
+    event ReaderRevoked(address indexed wallet);
+
     error WrongKeyLength(uint256 got, uint256 expected);
+    error NothingToRevoke();
 
     /// @notice Publish the key people will seal payments to.
     /// @dev Republishing is allowed and is how rotation works: the new key
@@ -62,6 +66,28 @@ contract Tidex6Registry {
             publishedAt: uint64(block.number)
         });
         emit ReaderPublished(msg.sender, version, reader);
+    }
+
+    /// @notice Withdraw the key, so senders are told this wallet cannot be paid.
+    /// @dev This exists for one case: a wallet whose secret half leaked. Until
+    ///      the key is withdrawn the registry keeps telling senders the address
+    ///      can receive, and a payment sealed to a compromised key is worse than
+    ///      one that fails outright — it is quietly unspendable by its owner and
+    ///      readable by whoever holds the leak.
+    ///
+    ///      Rotation (publishing again) covers the ordinary case. Revocation
+    ///      covers the case where there is no new key to publish yet, or where
+    ///      the wallet itself is no longer trusted: it must be possible to say
+    ///      "stop paying me here" without first deciding where to be paid next.
+    ///
+    ///      Reverting on an empty entry rather than passing silently: a wallet
+    ///      that never published has nothing to withdraw, and answering "done"
+    ///      to that would let someone believe they had closed an exposure they
+    ///      never had — or that they closed the wrong wallet's.
+    function revokeReader() external {
+        if (entries[msg.sender].keyHash == bytes32(0)) revert NothingToRevoke();
+        delete entries[msg.sender];
+        emit ReaderRevoked(msg.sender);
     }
 
     /// @notice What is known on chain about a wallet's key.
