@@ -5402,7 +5402,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.17.1"
+version = "2.18.0"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5419,13 +5419,14 @@ dependencies = [
  "rand_chacha 0.3.1",
  "serde_json",
  "sha2",
+ "sha3",
  "thiserror 2.0.18",
  "tidex6-core",
 ]
 
 [[package]]
 name = "tidex6-core"
-version = "2.17.1"
+version = "2.18.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254",

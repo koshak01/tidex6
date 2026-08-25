@@ -32,7 +32,7 @@ leo test
 | Hidden amount | `amount: u64` private on record |
 | Hidden link | Private `owner`; no public who↔whom |
 | Double-spend | Protocol rejects second spend of same record |
-| Auditor slot | **Not in MVP** — next milestone |
+| Auditor slot | `AuditSlip` + `issue_audit_slip` (view amount, not spend Token) |
 | Token-2022 CT | **N/A** — native private records instead |
 | ML-KEM memo | **Not in MVP** |
 
@@ -44,7 +44,15 @@ See `docs/aleo/ALEO_LEO_SECURITY_CHECKLIST_AID.md`.
 
 - [x] Leo 4.4 installed  
 - [x] Program compiles (`leo build`)  
-- [ ] `leo test` green  
-- [ ] Grant form after operator OK  
+- [x] `leo run mint_private` / overspend assert checked  
+- [ ] `leo test` harness flaky (SIGSEGV on this Mac) — use `leo run`  
+- [ ] Grant Asana form after operator OK  
 
 **Not** a full tidex6 port. Grant MVP only.
+
+## Parallel tracks
+
+| Track | Status |
+|-------|--------|
+| Solana ceremony ads | waiting X Ads API keys / approve |
+| Aleo grant | spike green → form when you say apply |

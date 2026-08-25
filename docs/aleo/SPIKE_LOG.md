@@ -17,4 +17,13 @@
 - [x] Mint + transfer functions in source  
 - [x] Double-spend / overspend protected by assert + record consume model  
 - [x] README concept map  
-- [ ] Grant form (await operator OK)  
+- [x] One-pager + milestones + ask $35–50k drafted  
+- [ ] Grant form (await operator OK + ads keys track parallel)  
+
+## Session 2026-08-04 (post-MCP / ads wait)
+
+- Confirmed `leo build` still green on private transfer package.  
+- **Часть А:** `AuditSlip` + `issue_audit_slip` — сборка OK (1.28 KB).  
+- **Часть Б:** one-pager обновлён (M2 = аудитор, команды build).  
+- Русский процесс: `docs/aleo/PROCESS_RU.md`.  
+

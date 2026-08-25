@@ -1,10 +1,12 @@
 # Grant one-pager draft — Aleo Developer Grants
 
-**Working title:** Private compliant payments on Aleo (tidex6 contour in Leo)  
-**Team:** Аид (ZK/product) · Пётр (direction) · research support as needed  
+**Working title:** Private compliant payments on Aleo (architecture port from tidex6 / Leo)  
+**Team:** ZK engineer (implementation) · Product lead (direction)  
 **License:** Open source (required)  
 **Ask:** $35,000 – $50,000 (milestone-based)  
 **Category:** Payment (+ selective disclosure / compliance)  
+**Public language:** English only  
+
 
 ---
 
@@ -33,13 +35,26 @@ Private-by-default records + programmable ZK + grant scope that names **payments
 - OtterSec-verified programs; immutable Groth16 verifier.  
 - Agent packaging (ZeroClaw Superteam Earn package shipped).  
 
+## Build (proof of code today)
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"   # leo 4.4.0
+cd aleo/tidex6_private_transfer
+leo build
+leo run mint_private <address> 10u64
+```
+
+Program: private `Token` (spend) + `AuditSlip` (view-only slip for auditor) + `issue_audit_slip`.
+
 ## Milestones
 
 | Milestone | Deliverable | Timeline |
 |-----------|-------------|----------|
 | M1 | Leo private transfer + tests (double-spend fail) + concept map README | weeks 1–3 |
-| M2 | Selective-disclosure / view path sketch + security wrong-vs-right | weeks 4–5 |
+| M2 | Auditor path (`AuditSlip` / selective disclosure) + security wrong-vs-right | weeks 4–5 |
 | M3 | Integration example, testnet runbook, final report | weeks 6–8 |
+
+**M2 sketch already in repo:** `issue_audit_slip` returns `(Token, AuditSlip)` — spend rights stay with owner; auditor holds a non-Token slip with the amount.
 
 ## Budget (illustrative $40k)
 

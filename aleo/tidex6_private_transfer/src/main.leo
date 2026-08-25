@@ -1,24 +1,29 @@
-// tidex6_private_transfer — Aleo/Leo MVP for the tidex6 privacy contour.
+// Частный перевод ценности на Aleo (эскиз для гранта).
 //
-// Maps Solana tidex6 concepts:
-//   note / commitment  → private Token record
-//   spend / nullifier  → consuming a record as function input (once)
-//   amount privacy     → amount is private on the record
-//   link privacy       → owner is private; public chain does not show who↔whom
+// Соответствие Solana tidex6:
+//   нота / обязательство     → запись Token
+//   трата / нуллификатор     → запись на входе функции съедается один раз
+//   скрытая сумма            → amount в записи, не на публичной ленте
+//   скрытая связь кто-кому   → owner в записи
+//   слот аудитора            → отдельная запись AuditSlip (только смотреть, не тратить Token)
 //
-// NOT in this MVP: auditor/view key, relayer fee payer, ML-KEM memo, CT Token-2022.
+// Не в этом эскизе: ретранслятор, шифрование ML-KEM, Token-2022.
 
 program tidex6_private_transfer.aleo {
-    // Private value unit (UTXO-style). Owner alone can spend.
+    // Ценность, которую можно потратить. Тратит только owner.
     record Token {
-        // Who may consume this record.
         owner: address,
-        // Private amount (hidden on chain).
         amount: u64,
     }
 
-    // Mint a private note to `receiver` for `amount`.
-    // Offline / demo: caller is trusted to mint. Mainnet product would gate this.
+    // Выписка для аудитора: видит сумму, но это НЕ Token.
+    // Потратить чужой Token через AuditSlip нельзя — отдельный тип записи.
+    record AuditSlip {
+        owner: address,
+        amount: u64,
+    }
+
+    // Выпустить частную ноту (для демо; в проде выпуск ограничивают).
     fn mint_private(
         public receiver: address,
         public amount: u64,
@@ -30,9 +35,7 @@ program tidex6_private_transfer.aleo {
         };
     }
 
-    // Move the full note to a new owner (1:1 transfer).
-    // Consuming `token` nullifies it — a second spend of the same record fails
-    // at the protocol layer (double-spend protection).
+    // Передать всю ноту другому владельцу.
     fn transfer_full(
         token: Token,
         private new_owner: address,
@@ -44,8 +47,7 @@ program tidex6_private_transfer.aleo {
         };
     }
 
-    // Split-transfer: send `amount` to `receiver`, keep change for sender.
-    // Fails if amount is zero or exceeds balance (checked arithmetic).
+    // Частичный перевод: получателю amount, сдача владельцу.
     fn transfer_private(
         token: Token,
         private receiver: address,
@@ -62,6 +64,25 @@ program tidex6_private_transfer.aleo {
             amount: amount,
         };
         return (remaining, transferred);
+    }
+
+    // Выборочное раскрытие: владелец Token выдаёт аудитору AuditSlip
+    // с той же суммой. Token возвращается владельцу (право траты сохраняется).
+    // Аудитор получает только «выписку», не возможность потратить Token.
+    fn issue_audit_slip(
+        token: Token,
+        private auditor: address,
+    ) -> (Token, AuditSlip) {
+        assert(token.amount > 0u64);
+        let kept: Token = Token {
+            owner: token.owner,
+            amount: token.amount,
+        };
+        let slip: AuditSlip = AuditSlip {
+            owner: auditor,
+            amount: token.amount,
+        };
+        return (kept, slip);
     }
 
     @noupgrade

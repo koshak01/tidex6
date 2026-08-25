@@ -13,13 +13,16 @@ Built with `crates/tidex6-prover-wasm/build-reproducible.sh`
 
 | Artifact | sha256 |
 |----------|--------|
-| `tidex6_prover_wasm_bg.wasm` | `896394e5d65fdbbff0f4ba38ae98ab519aadb1aede02ffaa14be812d183656d6` |
+| `tidex6_prover_wasm_bg.wasm` | `b4f9e1d65e0c5a9965cf27c00bb29542477aa1a7675d8d0b8cbf029a7b83a3ba` |
 | `tidex6_prover_wasm.js` (glue) | `5c76d14724172558813cc333b4e8336471ad740fd95dec7fe321bd0eb52c5840` |
 
-Rebuilt on 2026-08-25, twice: first when the identity derivation started
-accepting the 65-byte signature an EVM wallet returns, then when the prover
+Rebuilt on 2026-08-25, three times. First when the identity derivation started
+accepting the 65-byte signature an EVM wallet returns; then when the prover
 learned to rebuild a Merkle path from a leaf list and to hand a proof to a
-Solidity verifier. The second chain has no indexer to answer "where does my
+Solidity verifier; then to remove a timer that cannot exist in a browser —
+`Instant::now()` panics on `wasm32-unknown-unknown`, and one such call sat in
+the Poseidon gadget, so every in-browser proof died on its first hash. The
+earlier two builds carried it; this one does not. The second chain has no indexer to answer "where does my
 leaf sit", and putting a server there would mean a person could not collect
 their own money while it was down.
 

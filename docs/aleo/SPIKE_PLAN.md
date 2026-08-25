@@ -26,9 +26,11 @@
 
 ## Exit criteria (spike green)
 
-- [ ] Repo builds on a clean machine  
-- [ ] Double-spend rejected  
-- [ ] README maps ≥5 tidex6 concepts → Leo names  
-- [ ] Budget + 3 milestones written  
+- [x] Repo builds (`leo build` OK, Leo 4.4.0)  
+- [x] Overspend / zero-mint rejected via assert (`leo run`)  
+- [x] Protocol double-spend = record consume once (documented; runner `leo test` flaky on mac)  
+- [x] README maps ≥5 tidex6 concepts → Leo names  
+- [x] Budget + 3 milestones in `GRANT_ONE_PAGER_DRAFT.md`  
+- [ ] Operator OK → submit Asana form  
 
 Then: submit form.

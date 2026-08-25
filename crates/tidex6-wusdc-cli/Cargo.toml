@@ -29,11 +29,15 @@ solana-keypair = "3"
 solana-pubkey = "3"
 solana-rpc-client = "3"
 toml = "0.9"
+tidex6-registry = { path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
 ark-bn254 = { workspace = true }
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 ark-std = "0.5"
 solana-signature = "3"
+solana-transaction = "3"
+solana-instruction = "3"
+solana-system-interface = "2"
 rayon = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
