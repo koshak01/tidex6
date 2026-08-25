@@ -427,51 +427,6 @@ pub fn decrypt_auditor_slot(
     }
 }
 
-/// Re-shape a withdraw proof for an EVM pool.
-///
-/// The prover emits proofs in the layout `groth16-solana` consumes, and there
-/// the point `A` is stored **already negated** — Solana's verifier expects it
-/// that way. A Solidity verifier does the negation itself, inside the pairing.
-/// Handing it the Solana bytes unchanged means negating twice, and the pool
-/// rejects the proof with nothing to say about why.
-///
-/// So this undoes exactly that one step, and nothing else: `B` and `C` already
-/// sit in the order Solidity reads. Undoing it here rather than in JavaScript
-/// keeps it in the same library that applied it, using the same curve
-/// arithmetic — a hand-rolled `q - y` in the browser would be right until the
-/// day it is not.
-///
-/// Takes the 256 bytes `prove_withdraw` returned; gives back 256 bytes to pass
-/// to the pool's `withdraw`.
-#[wasm_bindgen(js_name = withdrawProofForEvm)]
-pub fn withdraw_proof_for_evm(proof: &Uint8Array) -> Result<Uint8Array, JsError> {
-    use ark_bn254::{Fq, G1Affine};
-    use ark_ff::{BigInteger, PrimeField};
-
-    let bytes = uint8array_to_vec(proof);
-    if bytes.len() != 256 {
-        return Err(JsError::new(&format!(
-            "a withdraw proof is 256 bytes (a‖b‖c), got {}",
-            bytes.len()
-        )));
-    }
-
-    let x = Fq::from_be_bytes_mod_order(&bytes[0..32]);
-    let y = Fq::from_be_bytes_mod_order(&bytes[32..64]);
-    let restored = G1Affine::new_unchecked(x, -y);
-    if !restored.is_on_curve() {
-        return Err(JsError::new("proof point A is not on the curve — refusing to submit"));
-    }
-
-    let mut out = bytes.clone();
-    let y_bytes = (-y).into_bigint().to_bytes_be();
-    // `to_bytes_be` drops leading zeroes; the wire format is fixed-width.
-    out[32..64].fill(0);
-    out[64 - y_bytes.len()..64].copy_from_slice(&y_bytes);
-
-    Ok(Uint8Array::from(&out[..]))
-}
-
 /// A Merkle path built in the browser, ready for [`prove_withdraw`].
 #[wasm_bindgen]
 pub struct MerklePath {
@@ -603,6 +558,79 @@ pub fn prove_withdraw(
     relayer_fee: &Uint8Array,
     proving_key: &Uint8Array,
 ) -> Result<Uint8Array, JsError> {
+    prove_withdraw_impl(
+        secret,
+        nullifier,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        nullifier_hash,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        Layout::Solana,
+    )
+}
+
+/// То же доказательство, но в раскладке, которую принимает контракт на Solidity.
+///
+/// Отдельный вывод, а не правка солановских байтов на месте. Точки там проходят
+/// через `CanonicalSerialize`, а arkworks кладёт в старшие биты последнего байта
+/// свои признаки сериализации: координата BN254 меньше модуля, и эти биты в ней
+/// свободны. Solana такие байты принимает, прекомпайлы EVM — нет, и отказ
+/// приходит как `InvalidProof`, то есть выглядит неверным доказательством, а не
+/// разницей форматов. Здесь координаты берутся числами, места для признаков в
+/// них нет.
+#[wasm_bindgen(js_name = proveWithdrawEvm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_withdraw_evm(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    nullifier_hash: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: &Uint8Array,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    prove_withdraw_impl(
+        secret,
+        nullifier,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        nullifier_hash,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        Layout::Evm,
+    )
+}
+
+/// В какой цепи это доказательство будут проверять.
+enum Layout {
+    Solana,
+    Evm,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_withdraw_impl(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    nullifier_hash: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: &Uint8Array,
+    proving_key: &Uint8Array,
+    layout: Layout,
+) -> Result<Uint8Array, JsError> {
     let secret = to_field_bytes(secret, "secret")?;
     let nullifier = to_field_bytes(nullifier, "nullifier")?;
     let merkle_root = to_field_bytes(merkle_root, "merkle_root")?;
@@ -666,18 +694,26 @@ pub fn prove_withdraw(
     let (proof, _public_inputs) = prove_withdraw_inner::<DEPTH, _>(&pk, witness, &mut rng)
         .map_err(|e| JsError::new(&format!("prove_withdraw failed: {e}")))?;
 
-    let Groth16SolanaBytes {
-        proof_a,
-        proof_b,
-        proof_c,
-        ..
-    } = groth16_to_solana_bytes(&proof, &pk.vk)
-        .map_err(|e| JsError::new(&format!("groth16_to_solana_bytes failed: {e}")))?;
+    let out = match layout {
+        Layout::Evm => {
+            tidex6_circuits::evm_solidity::groth16_proof_to_evm_bytes(&proof).to_vec()
+        }
+        Layout::Solana => {
+            let Groth16SolanaBytes {
+                proof_a,
+                proof_b,
+                proof_c,
+                ..
+            } = groth16_to_solana_bytes(&proof, &pk.vk)
+                .map_err(|e| JsError::new(&format!("groth16_to_solana_bytes failed: {e}")))?;
 
-    let mut out = Vec::with_capacity(PROOF_TOTAL_BYTES);
-    out.extend_from_slice(&proof_a);
-    out.extend_from_slice(&proof_b);
-    out.extend_from_slice(&proof_c);
+            let mut bytes = Vec::with_capacity(PROOF_TOTAL_BYTES);
+            bytes.extend_from_slice(&proof_a);
+            bytes.extend_from_slice(&proof_b);
+            bytes.extend_from_slice(&proof_c);
+            bytes
+        }
+    };
     debug_assert_eq!(out.len(), PROOF_TOTAL_BYTES);
 
     Ok(Uint8Array::from(out.as_slice()))
