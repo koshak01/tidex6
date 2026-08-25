@@ -32,6 +32,7 @@ ark-poly = "0.5"
 light-poseidon = { workspace = true }
 
 thiserror = { workspace = true }
+sha3 = "0.10"
 
 # Ceremony tooling (import_vk bin): parse snarkjs vk/proof JSON exports.
 serde_json = "1"

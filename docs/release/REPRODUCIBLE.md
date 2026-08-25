@@ -9,12 +9,31 @@ repository, with no hidden backdoor slipped in between.
 ## Published hashes
 
 Built with `crates/tidex6-prover-wasm/build-reproducible.sh`
-(rustc `1.95.0`, wasm-pack `0.13.1`):
+(rustc `1.95.0`, wasm-pack `0.15.0`):
 
 | Artifact | sha256 |
 |----------|--------|
-| `tidex6_prover_wasm_bg.wasm` | `e3337e5471d4c80f1c48eb8ecb2c24ccd89a88b8e02625824d409f62cf57e0dd` |
-| `tidex6_prover_wasm.js` (glue) | `d9cf205dbcb344d188984b0657228d3b01e08149eca0eec3e8a973af1619f481` |
+| `tidex6_prover_wasm_bg.wasm` | `c17c1d5788004aa43015c201d152e84bf28cb4e00702bb341a469495fabdbbd5` |
+| `tidex6_prover_wasm.js` (glue) | `f6159dfe978d6045276e0c252a2b4f2d9b188c3c9b55961fcf978869d401e78c` |
+
+Rebuilt on 2026-08-25, four times. First when the identity derivation started
+accepting the 65-byte signature an EVM wallet returns; then when the prover
+learned to rebuild a Merkle path from a leaf list and to hand a proof to a
+Solidity verifier; then to remove a timer that cannot exist in a browser —
+`Instant::now()` panics on `wasm32-unknown-unknown`, and one such call sat in
+the Poseidon gadget, so every in-browser proof died on its first hash. The
+earlier two builds carried it; the later ones do not. The fourth build gives the
+prover a second output layout: EVM precompiles reject the byte form Solana
+accepts, because arkworks packs serialisation flags into the spare high bits of
+a coordinate — and a chain that checks points itself will not tolerate them. The second chain has no indexer to answer "where does my
+leaf sit", and putting a server there would mean a person could not collect
+their own money while it was down.
+
+**The wasm-pack version moved with it**, from `0.13.1` to `0.15.0`. It is named
+here for the same reason rustc is: `wasm-opt` runs as part of the build, and a
+different version of it optimises differently. Building this source with the
+old wasm-pack will produce a different hash — not a tampered artefact, a
+differently optimised one. Reproducing means matching both pins.
 
 These hashes are pinned by the commit that carries this file. When the prover is
 rebuilt, this table and `src/verify_hash.rs::REPRODUCIBLE_WASM_SHA256` in

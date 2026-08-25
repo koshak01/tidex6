@@ -22,7 +22,41 @@
 //! recomputed offchain via `tidex6_core::poseidon` and asserted
 //! byte-for-byte equal.
 
-use std::time::Instant;
+/// Часы для копания — и заглушка для браузера.
+///
+/// `Instant::now()` на `wasm32-unknown-unknown` не отдаёт ноль и не возвращает
+/// ошибку: он **паникует**, потому что платформы времени там нет. Паника в WASM
+/// приходит в страницу трапом `unreachable` — без файла, строки и слова о
+/// причине, — и происходит она внутри гаджета Poseidon, то есть на первом же
+/// хеше любого доказательства.
+///
+/// Именно так 25.08.2026 встало построение доказательств в браузере в обеих
+/// цепях: пересборка прувера подтянула замеры, добавленные 03.08 для разбора
+/// прожорливости MCP на своей машине. Замеры нужны только там и только под
+/// `TIDEX6_MEM_FIRST`; в браузере их нет вовсе, а не «есть, но выключены».
+#[cfg(not(target_arch = "wasm32"))]
+type DigInstant = std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+struct DigInstant;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn dig_now() -> DigInstant {
+    std::time::Instant::now()
+}
+#[cfg(target_arch = "wasm32")]
+fn dig_now() -> DigInstant {
+    DigInstant
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn dig_ms(t: DigInstant) -> u128 {
+    t.elapsed().as_millis()
+}
+#[cfg(target_arch = "wasm32")]
+fn dig_ms(_t: DigInstant) -> u128 {
+    0
+}
 
 use ark_bn254::Fr;
 use ark_r1cs_std::alloc::AllocVar;
@@ -39,6 +73,10 @@ pub const MAX_INPUTS: usize = 12;
 fn pos_snap(cs: &ConstraintSystemRef<Fr>) -> (usize, usize, u64) {
     let cons = cs.num_constraints();
     let wit = cs.num_witness_variables();
+    // Спросить `ps` о себе можно только там, где есть процессы. В браузере их
+    // нет, и лезть туда за памятью — тот же способ уронить доказательство,
+    // что и часы выше.
+    #[cfg(not(target_arch = "wasm32"))]
     let rss = {
         let pid = std::process::id().to_string();
         std::process::Command::new("ps")
@@ -48,6 +86,8 @@ fn pos_snap(cs: &ConstraintSystemRef<Fr>) -> (usize, usize, u64) {
             .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
             .unwrap_or(0)
     };
+    #[cfg(target_arch = "wasm32")]
+    let rss = 0u64;
     (cons, wit, rss)
 }
 
@@ -151,7 +191,6 @@ fn poseidon_hash_n_var_tagged(
         inputs.len()
     );
 
-    let t0 = Instant::now();
     let params = parameters_for(inputs.len()).map_err(|_| SynthesisError::AssignmentMissing)?;
 
     let width = params.width;
@@ -232,7 +271,6 @@ fn poseidon_hash_n_var_tagged(
         }
     }
 
-    let _ = t0; // dig timer reserved when MEM_FIRST on
 
     // Light Poseidon returns state[0] as the digest.
     Ok(state[0].clone())
@@ -395,7 +433,7 @@ fn apply_mds_traced(
 ) -> Result<(), SynthesisError> {
     let width = params.width;
     let mut next = Vec::with_capacity(width);
-    let mds_t0 = Instant::now();
+    let mds_t0 = dig_now();
     let mds_enter = pos_snap(&cs);
     pos_log(&format!(
         "mds: ENTER tag={tag} round={round} width={width} cons={} wit={} rss_kb={}",
@@ -403,7 +441,7 @@ fn apply_mds_traced(
     ));
 
     for i in 0..width {
-        let row_t0 = Instant::now();
+        let row_t0 = dig_now();
         let row_before = pos_snap(&cs);
         let mut accumulator = FpVar::<Fr>::new_constant(cs.clone(), Fr::from(0u64))?;
         let after_zero = pos_snap(&cs);
@@ -442,7 +480,7 @@ fn apply_mds_traced(
         let row_after = pos_snap(&cs);
         pos_log(&format!(
             "mds: tag={tag} round={round} row={i} DONE ms={} dcons={} drss={} rss={}",
-            row_t0.elapsed().as_millis(),
+            dig_ms(row_t0),
             row_after.0.saturating_sub(row_before.0),
             row_after.2.saturating_sub(row_before.2) as i64,
             row_after.2,
@@ -452,7 +490,7 @@ fn apply_mds_traced(
     let mds_leave = pos_snap(&cs);
     pos_log(&format!(
         "mds: LEAVE tag={tag} round={round} ms={} dcons={} drss={} rss={}",
-        mds_t0.elapsed().as_millis(),
+        dig_ms(mds_t0),
         mds_leave.0.saturating_sub(mds_enter.0),
         mds_leave.2.saturating_sub(mds_enter.2) as i64,
         mds_leave.2,

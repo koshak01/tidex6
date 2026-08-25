@@ -108,7 +108,11 @@ pub fn identity_message() -> String {
 /// reappears. The signature itself never leaves this tab, and neither do the
 /// keys derived from it.
 ///
-/// Pass the raw 64 bytes returned by the wallet's `signMessage`.
+/// Pass the raw signature bytes the wallet returned, unchanged: 64 from a
+/// Solana wallet, 65 from an EVM one (the extra byte is secp256k1's recovery
+/// id). Both go into the derivation whole — trimming one "for consistency"
+/// would derive a different identity and lock its owner out of the payments
+/// already sealed to the published key.
 #[wasm_bindgen(js_name = identityFromSignature)]
 pub fn identity_from_signature(signature: &[u8]) -> Result<Identity, JsError> {
     let derived = tidex6_core::identity::from_signature(signature)
@@ -423,6 +427,105 @@ pub fn decrypt_auditor_slot(
     }
 }
 
+/// A Merkle path built in the browser, ready for [`prove_withdraw`].
+#[wasm_bindgen]
+pub struct MerklePath {
+    root: String,
+    siblings: String,
+    indices: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl MerklePath {
+    /// Tree root after every known leaf, hex. Must match what the pool holds.
+    #[wasm_bindgen(getter, js_name = rootHex)]
+    pub fn root_hex(&self) -> String {
+        self.root.clone()
+    }
+
+    /// The 20 sibling hashes concatenated, leaf-adjacent first, hex.
+    #[wasm_bindgen(getter, js_name = siblingsConcatHex)]
+    pub fn siblings_concat_hex(&self) -> String {
+        self.siblings.clone()
+    }
+
+    /// One byte per level: which side the sibling sits on.
+    #[wasm_bindgen(getter, js_name = indices)]
+    pub fn indices(&self) -> Vec<u8> {
+        self.indices.clone()
+    }
+}
+
+/// Rebuild the Merkle path for one leaf from the pool's full leaf list.
+///
+/// On Solana an indexer answers this question, because it already watches the
+/// pool. The second chain has no such service, and adding one would put a
+/// server between a person and their own money: if it were down, or lying, the
+/// withdrawal could not be built or would be built against a root the pool
+/// never held. The browser has everything it needs — the deposit log carries
+/// every leaf in order — so the path is computed here, from data the chain
+/// itself handed over.
+///
+/// `leaves_concat` is every commitment ever deposited, in leaf order,
+/// concatenated — 32 bytes each. `leaf_index` is the position of the one being
+/// spent.
+///
+/// The root that comes back is not decoration: compare it against the pool's
+/// own `isKnownRoot` before proving. A mismatch means the leaf list is
+/// incomplete — a log query that silently truncated, most likely — and proving
+/// against it would produce a proof the pool rejects, after the work is done.
+#[wasm_bindgen(js_name = merklePathFromLeaves)]
+pub fn merkle_path_from_leaves(
+    leaves_concat: &Uint8Array,
+    leaf_index: u32,
+) -> Result<MerklePath, JsError> {
+    use tidex6_core::merkle::MerkleTree;
+    use tidex6_core::types::Commitment;
+
+    let raw = uint8array_to_vec(leaves_concat);
+    if raw.len() % FIELD_BYTES != 0 {
+        return Err(JsError::new(&format!(
+            "leaves must be a whole number of 32-byte commitments, got {} bytes",
+            raw.len()
+        )));
+    }
+    let count = raw.len() / FIELD_BYTES;
+    if leaf_index as usize >= count {
+        return Err(JsError::new(&format!(
+            "leaf {leaf_index} is not among the {count} leaves given — the deposit log is short"
+        )));
+    }
+
+    let mut tree = MerkleTree::new(DEPTH)
+        .map_err(|e| JsError::new(&format!("tree: {e}")))?;
+    for i in 0..count {
+        let mut bytes = [0u8; FIELD_BYTES];
+        bytes.copy_from_slice(&raw[i * FIELD_BYTES..(i + 1) * FIELD_BYTES]);
+        tree.insert(Commitment::from_bytes(bytes))
+            .map_err(|e| JsError::new(&format!("leaf {i}: {e}")))?;
+    }
+
+    let proof = tree
+        .proof(leaf_index as u64)
+        .map_err(|e| JsError::new(&format!("path: {e}")))?;
+
+    let mut siblings = String::with_capacity(DEPTH * FIELD_BYTES * 2);
+    for sibling in &proof.siblings {
+        siblings.push_str(&sibling.to_hex());
+    }
+    // Bit `i` of the leaf index says which side sibling `i` sits on, LSB first
+    // — the same convention `prove_withdraw` expects.
+    let indices = (0..DEPTH)
+        .map(|i| ((leaf_index >> i) & 1) as u8)
+        .collect();
+
+    Ok(MerklePath {
+        root: tree.root().to_hex(),
+        siblings,
+        indices,
+    })
+}
+
 /// Generate a withdraw proof entirely in the browser.
 ///
 /// Inputs match `WithdrawWitness<20>`: every byte array except
@@ -454,6 +557,79 @@ pub fn prove_withdraw(
     relayer_address: &Uint8Array,
     relayer_fee: &Uint8Array,
     proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    prove_withdraw_impl(
+        secret,
+        nullifier,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        nullifier_hash,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        Layout::Solana,
+    )
+}
+
+/// То же доказательство, но в раскладке, которую принимает контракт на Solidity.
+///
+/// Отдельный вывод, а не правка солановских байтов на месте. Точки там проходят
+/// через `CanonicalSerialize`, а arkworks кладёт в старшие биты последнего байта
+/// свои признаки сериализации: координата BN254 меньше модуля, и эти биты в ней
+/// свободны. Solana такие байты принимает, прекомпайлы EVM — нет, и отказ
+/// приходит как `InvalidProof`, то есть выглядит неверным доказательством, а не
+/// разницей форматов. Здесь координаты берутся числами, места для признаков в
+/// них нет.
+#[wasm_bindgen(js_name = proveWithdrawEvm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_withdraw_evm(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    nullifier_hash: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: &Uint8Array,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    prove_withdraw_impl(
+        secret,
+        nullifier,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        nullifier_hash,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        Layout::Evm,
+    )
+}
+
+/// В какой цепи это доказательство будут проверять.
+enum Layout {
+    Solana,
+    Evm,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_withdraw_impl(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    nullifier_hash: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: &Uint8Array,
+    proving_key: &Uint8Array,
+    layout: Layout,
 ) -> Result<Uint8Array, JsError> {
     let secret = to_field_bytes(secret, "secret")?;
     let nullifier = to_field_bytes(nullifier, "nullifier")?;
@@ -518,18 +694,26 @@ pub fn prove_withdraw(
     let (proof, _public_inputs) = prove_withdraw_inner::<DEPTH, _>(&pk, witness, &mut rng)
         .map_err(|e| JsError::new(&format!("prove_withdraw failed: {e}")))?;
 
-    let Groth16SolanaBytes {
-        proof_a,
-        proof_b,
-        proof_c,
-        ..
-    } = groth16_to_solana_bytes(&proof, &pk.vk)
-        .map_err(|e| JsError::new(&format!("groth16_to_solana_bytes failed: {e}")))?;
+    let out = match layout {
+        Layout::Evm => {
+            tidex6_circuits::evm_solidity::groth16_proof_to_evm_bytes(&proof).to_vec()
+        }
+        Layout::Solana => {
+            let Groth16SolanaBytes {
+                proof_a,
+                proof_b,
+                proof_c,
+                ..
+            } = groth16_to_solana_bytes(&proof, &pk.vk)
+                .map_err(|e| JsError::new(&format!("groth16_to_solana_bytes failed: {e}")))?;
 
-    let mut out = Vec::with_capacity(PROOF_TOTAL_BYTES);
-    out.extend_from_slice(&proof_a);
-    out.extend_from_slice(&proof_b);
-    out.extend_from_slice(&proof_c);
+            let mut bytes = Vec::with_capacity(PROOF_TOTAL_BYTES);
+            bytes.extend_from_slice(&proof_a);
+            bytes.extend_from_slice(&proof_b);
+            bytes.extend_from_slice(&proof_c);
+            bytes
+        }
+    };
     debug_assert_eq!(out.len(), PROOF_TOTAL_BYTES);
 
     Ok(Uint8Array::from(out.as_slice()))
