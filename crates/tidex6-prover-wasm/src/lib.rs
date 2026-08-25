@@ -427,6 +427,150 @@ pub fn decrypt_auditor_slot(
     }
 }
 
+/// Re-shape a withdraw proof for an EVM pool.
+///
+/// The prover emits proofs in the layout `groth16-solana` consumes, and there
+/// the point `A` is stored **already negated** — Solana's verifier expects it
+/// that way. A Solidity verifier does the negation itself, inside the pairing.
+/// Handing it the Solana bytes unchanged means negating twice, and the pool
+/// rejects the proof with nothing to say about why.
+///
+/// So this undoes exactly that one step, and nothing else: `B` and `C` already
+/// sit in the order Solidity reads. Undoing it here rather than in JavaScript
+/// keeps it in the same library that applied it, using the same curve
+/// arithmetic — a hand-rolled `q - y` in the browser would be right until the
+/// day it is not.
+///
+/// Takes the 256 bytes `prove_withdraw` returned; gives back 256 bytes to pass
+/// to the pool's `withdraw`.
+#[wasm_bindgen(js_name = withdrawProofForEvm)]
+pub fn withdraw_proof_for_evm(proof: &Uint8Array) -> Result<Uint8Array, JsError> {
+    use ark_bn254::{Fq, G1Affine};
+    use ark_ff::{BigInteger, PrimeField};
+
+    let bytes = uint8array_to_vec(proof);
+    if bytes.len() != 256 {
+        return Err(JsError::new(&format!(
+            "a withdraw proof is 256 bytes (a‖b‖c), got {}",
+            bytes.len()
+        )));
+    }
+
+    let x = Fq::from_be_bytes_mod_order(&bytes[0..32]);
+    let y = Fq::from_be_bytes_mod_order(&bytes[32..64]);
+    let restored = G1Affine::new_unchecked(x, -y);
+    if !restored.is_on_curve() {
+        return Err(JsError::new("proof point A is not on the curve — refusing to submit"));
+    }
+
+    let mut out = bytes.clone();
+    let y_bytes = (-y).into_bigint().to_bytes_be();
+    // `to_bytes_be` drops leading zeroes; the wire format is fixed-width.
+    out[32..64].fill(0);
+    out[64 - y_bytes.len()..64].copy_from_slice(&y_bytes);
+
+    Ok(Uint8Array::from(&out[..]))
+}
+
+/// A Merkle path built in the browser, ready for [`prove_withdraw`].
+#[wasm_bindgen]
+pub struct MerklePath {
+    root: String,
+    siblings: String,
+    indices: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl MerklePath {
+    /// Tree root after every known leaf, hex. Must match what the pool holds.
+    #[wasm_bindgen(getter, js_name = rootHex)]
+    pub fn root_hex(&self) -> String {
+        self.root.clone()
+    }
+
+    /// The 20 sibling hashes concatenated, leaf-adjacent first, hex.
+    #[wasm_bindgen(getter, js_name = siblingsConcatHex)]
+    pub fn siblings_concat_hex(&self) -> String {
+        self.siblings.clone()
+    }
+
+    /// One byte per level: which side the sibling sits on.
+    #[wasm_bindgen(getter, js_name = indices)]
+    pub fn indices(&self) -> Vec<u8> {
+        self.indices.clone()
+    }
+}
+
+/// Rebuild the Merkle path for one leaf from the pool's full leaf list.
+///
+/// On Solana an indexer answers this question, because it already watches the
+/// pool. The second chain has no such service, and adding one would put a
+/// server between a person and their own money: if it were down, or lying, the
+/// withdrawal could not be built or would be built against a root the pool
+/// never held. The browser has everything it needs — the deposit log carries
+/// every leaf in order — so the path is computed here, from data the chain
+/// itself handed over.
+///
+/// `leaves_concat` is every commitment ever deposited, in leaf order,
+/// concatenated — 32 bytes each. `leaf_index` is the position of the one being
+/// spent.
+///
+/// The root that comes back is not decoration: compare it against the pool's
+/// own `isKnownRoot` before proving. A mismatch means the leaf list is
+/// incomplete — a log query that silently truncated, most likely — and proving
+/// against it would produce a proof the pool rejects, after the work is done.
+#[wasm_bindgen(js_name = merklePathFromLeaves)]
+pub fn merkle_path_from_leaves(
+    leaves_concat: &Uint8Array,
+    leaf_index: u32,
+) -> Result<MerklePath, JsError> {
+    use tidex6_core::merkle::MerkleTree;
+    use tidex6_core::types::Commitment;
+
+    let raw = uint8array_to_vec(leaves_concat);
+    if raw.len() % FIELD_BYTES != 0 {
+        return Err(JsError::new(&format!(
+            "leaves must be a whole number of 32-byte commitments, got {} bytes",
+            raw.len()
+        )));
+    }
+    let count = raw.len() / FIELD_BYTES;
+    if leaf_index as usize >= count {
+        return Err(JsError::new(&format!(
+            "leaf {leaf_index} is not among the {count} leaves given — the deposit log is short"
+        )));
+    }
+
+    let mut tree = MerkleTree::new(DEPTH)
+        .map_err(|e| JsError::new(&format!("tree: {e}")))?;
+    for i in 0..count {
+        let mut bytes = [0u8; FIELD_BYTES];
+        bytes.copy_from_slice(&raw[i * FIELD_BYTES..(i + 1) * FIELD_BYTES]);
+        tree.insert(Commitment::from_bytes(bytes))
+            .map_err(|e| JsError::new(&format!("leaf {i}: {e}")))?;
+    }
+
+    let proof = tree
+        .proof(leaf_index as u64)
+        .map_err(|e| JsError::new(&format!("path: {e}")))?;
+
+    let mut siblings = String::with_capacity(DEPTH * FIELD_BYTES * 2);
+    for sibling in &proof.siblings {
+        siblings.push_str(&sibling.to_hex());
+    }
+    // Bit `i` of the leaf index says which side sibling `i` sits on, LSB first
+    // — the same convention `prove_withdraw` expects.
+    let indices = (0..DEPTH)
+        .map(|i| ((leaf_index >> i) & 1) as u8)
+        .collect();
+
+    Ok(MerklePath {
+        root: tree.root().to_hex(),
+        siblings,
+        indices,
+    })
+}
+
 /// Generate a withdraw proof entirely in the browser.
 ///
 /// Inputs match `WithdrawWitness<20>`: every byte array except
