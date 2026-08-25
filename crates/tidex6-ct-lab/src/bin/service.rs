@@ -391,8 +391,33 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 .map(|s| format!("\"{s}\""))
                 .collect::<Vec<_>>()
                 .join(",");
+            // Допуск на mainnet — здесь, а не только на депозите.
+            //
+            // Клиент платит между квотой и депозитом: локальный MCP сначала
+            // переводит оператору его же деньги, потом просит завернуть их в
+            // пул. Пока проверка стояла только на депозите, отказ приходил
+            // ПОСЛЕ списания: 25.08.2026 так ушли 1.1 USDC — заплачено, депозита
+            // нет, вернуть может только оператор руками. Для постороннего, кто
+            // поставил локальный сервер и не попал в белый список, это не
+            // неудобство, а потеря денег.
+            //
+            // Отказать здесь нельзя: браузер зовёт квоту ДО того, как человек
+            // получит одобрение в Telegram, и отказ сломал бы ему обычный путь.
+            // Поэтому квота не запрещает, а сообщает — клиент, который платит
+            // сам, обязан на это смотреть.
+            let gate = if net == Network::Mainnet {
+                if !config.is_admin(&wallet) && !approved {
+                    "needs_approval"
+                } else if config.mainnet_gate(amount).is_err() {
+                    "over_cap"
+                } else {
+                    "ok"
+                }
+            } else {
+                "ok"
+            };
             Ok(format!(
-                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total},\"pool_auditors\":[{auditors_json}]}}",
+                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total},\"gate\":\"{gate}\",\"pool_auditors\":[{auditors_json}]}}",
                 payer.pubkey(),
                 underlying
             ))
