@@ -36,6 +36,5 @@ Next functions (same program, call with leo run after you hold a Token record):
 
 Program source: $PROG/src/main.leo
 English map:    $ROOT/demo/README.md
-Stage A plan:   docs/aleo/STAGE_A_DETAILED.md
 
 EOF

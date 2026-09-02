@@ -5,7 +5,6 @@ Privacy contour of **tidex6** expressed in **Leo** for the [Aleo Developer Grant
 | Path | Role |
 |------|------|
 | `tidex6_private_transfer/` | Leo program: private mint + transfer + split |
-| `../docs/aleo/` | Grant research, spike plan, security checklist |
 
 ## Toolchain
 
@@ -35,10 +34,6 @@ leo test
 | Auditor slot | `AuditSlip` + `issue_audit_slip` (view amount, not spend Token) |
 | Token-2022 CT | **N/A** — native private records instead |
 | ML-KEM memo | **Not in MVP** |
-
-## Security (wrong vs right)
-
-See `docs/aleo/ALEO_LEO_SECURITY_CHECKLIST_AID.md`.
 
 ## Status
 

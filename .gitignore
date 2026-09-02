@@ -106,9 +106,7 @@ keys/*.json
 # Внутренние рабочие заметки — НЕ публикуются (канон CLAUDE.md).
 # Содержат хеши пиров, адреса серверов, пути к файлам с кредами.
 docs/ops/
-docs/aleo/HYPERION_BOOTSTRAP_PRIVATEPAY.md
-docs/aleo/PROCESS_RU.md
-docs/aleo/PEER_REQUEST_EN.md
+docs/aleo/
 docs/ads/x_ads.env
 server.json
 category.txt

@@ -47,7 +47,6 @@ leo run mint_private aleo1639nwum2mt0n0ukqwd4pay90u7uy2msmuvcc2htsc6djg94hdsrqzd
 
 ## Security notes
 
-See `docs/aleo/ALEO_LEO_SECURITY_CHECKLIST_AID.md` (English wrong-vs-right).
 
 Honest limits of this MVP:
 
@@ -58,4 +57,3 @@ Honest limits of this MVP:
 ## Grant
 
 Do **not** submit the grant form until this demo builds and runs on your machine.  
-One-pager draft: `docs/aleo/GRANT_ONE_PAGER_DRAFT.md` (**English only**).
