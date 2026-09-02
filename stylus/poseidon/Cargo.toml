@@ -1,0 +1,23 @@
+[package]
+name = "tidex6-stylus-poseidon"
+description = "Poseidon-T3 over BN254 (circom parameter set) as a standalone Arbitrum Stylus contract: hash(uint256,uint256). The pool calls it for every Merkle parent, so the pool itself stays under the 24 KB code limit."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]

@@ -7,9 +7,10 @@ the prover talk to either without knowing which one they hit.
 
 | Crate | What it is | Solidity twin |
 |---|---|---|
-| `common/` | Field moduli and Poseidon-T3 over `U256`. Pure arithmetic, no VM. | `PoseidonT3.sol` |
+| `common/` | Field arithmetic (Montgomery, four u64 limbs) and the Poseidon-T3 permutation. Pure, no VM. | `PoseidonT3.sol` |
+| `poseidon/` | `hash(uint256,uint256)` as a contract of its own; the pool calls it for every Merkle parent. | `PoseidonT3.sol` |
 | `verifier/` | Groth16 verifier for `WithdrawCircuit<20>`; curve work via precompiles `0x06/0x07/0x08`. | `Tidex6Verifier.sol` |
-| `pool/` | Shielded pool for one ERC-20: incremental Merkle tree, root ring, nullifiers. | `Tidex6Pool.sol` |
+| `pool/` | Shielded pool for one ERC-20: incremental Merkle tree, root ring, nullifiers. Constructor `(token, verifier, poseidon, denomination)`. | `Tidex6Pool.sol` |
 | `registry/` | Reader registry: a wallet publishes the key payments are sealed to. | `Tidex6Registry.sol` |
 
 ## Generated files
@@ -35,7 +36,7 @@ cargo install --force cargo-stylus
 cd stylus
 cargo stylus check  --endpoint $RPC             # compiles, checks the 24 KB limit
 cargo stylus deploy --endpoint $RPC --private-key-path $KEY \
-    --constructor-args <token> <verifier> <denomination>   # pool only
+    --constructor-args <token> <verifier> <poseidon> <denomination>   # pool only
 cargo stylus verify --endpoint $RPC --deployment-tx <hash>
 ```
 
@@ -75,6 +76,17 @@ at run time depends on it.
 ### Arbitrum Sepolia (chain id 421614)
 
 Pending gas on the deployer. Pool token: USDC `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`, denomination `1000000`.
+
+## Why the hash is a separate contract
+
+A Stylus contract must fit 24 KB after Brotli. The Poseidon round constants
+are 195 random field elements — six kilobytes that do not compress — and with
+them inside, the pool came out at 35 KB: deployable only as fragments through
+the `StylusDeployer` factory, which on Arbitrum Sepolia costs ~11M gas and
+fails whenever the base fee moves between estimate and send. Moving the hash
+into its own contract keeps every piece under the limit and every deploy a
+single ordinary transaction. The pool pays one static call per Merkle parent
+(twenty per deposit) for that.
 
 ## Status and the honest caveat
 

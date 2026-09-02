@@ -6,7 +6,7 @@
 # stylus-sdk and must be built with `cargo stylus`, not with the host build.
 [workspace]
 resolver = "2"
-members = ["common", "verifier", "pool", "registry"]
+members = ["common", "poseidon", "verifier", "pool", "registry"]
 
 [workspace.package]
 version = "0.1.0"

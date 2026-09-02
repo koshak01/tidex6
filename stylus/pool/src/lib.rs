@@ -5,7 +5,8 @@
 //! the two is what stays private.
 //!
 //! This mirrors `contracts/src/Tidex6Pool.sol` and, through it, the Solana pool:
-//! same tree depth, same root ring, same Poseidon, same five public inputs.
+//! same tree depth, same root ring, same Poseidon (called as its own contract,
+//! see `stylus/poseidon`), same five public inputs.
 //! The proving system is shared, so the mechanics must be too — a divergence
 //! here would mean proofs that verify on one chain and not the other.
 //!
@@ -34,7 +35,6 @@ use stylus_sdk::prelude::*;
 use stylus_sdk::storage::{StorageAddress, StorageArray, StorageBool, StorageMap, StorageU256};
 
 use tidex6_stylus_common::field::is_field_element;
-use tidex6_stylus_common::poseidon::hash_pair;
 
 /// Depth of the incremental tree. Fixed at compile time in the circuit.
 pub const TREE_DEPTH: usize = 20;
@@ -81,6 +81,9 @@ pub struct Tidex6Pool {
     token: StorageAddress,
     /// Groth16 verifier for the withdraw circuit.
     verifier: StorageAddress,
+    /// Poseidon-T3 contract: the Merkle parent hash lives there, not here, so
+    /// this contract fits the 24 KB code limit (see `stylus/poseidon`).
+    poseidon: StorageAddress,
     /// Fixed deposit size. A pool with arbitrary amounts leaks the link
     /// through the amount itself, so every note is worth the same.
     denomination: StorageU256,
@@ -107,9 +110,10 @@ impl Tidex6Pool {
     /// empty-subtree hashes level by level — exactly as the Solana pool does at
     /// initialisation.
     #[constructor]
-    pub fn constructor(&mut self, token: Address, verifier: Address, denomination: U256) {
+    pub fn constructor(&mut self, token: Address, verifier: Address, poseidon: Address, denomination: U256) {
         self.token.set(token);
         self.verifier.set(verifier);
+        self.poseidon.set(poseidon);
         self.denomination.set(denomination);
 
         let mut zero_hash = U256::ZERO;
@@ -117,7 +121,7 @@ impl Tidex6Pool {
             self.zero_subtrees.setter(level).unwrap().set(zero_hash);
             self.filled_subtrees.setter(level).unwrap().set(zero_hash);
             // Both inputs are field elements by construction: `None` is unreachable.
-            zero_hash = hash_pair(zero_hash, zero_hash).unwrap_or(U256::ZERO);
+            zero_hash = self.hash_pair(zero_hash, zero_hash).unwrap_or(U256::ZERO);
         }
         self.root_history.setter(0).unwrap().set(zero_hash);
     }
@@ -246,6 +250,8 @@ impl Tidex6Pool {
 const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
 /// `transfer(address,uint256)`.
 const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+/// `hash(uint256,uint256)` on the Poseidon contract.
+const SEL_POSEIDON_HASH: [u8; 4] = [0xa7, 0x8d, 0xac, 0x0d];
 /// `verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[5])`.
 const SEL_VERIFY_PROOF: [u8; 4] = [0x34, 0xba, 0xea, 0xb9];
 
@@ -335,6 +341,19 @@ impl Tidex6Pool {
         }
     }
 
+    /// Poseidon(left, right) through the Poseidon contract. `None` on any
+    /// failure — a revert there means an input was not a field element.
+    fn hash_pair(&self, left: U256, right: U256) -> Option<U256> {
+        let mut data = Vec::with_capacity(4 + 64);
+        data.extend_from_slice(&SEL_POSEIDON_HASH);
+        push_word(&mut data, left);
+        push_word(&mut data, right);
+        match static_call(self.vm(), Call::new(), self.poseidon.get(), &data) {
+            Ok(out) if out.len() == 32 => Some(U256::from_be_slice(&out)),
+            _ => None,
+        }
+    }
+
     /// Append a leaf and return the new root. Same walk the Solana pool does.
     fn append_leaf(&mut self, leaf_index: U256, leaf: U256) -> Result<U256, PoolError> {
         let mut current_index = leaf_index.to::<u64>();
@@ -347,7 +366,8 @@ impl Tidex6Pool {
             } else {
                 (self.filled_subtrees.get(level).unwrap_or(U256::ZERO), current_hash)
             };
-            current_hash = hash_pair(left, right)
+            current_hash = self
+                .hash_pair(left, right)
                 .ok_or(PoolError::NotAFieldElement(NotAFieldElement {}))?;
             current_index >>= 1;
         }

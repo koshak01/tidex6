@@ -957,6 +957,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-stylus-poseidon"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
 name = "tidex6-stylus-registry"
 version = "0.1.0"
 dependencies = [
