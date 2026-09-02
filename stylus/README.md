@@ -83,7 +83,7 @@ Deployed 2–3 September 2026 from the same deployer, so `verifier` and
 | `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed |
 | `poseidon` | `0x1c2beb781d478379924232424863df1821682f0a` | 13.0 KB compressed; `hash(0,1)` on chain matches the reference vector |
-| `pool` | pending gas | 22.8 KB compressed, one piece; constructor `(USDC, verifier, poseidon, 1e6)` |
+| `pool` | `0x1ae2fab4863fb75ac3f2e380443adab188dff927` | 22.8 KB compressed, one piece, one ordinary transaction (13.2M gas); constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304774418; empty-tree root on chain matches the reference |
 | USDC (Circle testnet) | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | 6 decimals, from `faucet.circle.com` |
 
 The pool on Robinhood Chain above is the earlier 35 KB build (Poseidon inside,
