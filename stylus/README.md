@@ -46,6 +46,36 @@ Networks:
 | Arbitrum Sepolia | 421614 | `https://sepolia-rollup.arbitrum.io/rpc` |
 | Robinhood Chain testnet | 46630 | `https://rpc.testnet.chain.robinhood.com` |
 
+## Deployments
+
+### Robinhood Chain testnet (chain id 46630)
+
+Deployed 2 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
+
+| Contract | Address | Notes |
+|---|---|---|
+| `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
+| `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed |
+| `pool` | `0x23831ceec6381d69e2f551c16e71357a1ce95b55` | 35.0 KB, two fragments; constructor `(TSLA, verifier, 1e18)`; deployed at block 111913787 |
+| TSLA (Stock Token, testnet) | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` | 18 decimals, from the network faucet |
+
+`cargo stylus deploy` creates contracts that have a constructor through the
+`StylusDeployer` factory. Robinhood Chain testnet does not ship one at the
+canonical address, so a copy was deployed at
+`0xC821B4BF26CF181253b60C1116Bb1Fa6D7dCB0D4` from
+[OffchainLabs/nitro-contracts](https://github.com/OffchainLabs/nitro-contracts)
+tag `v3.2.0` (commit `2695e7b3e3f460531e2b77fed48a60561c54d90e`,
+`src/stylus/StylusDeployer.sol`, solc 0.8.17, optimizer 2000 runs, EVM london).
+Its runtime bytecode matches the factory on Arbitrum Sepolia
+(`0xcEcba2F1DC234f70Dd89F2041029807F8D03A990`) byte for byte apart from the
+compiler's CBOR metadata tail. Pass it to later deployments with
+`--deployer-address`. The factory is part of the deployment path only; nothing
+at run time depends on it.
+
+### Arbitrum Sepolia (chain id 421614)
+
+Pending gas on the deployer. Pool token: USDC `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`, denomination `1000000`.
+
 ## Status and the honest caveat
 
 The verifier ships with the **development** verifying key — derived from a seed
