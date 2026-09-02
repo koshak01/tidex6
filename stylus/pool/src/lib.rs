@@ -29,6 +29,7 @@ use alloc::vec::Vec;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::sol;
 use stylus_sdk::abi::Bytes;
+use stylus_sdk::call::{call, static_call};
 use stylus_sdk::prelude::*;
 use stylus_sdk::storage::{StorageAddress, StorageArray, StorageBool, StorageMap, StorageU256};
 
@@ -43,17 +44,6 @@ pub const TREE_DEPTH: usize = 20;
 /// later — without this, every concurrent deposit would invalidate
 /// in-flight withdrawals.
 pub const ROOT_RING_SIZE: usize = 30;
-
-sol_interface! {
-    interface IERC20 {
-        function transferFrom(address from, address to, uint256 amount) external returns (bool);
-        function transfer(address to, uint256 amount) external returns (bool);
-    }
-
-    interface ITidex6Verifier {
-        function verifyProof(uint256[2] pa, uint256[2][2] pb, uint256[2] pc, uint256[5] pub_signals) external view returns (bool);
-    }
-}
 
 sol! {
     /// A note was funded. The envelope is opaque to the chain — meaningful
@@ -152,11 +142,8 @@ impl Tidex6Pool {
         let depositor = self.vm().msg_sender();
         let pool = self.vm().contract_address();
         let amount = self.denomination.get();
-        let token = IERC20::new(self.token.get());
-        let call = Call::new_mutating(self);
-        match token.transfer_from(self.vm(), call, depositor, pool, amount) {
-            Ok(true) => {}
-            _ => return Err(PoolError::TransferFailed(TransferFailed {})),
+        if !self.token_transfer_from(depositor, pool, amount) {
+            return Err(PoolError::TransferFailed(TransferFailed {}));
         }
 
         let new_root = self.append_leaf(leaf_index, commitment)?;
@@ -204,29 +191,20 @@ impl Tidex6Pool {
             U256::from_be_slice(relayer.as_slice()),
             fee,
         ];
-        let verifier = ITidex6Verifier::new(self.verifier.get());
-        match verifier.verify_proof(self.vm(), Call::new(), proof_a, proof_b, proof_c, public_inputs) {
-            Ok(true) => {}
-            _ => return Err(PoolError::InvalidProof(InvalidProof {})),
+        if !self.verify_proof(&proof_a, &proof_b, &proof_c, &public_inputs) {
+            return Err(PoolError::InvalidProof(InvalidProof {}));
         }
 
         // Spend before paying: the nullifier is the double-spend guard, and it
         // must be set before any external call.
         self.nullifier_spent.insert(nullifier_hash, true);
 
-        let token = IERC20::new(self.token.get());
         let payout = denomination - fee;
-        let call = Call::new_mutating(self);
-        match token.transfer(self.vm(), call, recipient, payout) {
-            Ok(true) => {}
-            _ => return Err(PoolError::TransferFailed(TransferFailed {})),
+        if !self.token_transfer(recipient, payout) {
+            return Err(PoolError::TransferFailed(TransferFailed {}));
         }
-        if !fee.is_zero() {
-            let call = Call::new_mutating(self);
-            match token.transfer(self.vm(), call, relayer, fee) {
-                Ok(true) => {}
-                _ => return Err(PoolError::TransferFailed(TransferFailed {})),
-            }
+        if !fee.is_zero() && !self.token_transfer(relayer, fee) {
+            return Err(PoolError::TransferFailed(TransferFailed {}));
         }
 
         self.vm().log(Withdrawal { nullifierHash: nullifier_hash, recipient, relayer, fee });
@@ -264,7 +242,99 @@ impl Tidex6Pool {
 
 }
 
+/// `transferFrom(address,address,uint256)`.
+const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
+/// `transfer(address,uint256)`.
+const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+/// `verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[5])`.
+const SEL_VERIFY_PROOF: [u8; 4] = [0x34, 0xba, 0xea, 0xb9];
+
+/// Append a `U256` as a 32-byte big-endian word.
+#[inline]
+fn push_word(buf: &mut Vec<u8>, value: U256) {
+    buf.extend_from_slice(&value.to_be_bytes::<32>());
+}
+
+/// Append an address left-padded to a 32-byte word.
+#[inline]
+fn push_address(buf: &mut Vec<u8>, value: Address) {
+    buf.extend_from_slice(&[0u8; 12]);
+    buf.extend_from_slice(value.as_slice());
+}
+
+/// Did a call return ABI `true`? Anything else — `false`, empty, garbage — is
+/// a failure, the same reading Solidity gives `(bool)` return data.
+#[inline]
+fn returned_true(data: &[u8]) -> bool {
+    data.len() >= 32 && data[..31].iter().all(|b| *b == 0) && data[31] == 1
+}
+
 impl Tidex6Pool {
+    /// `token.transferFrom(from, to, amount)`. Raw call on purpose: the typed
+    /// interface the SDK generates decodes the answer through alloy's
+    /// validating decoder, and that path alone weighed several kilobytes of
+    /// WASM. Here the answer is one word, read by hand.
+    fn token_transfer_from(&mut self, from: Address, to: Address, amount: U256) -> bool {
+        let mut data = Vec::with_capacity(4 + 96);
+        data.extend_from_slice(&SEL_TRANSFER_FROM);
+        push_address(&mut data, from);
+        push_address(&mut data, to);
+        push_word(&mut data, amount);
+        let token = self.token.get();
+        // `Call::new_mutating` only flags the call as state-changing; it keeps
+        // no borrow, so build it before borrowing the VM.
+        let context = Call::new_mutating(self);
+        match call(self.vm(), context, token, &data) {
+            Ok(out) => returned_true(&out),
+            Err(_) => false,
+        }
+    }
+
+    /// `token.transfer(to, amount)`.
+    fn token_transfer(&mut self, to: Address, amount: U256) -> bool {
+        let mut data = Vec::with_capacity(4 + 64);
+        data.extend_from_slice(&SEL_TRANSFER);
+        push_address(&mut data, to);
+        push_word(&mut data, amount);
+        let token = self.token.get();
+        // `Call::new_mutating` only flags the call as state-changing; it keeps
+        // no borrow, so build it before borrowing the VM.
+        let context = Call::new_mutating(self);
+        match call(self.vm(), context, token, &data) {
+            Ok(out) => returned_true(&out),
+            Err(_) => false,
+        }
+    }
+
+    /// `verifier.verifyProof(a, b, c, inputs)` — a static call, the verifier
+    /// holds no state.
+    fn verify_proof(
+        &self,
+        proof_a: &[U256; 2],
+        proof_b: &[[U256; 2]; 2],
+        proof_c: &[U256; 2],
+        public_inputs: &[U256; 5],
+    ) -> bool {
+        let mut data = Vec::with_capacity(4 + 13 * 32);
+        data.extend_from_slice(&SEL_VERIFY_PROOF);
+        for w in proof_a {
+            push_word(&mut data, *w);
+        }
+        for w in proof_b.iter().flatten() {
+            push_word(&mut data, *w);
+        }
+        for w in proof_c {
+            push_word(&mut data, *w);
+        }
+        for w in public_inputs {
+            push_word(&mut data, *w);
+        }
+        match static_call(self.vm(), Call::new(), self.verifier.get(), &data) {
+            Ok(out) => returned_true(&out),
+            Err(_) => false,
+        }
+    }
+
     /// Append a leaf and return the new root. Same walk the Solana pool does.
     fn append_leaf(&mut self, leaf_index: U256, leaf: U256) -> Result<U256, PoolError> {
         let mut current_index = leaf_index.to::<u64>();

@@ -20,7 +20,7 @@
 //! add-round-constants, S-box, MDS.
 
 use ark_bn254::Fr;
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{BigInteger, Field, PrimeField};
 use light_poseidon::parameters::bn254_x5::get_poseidon_parameters;
 
 /// Decimal string of a scalar-field element.
@@ -193,9 +193,10 @@ library PoseidonT3 {{
 /// (`stylus/common/src/poseidon_consts.rs`).
 ///
 /// Same `light-poseidon` parameters as [`render_poseidon_t3`]; the Stylus side
-/// replays the permutation in `stylus/common/src/poseidon.rs`, so this module
-/// carries only numbers: round constants round-major, the MDS matrix, and the
-/// round counts.
+/// replays the permutation in `stylus/common/src/poseidon.rs` on its own
+/// Montgomery arithmetic, so the constants are emitted already in Montgomery
+/// form (`c·2^256 mod p`) as little-endian 64-bit limbs, and the contract never
+/// converts them at run time.
 ///
 /// # Возвращает
 /// * `String` — complete Rust source of the module.
@@ -204,19 +205,33 @@ pub fn render_stylus_poseidon_consts() -> String {
     assert_eq!(params.width, 3, "PoseidonT3 requires width 3");
     assert_eq!(params.alpha, 5, "circom Poseidon uses the x^5 S-box");
 
+    // Montgomery form: multiply by R = 2^256 mod p. `Fr::from(2).pow(256)` is
+    // exactly R mod p as a field element, so `c * r` is `c·R mod p`.
+    let r_mod_p = Fr::from(2u64).pow([256u64]);
+    let limbs = |c: &Fr| -> String {
+        let bytes = (*c * r_mod_p).into_bigint().to_bytes_le();
+        let mut out = [0u8; 32];
+        out[..bytes.len()].copy_from_slice(&bytes);
+        (0..4)
+            .map(|i| {
+                let mut w = [0u8; 8];
+                w.copy_from_slice(&out[8 * i..8 * i + 8]);
+                format!("0x{:016x}", u64::from_le_bytes(w))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
     let ark_rows: String = params
         .ark
         .iter()
-        .map(|c| format!("    uint!({}_U256),\n", fr_decimal(c)))
+        .map(|c| format!("    [{}],\n", limbs(c)))
         .collect();
     let mds_rows: String = params
         .mds
         .iter()
         .map(|row| {
-            let cells: String = row
-                .iter()
-                .map(|c| format!("        uint!({}_U256),\n", fr_decimal(c)))
-                .collect();
+            let cells: String = row.iter().map(|c| format!("        [{}],\n", limbs(c))).collect();
             format!("    [\n{cells}    ],\n")
         })
         .collect();
@@ -227,15 +242,19 @@ pub fn render_stylus_poseidon_consts() -> String {
          //! GENERATED — DO NOT EDIT BY HAND. Regenerate with\n\
          //! `cargo run --bin export_solidity_poseidon --release` (writes this file\n\
          //! next to `contracts/src/PoseidonT3.sol`, from the same `light-poseidon`\n\
-         //! parameters, so the two can never drift apart).\n\n\
-         use alloy_primitives::{{uint, U256}};\n\n\
+         //! parameters, so the two can never drift apart).\n\
+         //!\n\
+         //! Constants are stored in Montgomery form (`c·2^256 mod p`) as little-endian\n\
+         //! 64-bit limbs — the representation `field::mont_mul` works in — so the\n\
+         //! permutation never converts them at run time.\n\n\
+         use crate::field::Limbs;\n\n\
          pub const WIDTH: usize = 3;\n\
          pub const FULL_ROUNDS: usize = {full};\n\
          pub const PARTIAL_ROUNDS: usize = {partial};\n\n\
          /// Round constants, round-major, `WIDTH` entries per round.\n\
-         pub const ARK: [U256; {ark_len}] = [\n{ark_rows}];\n\n\
+         pub const ARK: [Limbs; {ark_len}] = [\n{ark_rows}];\n\n\
          /// MDS matrix.\n\
-         pub const MDS: [[U256; 3]; 3] = [\n{mds_rows}];\n",
+         pub const MDS: [[Limbs; 3]; 3] = [\n{mds_rows}];\n",
         full = params.full_rounds,
         partial = params.partial_rounds,
         ark_len = params.ark.len(),
