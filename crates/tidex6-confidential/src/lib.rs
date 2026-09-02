@@ -16,6 +16,7 @@
 //! крейтом и тем же `alt_bn128`-путём, что крутит верификатор на mainnet.
 
 pub mod bytes;
+pub mod ceremony;
 pub mod onchain;
 pub mod transfer;
 pub mod withdraw;
