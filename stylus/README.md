@@ -82,9 +82,19 @@ Deployed 2–3 September 2026 from the same deployer, so `verifier` and
 |---|---|---|
 | `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed |
-| `poseidon` | `0x1c2beb781d478379924232424863df1821682f0a` | 13.0 KB compressed; `hash(0,1)` on chain matches the reference vector |
-| `pool` | `0x1ae2fab4863fb75ac3f2e380443adab188dff927` | 22.8 KB compressed, one piece, one ordinary transaction (13.2M gas); constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304774418; empty-tree root on chain matches the reference |
+| `poseidon` | `0x3454f4bb9b3bb20344bbb3cb43d6fb743a1c1d68` | 13.0 KB; reproducible Docker build, `cargo stylus verify` passes; `hash(0,1)` on chain matches the reference vector |
+| `pool` | `0x38881c88e75df9bba0d260932bf69f93de869770` | 22.9 KB, one piece, one ordinary transaction (13.2M gas); reproducible build; constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304796613; empty-tree root on chain matches the reference |
 | USDC (Circle testnet) | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | 6 decimals, from `faucet.circle.com` |
+
+An earlier pair on Sepolia — poseidon `0x1c2beb781d478379924232424863df1821682f0a`
+and pool `0x1ae2fab4863fb75ac3f2e380443adab188dff927` — was built without the
+reproducible Docker toolchain and is superseded; it holds no deposits.
+
+`cargo stylus verify` on the pool still reports a project-hash mismatch: the
+crate had no `default-run`, verify's inner `cargo run` could not pick a binary,
+and adding the key changes `Cargo.toml`, which is part of the hash sealed into
+the deployment. The key is now in every crate; the next pool deployment will
+verify cleanly.
 
 The pool on Robinhood Chain above is the earlier 35 KB build (Poseidon inside,
 two fragments); it will be replaced by the poseidon + pool pair once the first
