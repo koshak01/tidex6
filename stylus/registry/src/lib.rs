@@ -12,6 +12,13 @@
 #![cfg_attr(not(any(test, feature = "export-abi")), no_std)]
 extern crate alloc;
 
+// The stylus-proc macros (`#[storage]`, `#[public]`, `sol_interface!`) expand
+// to `Vec` and `vec!`; under `no_std` nobody imports those for us.
+#[allow(unused_imports)]
+use alloc::vec;
+#[allow(unused_imports)]
+use alloc::vec::Vec;
+
 use alloy_primitives::{Address, FixedBytes, U256, B256};
 use alloy_sol_types::sol;
 use stylus_sdk::abi::Bytes;

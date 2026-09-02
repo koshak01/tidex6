@@ -1,0 +1,5 @@
+# cargo-stylus 0.10 workspace manifest. Networks the contracts are deployed to;
+# per-contract deployment records live in each crate's Stylus.toml.
+[workspace.networks]
+arb-sepolia = { endpoint = "https://sepolia-rollup.arbitrum.io/rpc" }
+robinhood-testnet = { endpoint = "https://rpc.testnet.chain.robinhood.com" }
