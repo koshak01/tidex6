@@ -251,42 +251,17 @@ impl Tidex6Pool {
         self.nullifier_spent.get(nullifier_hash)
     }
 
-    #[selector(name = "commitmentKnown")]
-    pub fn commitment_known(&self, commitment: U256) -> bool {
-        self.commitment_known.get(commitment)
-    }
-
     #[selector(name = "nextLeafIndex")]
     pub fn next_leaf_index(&self) -> U256 {
         self.next_leaf_index.get()
-    }
-
-    #[selector(name = "rootRingHead")]
-    pub fn root_ring_head(&self) -> U256 {
-        self.root_ring_head.get()
     }
 
     pub fn denomination(&self) -> U256 {
         self.denomination.get()
     }
 
-    pub fn token(&self) -> Address {
-        self.token.get()
-    }
 
-    pub fn verifier(&self) -> Address {
-        self.verifier.get()
-    }
 
-    #[selector(name = "TREE_DEPTH")]
-    pub fn tree_depth(&self) -> U256 {
-        U256::from(TREE_DEPTH)
-    }
-
-    #[selector(name = "ROOT_RING_SIZE")]
-    pub fn root_ring_size(&self) -> U256 {
-        U256::from(ROOT_RING_SIZE)
-    }
 }
 
 impl Tidex6Pool {
