@@ -1,0 +1,23 @@
+[package]
+name = "tidex6-stylus-verifier"
+description = "Groth16 verifier for the tidex6 withdraw circuit, on Arbitrum Stylus. Same verifying key and same ABI as contracts/src/Tidex6Verifier.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]

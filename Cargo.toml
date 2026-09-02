@@ -27,6 +27,9 @@ exclude = [
     "crates/tidex6-ct-lab",
     # wasm-only feasibility-проба CT-крипто в браузере.
     "crates/tidex6-ct-wasm-probe",
+    # Stylus (WASM) contracts for the Arbitrum deployment: own workspace,
+    # built with `cargo stylus`, see stylus/README.md.
+    "stylus",
     # Размещённый MCP-сервер: единственный крейт, который тянет зависимость
     # ВНЕ этого репозитория — `forge-mcp` из соседнего чекаута кузни. Пока он
     # был членом workspace, `cargo build` в чистом клоне падал у любого, у кого

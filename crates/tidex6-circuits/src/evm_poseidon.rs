@@ -188,3 +188,56 @@ library PoseidonT3 {{
 "#,
     )
 }
+
+/// Render the Poseidon-T3 constants as a Rust module for the Stylus contracts
+/// (`stylus/common/src/poseidon_consts.rs`).
+///
+/// Same `light-poseidon` parameters as [`render_poseidon_t3`]; the Stylus side
+/// replays the permutation in `stylus/common/src/poseidon.rs`, so this module
+/// carries only numbers: round constants round-major, the MDS matrix, and the
+/// round counts.
+///
+/// # Возвращает
+/// * `String` — complete Rust source of the module.
+pub fn render_stylus_poseidon_consts() -> String {
+    let params = get_poseidon_parameters::<Fr>(3).expect("bn254_x5 width-3 parameters");
+    assert_eq!(params.width, 3, "PoseidonT3 requires width 3");
+    assert_eq!(params.alpha, 5, "circom Poseidon uses the x^5 S-box");
+
+    let ark_rows: String = params
+        .ark
+        .iter()
+        .map(|c| format!("    uint!({}_U256),\n", fr_decimal(c)))
+        .collect();
+    let mds_rows: String = params
+        .mds
+        .iter()
+        .map(|row| {
+            let cells: String = row
+                .iter()
+                .map(|c| format!("        uint!({}_U256),\n", fr_decimal(c)))
+                .collect();
+            format!("    [\n{cells}    ],\n")
+        })
+        .collect();
+
+    format!(
+        "//! Poseidon-T3 constants (circom BN254 set), width 3, S-box x^5.\n\
+         //!\n\
+         //! GENERATED — DO NOT EDIT BY HAND. Regenerate with\n\
+         //! `cargo run --bin export_solidity_poseidon --release` (writes this file\n\
+         //! next to `contracts/src/PoseidonT3.sol`, from the same `light-poseidon`\n\
+         //! parameters, so the two can never drift apart).\n\n\
+         use alloy_primitives::{{uint, U256}};\n\n\
+         pub const WIDTH: usize = 3;\n\
+         pub const FULL_ROUNDS: usize = {full};\n\
+         pub const PARTIAL_ROUNDS: usize = {partial};\n\n\
+         /// Round constants, round-major, `WIDTH` entries per round.\n\
+         pub const ARK: [U256; {ark_len}] = [\n{ark_rows}];\n\n\
+         /// MDS matrix.\n\
+         pub const MDS: [[U256; 3]; 3] = [\n{mds_rows}];\n",
+        full = params.full_rounds,
+        partial = params.partial_rounds,
+        ark_len = params.ark.len(),
+    )
+}

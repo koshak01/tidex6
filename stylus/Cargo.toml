@@ -1,0 +1,40 @@
+# Stylus (WASM) contracts for the tidex6 EVM deployment — Arbitrum Sepolia and
+# Robinhood Chain. Same ABI as `../contracts` (Solidity): the browser client
+# talks to either without knowing which one it hit.
+#
+# Own workspace on purpose: these crates target wasm32-unknown-unknown, pull in
+# stylus-sdk and must be built with `cargo stylus`, not with the host build.
+[workspace]
+resolver = "2"
+members = ["common", "verifier", "pool", "registry"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["tidex6 contributors"]
+repository = "https://github.com/koshak01/tidex6"
+rust-version = "1.91"
+
+[workspace.dependencies]
+stylus-sdk = "0.10.9"
+alloy-primitives = { version = "1.5", default-features = false }
+alloy-sol-types = { version = "1.5", default-features = false }
+tidex6-stylus-common = { path = "common" }
+
+# stylus-proc macros test `cfg(feature = "contract-client-gen")`; declare the
+# value so rustc's check-cfg does not warn on every attribute.
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("contract-client-gen"))'] }
+
+# Size is the constraint: a Stylus contract must fit in 24 KB after brotli.
+[profile.release]
+codegen-units = 1
+strip = true
+lto = true
+panic = "abort"
+opt-level = "z"
+debug = false
+rpath = false
+debug-assertions = false
+incremental = false

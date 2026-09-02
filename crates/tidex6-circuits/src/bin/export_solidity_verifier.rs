@@ -3,8 +3,9 @@
 //!
 //! Reads the same ceremony state the Solana verifier is built from, self-tests
 //! that the proving key encodes a working withdraw circuit, and writes
-//! `contracts/src/Tidex6Verifier.sol`. The verifying key is therefore identical
-//! on both chains: one setup, one ceremony, two verifiers.
+//! `contracts/src/Tidex6Verifier.sol` together with `stylus/verifier/src/vk.rs`.
+//! The verifying key is therefore identical everywhere: one setup, one
+//! ceremony, three verifiers (Solana, Solidity, Stylus).
 //!
 //! Usage:
 //!
@@ -20,7 +21,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use tidex6_circuits::ceremony::{find_workspace_root, selftest_pk};
-use tidex6_circuits::evm_solidity::render_solidity_verifier;
+use tidex6_circuits::evm_solidity::{render_solidity_verifier, render_stylus_vk};
 use tidex6_circuits::mpc::CeremonyState;
 use tidex6_circuits::withdraw::{WITHDRAW_TREE_DEPTH, setup_withdraw_circuit};
 
@@ -106,4 +107,12 @@ fn main() {
     fs::write(&out_path, source.as_bytes()).expect("write Tidex6Verifier.sol");
 
     println!("wrote {} ({} bytes)", out_path.display(), source.len());
+
+    // The Stylus verifier carries the same key as Rust constants.
+    let stylus_source = render_stylus_vk(&vk, header);
+    let stylus_dir = find_workspace_root().join("stylus/verifier/src");
+    fs::create_dir_all(&stylus_dir).expect("create stylus/verifier/src");
+    let stylus_path = stylus_dir.join("vk.rs");
+    fs::write(&stylus_path, stylus_source.as_bytes()).expect("write vk.rs");
+    println!("wrote {} ({} bytes)", stylus_path.display(), stylus_source.len());
 }

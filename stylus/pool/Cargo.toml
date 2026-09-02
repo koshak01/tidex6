@@ -1,0 +1,24 @@
+[package]
+name = "tidex6-stylus-pool"
+description = "Shielded pool for a single ERC-20 on Arbitrum Stylus: deposits append a Poseidon commitment to an incremental Merkle tree, withdrawals prove membership with a Groth16 proof and spend a nullifier. Same ABI, events and errors as contracts/src/Tidex6Pool.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]

@@ -1,0 +1,4 @@
+# cargo-stylus reproducible builds and Arbiscan verification pin the toolchain.
+[toolchain]
+channel = "1.91.0"
+targets = ["wasm32-unknown-unknown"]

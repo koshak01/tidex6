@@ -1,0 +1,15 @@
+[package]
+name = "tidex6-stylus-common"
+description = "Field constants and Poseidon-T3 shared by the tidex6 Stylus contracts. Pure arithmetic on U256, no VM access."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy-primitives = { workspace = true }

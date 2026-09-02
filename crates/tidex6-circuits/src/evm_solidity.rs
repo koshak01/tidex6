@@ -286,6 +286,68 @@ contract Tidex6Verifier {{
     )
 }
 
+/// Render the verifying key as a Rust module for the Stylus verifier
+/// (`stylus/verifier/src/vk.rs`).
+///
+/// Same numbers, same order as [`render_solidity_verifier`]: G1 points as
+/// `(x, y)`, G2 points in EVM pairing order `(x.c1, x.c0, y.c1, y.c0)`, and
+/// `IC[0]` followed by one point per public input. Emitted as `uint!` literals
+/// so the constants are checked at compile time and cost nothing at run time.
+///
+/// # Параметры
+/// * `vk` — verifying key produced by the ceremony (or the development setup).
+/// * `header` — comment block placed at the top; use it to say where the key
+///   came from. `//` comments are rewritten to `//!` doc comments.
+///
+/// # Возвращает
+/// * `String` — complete Rust source of the module.
+pub fn render_stylus_vk(vk: &VerifyingKey<Bn254>, header: &str) -> String {
+    let public_inputs = vk.gamma_abc_g1.len() - 1;
+    let doc_header: String = header
+        .lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("//") {
+                format!("//!{rest}\n")
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect();
+
+    let (alpha_x, alpha_y) = g1_decimal(&vk.alpha_g1);
+    let g2_block = |name: &str, point: &G2Affine| {
+        let (x1, x0, y1, y0) = g2_decimal(point);
+        format!(
+            "/// {name}2 — G2 in EVM pairing order `(x.c1, x.c0, y.c1, y.c0)`.\n\
+             pub const {upper}: [U256; 4] = [\n    uint!({x1}_U256),\n    uint!({x0}_U256),\n    uint!({y1}_U256),\n    uint!({y0}_U256),\n];\n",
+            upper = name.to_uppercase()
+        )
+    };
+    let ic_rows: String = vk
+        .gamma_abc_g1
+        .iter()
+        .map(|point| {
+            let (x, y) = g1_decimal(point);
+            format!("    [uint!({x}_U256), uint!({y}_U256)],\n")
+        })
+        .collect();
+
+    format!(
+        "{doc_header}\n\
+         use alloy_primitives::{{uint, U256}};\n\n\
+         pub const NR_PUBLIC_INPUTS: usize = {public_inputs};\n\n\
+         /// alpha1 — G1 `(x, y)`.\n\
+         pub const ALPHA: [U256; 2] = [uint!({alpha_x}_U256), uint!({alpha_y}_U256)];\n\n\
+         {beta}\n{gamma}\n{delta}\n\
+         /// IC[0] and the per-input points: `vk_x = IC[0] + sum(IC[i+1] * input[i])`.\n\
+         pub const IC: [[U256; 2]; {ic_len}] = [\n{ic_rows}];\n",
+        beta = g2_block("beta", &vk.beta_g2),
+        gamma = g2_block("gamma", &vk.gamma_g2),
+        delta = g2_block("delta", &vk.delta_g2),
+        ic_len = public_inputs + 1,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

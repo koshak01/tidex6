@@ -1,0 +1,23 @@
+[package]
+name = "tidex6-stylus-registry"
+description = "tidex6 reader registry on Arbitrum Stylus: where a wallet publishes the ML-KEM key people seal payments to. Same ABI and events as contracts/src/Tidex6Registry.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]
