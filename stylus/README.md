@@ -87,7 +87,8 @@ Deployed 2–3 September 2026 from the same deployer, so `verifier` and
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed; **superseded**, see "publishedAt on an Arbitrum chain" below |
 | `registry` (current) | `0x6d6fe78aa241ee2f8f1c49e7fa2044be5f3f6101` | 12.8 KB; reproducible build, `cargo stylus verify` passes; deployed 4 September 2026 at block 305291098 |
 | `poseidon` | `0x3454f4bb9b3bb20344bbb3cb43d6fb743a1c1d68` | 13.0 KB; reproducible Docker build, `cargo stylus verify` passes; `hash(0,1)` on chain matches the reference vector |
-| `pool` | `0x38881c88e75df9bba0d260932bf69f93de869770` | 22.9 KB, one piece, one ordinary transaction (13.2M gas); reproducible build; constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304796613; empty-tree root on chain matches the reference |
+| `pool` | `0x38881c88e75df9bba0d260932bf69f93de869770` | 22.9 KB, one piece, one ordinary transaction (13.2M gas); reproducible build; constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304796613; empty-tree root on chain matches the reference; **superseded** (built before `default-members`, verify could not finish), empty |
+| `pool` (current) | `0x102cdd46c5f0088ce115edb5e8d102fea6f085f5` | 22.9 KB, one piece (13.2M gas); reproducible build, **`cargo stylus verify` passes end to end**; constructor `(USDC, verifier, poseidon, 1e6)`; deployed 4 September 2026 at block 305380799; empty-tree root on chain matches the reference |
 | USDC (Circle testnet) | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | 6 decimals, from `faucet.circle.com` |
 
 An earlier pair on Sepolia — poseidon `0x1c2beb781d478379924232424863df1821682f0a`
@@ -119,8 +120,7 @@ byte-identical copy at `0xC821…B0D4`, and verify stops one step before
 passes: the rebuilt bytecode is the deployed bytecode. The pool `0xe897…2c44`
 is therefore reproducible but not green; poseidon, verifier and registry have
 no constructor and verify green. On Arbitrum Sepolia the canonical factory
-exists and the pool verifies once redeployed from a tree with
-`default-members` (see above). An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083`
+exists and the current pool there verifies end to end. An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083`
 was deployed the same day from a tree without `default-members` and is
 superseded; it holds no deposits.
 
