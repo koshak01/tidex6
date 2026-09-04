@@ -57,6 +57,7 @@ Deployed 2 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
 |---|---|---|
 | `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed; **superseded**, see "publishedAt on an Arbitrum chain" below |
+| `registry` (current) | `0x28855dbf155de429069aabc2020a613901d707d9` | 12.8 KB; reproducible build, `cargo stylus verify` passes; deployed 4 September 2026 at block 112773755 |
 | `pool` | `0x23831ceec6381d69e2f551c16e71357a1ce95b55` | 35.0 KB, two fragments; constructor `(TSLA, verifier, 1e18)`; deployed at block 111913787 |
 | TSLA (Stock Token, testnet) | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` | 18 decimals, from the network faucet |
 
@@ -82,6 +83,7 @@ Deployed 2–3 September 2026 from the same deployer, so `verifier` and
 |---|---|---|
 | `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed; **superseded**, see "publishedAt on an Arbitrum chain" below |
+| `registry` (current) | `0x6d6fe78aa241ee2f8f1c49e7fa2044be5f3f6101` | 12.8 KB; reproducible build, `cargo stylus verify` passes; deployed 4 September 2026 at block 305291098 |
 | `poseidon` | `0x3454f4bb9b3bb20344bbb3cb43d6fb743a1c1d68` | 13.0 KB; reproducible Docker build, `cargo stylus verify` passes; `hash(0,1)` on chain matches the reference vector |
 | `pool` | `0x38881c88e75df9bba0d260932bf69f93de869770` | 22.9 KB, one piece, one ordinary transaction (13.2M gas); reproducible build; constructor `(USDC, verifier, poseidon, 1e6)`; deployed at block 304796613; empty-tree root on chain matches the reference |
 | USDC (Circle testnet) | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | 6 decimals, from `faucet.circle.com` |
@@ -124,7 +126,7 @@ because `block.number` there is the chain's own.
 The registry now asks ArbSys (`0x…64`, `arbBlockNumber()`) and reverts with
 `BlockNumberUnavailable` rather than store a guess. The `0x8eb0…e74f`
 registries on both chains keep the old behaviour and are superseded; the
-addresses of the replacements are recorded above once deployed.
+replacements are the `(current)` rows in the tables above.
 
 ## Status and the honest caveat
 
