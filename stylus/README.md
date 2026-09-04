@@ -58,7 +58,9 @@ Deployed 2 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
 | `verifier` | `0x2c94135fb49840a0d6e0985ab1a6c48ee6c140d6` | 9.3 KB compressed |
 | `registry` | `0x8eb05cb1b5e46e58c8ca91e3a3738cf534c1e74f` | 12.8 KB compressed; **superseded**, see "publishedAt on an Arbitrum chain" below |
 | `registry` (current) | `0x28855dbf155de429069aabc2020a613901d707d9` | 12.8 KB; reproducible build, `cargo stylus verify` passes; deployed 4 September 2026 at block 112773755 |
-| `pool` | `0x23831ceec6381d69e2f551c16e71357a1ce95b55` | 35.0 KB, two fragments; constructor `(TSLA, verifier, 1e18)`; deployed at block 111913787 |
+| `pool` | `0x23831ceec6381d69e2f551c16e71357a1ce95b55` | 35.0 KB, two fragments, Poseidon inside; constructor `(TSLA, verifier, 1e18)`; deployed at block 111913787; **superseded**, empty |
+| `poseidon` (current) | `0xe9182c3b0cdf5bfb8871ac162fa28a501a3cfa82` | 13.0 KB; reproducible build, `cargo stylus verify` passes; `hash(0,1)` on chain matches the reference vector; deployed 4 September 2026 |
+| `pool` (current) | `0xe8970f1a29e2cf8145f583489a6b95e0e65f2c44` | 22.9 KB, one piece; reproducible build; constructor `(TSLA, verifier, poseidon, 1e18)`; deployed 4 September 2026 at block 112871100; empty-tree root on chain matches the reference; verify stops at the deployer check, see below |
 | TSLA (Stock Token, testnet) | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` | 18 decimals, from the network faucet |
 
 `cargo stylus deploy` creates contracts that have a constructor through the
@@ -102,9 +104,25 @@ exactly one target; the root manifest is part of the project hash sealed into
 a deployment, so pools deployed before that change cannot verify and are
 redeployed.
 
-The pool on Robinhood Chain above is the earlier 35 KB build (Poseidon inside,
-two fragments); it will be replaced by the poseidon + pool pair once the first
-round of checks on it is done.
+### Why the Robinhood pool cannot show a green `cargo stylus verify`
+
+`cargo stylus verify` on a contract with a constructor rebuilds the WASM,
+decodes the factory call from the deployment transaction, compares the
+bytecode — and then requires the factory to be the canonical `StylusDeployer`
+at `0xcEcba2F1DC234f70Dd89F2041029807F8D03A990`
+(`stylus-tools/src/core/verification.rs`, `InvalidDeployerAddress`; the
+address is a constant, there is no flag or setting for another one, in 0.10.9
+and in the current sources alike). Robinhood Chain testnet has no factory at
+that address, so every contract with a constructor there goes through the
+byte-identical copy at `0xC821…B0D4`, and verify stops one step before
+`VERIFIED` with `Invalid deployer address`. Everything before that step
+passes: the rebuilt bytecode is the deployed bytecode. The pool `0xe897…2c44`
+is therefore reproducible but not green; poseidon, verifier and registry have
+no constructor and verify green. On Arbitrum Sepolia the canonical factory
+exists and the pool verifies once redeployed from a tree with
+`default-members` (see above). An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083`
+was deployed the same day from a tree without `default-members` and is
+superseded; it holds no deposits.
 
 ## Why the hash is a separate contract
 
