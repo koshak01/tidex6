@@ -22,6 +22,7 @@ use alloc::vec::Vec;
 use alloy_primitives::{Address, FixedBytes, U256, B256};
 use alloy_sol_types::sol;
 use stylus_sdk::abi::Bytes;
+use stylus_sdk::call::static_call;
 use stylus_sdk::crypto::keccak;
 use stylus_sdk::prelude::*;
 use stylus_sdk::storage::{StorageB256, StorageMap, StorageU64, StorageU8};
@@ -31,6 +32,16 @@ use stylus_sdk::storage::{StorageB256, StorageMap, StorageU64, StorageU8};
 /// later, at sealing time, with an error that points at the wrong person.
 pub const READER_LEN: usize = 1216;
 
+/// ArbSys precompile. On an Arbitrum chain `block.number` (and the SDK's
+/// `block_number()`) is the parent chain's block, not this chain's: the
+/// registry on Robinhood testnet wrote L1 block 11 632 538 into an entry
+/// whose log lives in L2 block 112 770 157, and nobody could find the key
+/// again. The only source of this chain's own block number is ArbSys.
+const ARBSYS: Address = Address::new([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x64]);
+
+/// `arbBlockNumber()` selector on ArbSys.
+const ARB_BLOCK_NUMBER: [u8; 4] = [0xa3, 0xb1, 0xb3, 0x1d];
+
 sol! {
     /// A wallet published (or replaced) its reader key.
     event ReaderPublished(address indexed wallet, uint8 version, bytes reader);
@@ -39,12 +50,16 @@ sol! {
 
     error WrongKeyLength(uint256 got, uint256 expected);
     error NothingToRevoke();
+    /// ArbSys did not answer: the chain cannot say which block this is, and
+    /// an entry with a wrong block is one whose key can never be found.
+    error BlockNumberUnavailable();
 }
 
 #[derive(SolidityError)]
 pub enum RegistryError {
     WrongKeyLength(WrongKeyLength),
     NothingToRevoke(NothingToRevoke),
+    BlockNumberUnavailable(BlockNumberUnavailable),
 }
 
 /// What is stored per wallet. Zero `key_hash` means "never registered".
@@ -82,7 +97,9 @@ impl Tidex6Registry {
         }
         let wallet = self.vm().msg_sender();
         let key_hash: B256 = keccak(&reader);
-        let block = self.vm().block_number();
+        let block = self
+            .arb_block_number()
+            .ok_or(RegistryError::BlockNumberUnavailable(BlockNumberUnavailable {}))?;
 
         let mut entry = self.entries.setter(wallet);
         entry.key_hash.set(key_hash);
@@ -136,5 +153,18 @@ impl Tidex6Registry {
     #[selector(name = "matchesPublished")]
     pub fn matches_published(&self, wallet: Address, reader: Bytes) -> bool {
         self.entries.get(wallet).key_hash.get() == keccak(&reader)
+    }
+}
+
+impl Tidex6Registry {
+    /// This chain's own block number, from ArbSys. `None` if the precompile
+    /// did not answer with one word — never on an Arbitrum chain, but the
+    /// caller must revert rather than store a guess.
+    fn arb_block_number(&self) -> Option<u64> {
+        let out = static_call(self.vm(), Call::new(), ARBSYS, &ARB_BLOCK_NUMBER).ok()?;
+        if out.len() != 32 {
+            return None;
+        }
+        Some(U256::from_be_slice(&out).to::<u64>())
     }
 }
