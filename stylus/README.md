@@ -119,7 +119,9 @@ byte-identical copy at `0xC821…B0D4`, and verify stops one step before
 `VERIFIED` with `Invalid deployer address`. Everything before that step
 passes: the rebuilt bytecode is the deployed bytecode. The pool `0xe897…2c44`
 is therefore reproducible but not green; poseidon, verifier and registry have
-no constructor and verify green. On Arbitrum Sepolia the canonical factory
+no constructor and verify green. The fix is upstream as
+[OffchainLabs/stylus-sdk-rs#452](https://github.com/OffchainLabs/stylus-sdk-rs/pull/452):
+`cargo stylus verify --deployer-address`, mirroring the flag `deploy` already has. On Arbitrum Sepolia the canonical factory
 exists and the current pool there verifies end to end. An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083`
 was deployed the same day from a tree without `default-members` and is
 superseded; it holds no deposits.
