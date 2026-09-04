@@ -92,11 +92,15 @@ An earlier pair on Sepolia — poseidon `0x1c2beb781d478379924232424863df1821682
 and pool `0x1ae2fab4863fb75ac3f2e380443adab188dff927` — was built without the
 reproducible Docker toolchain and is superseded; it holds no deposits.
 
-`cargo stylus verify` on the pool still reports a project-hash mismatch: the
-crate had no `default-run`, verify's inner `cargo run` could not pick a binary,
-and adding the key changes `Cargo.toml`, which is part of the hash sealed into
-the deployment. The key is now in every crate; the next pool deployment will
-verify cleanly.
+`cargo stylus verify` on a pool deployed before 4 September 2026 stops at the
+constructor check: verify rebuilds the contract (the bytecode matches), then
+runs `cargo run --features export-abi -- constructor` in the **workspace
+root**, and with five binaries in the workspace that run has nothing to pick.
+`default-run` in the crate does not help — the run is not in the crate. The
+root `Cargo.toml` now names `pool` as `default-members`, which gives the run
+exactly one target; the root manifest is part of the project hash sealed into
+a deployment, so pools deployed before that change cannot verify and are
+redeployed.
 
 The pool on Robinhood Chain above is the earlier 35 KB build (Poseidon inside,
 two fragments); it will be replaced by the poseidon + pool pair once the first

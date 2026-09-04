@@ -7,6 +7,13 @@
 [workspace]
 resolver = "2"
 members = ["common", "poseidon", "verifier", "pool", "registry"]
+# `cargo stylus verify` checks for a constructor by running `cargo run
+# --features export-abi -- constructor` in the workspace root, not in the
+# crate. With five binaries here that run has nothing to pick, and the pool
+# (the only contract with a constructor) could not be verified. Naming it the
+# default member gives that run one target; the other crates are still built
+# with `--workspace` or `-p`.
+default-members = ["pool"]
 
 [workspace.package]
 version = "0.1.0"
