@@ -48,6 +48,32 @@ Expected: five passing tests. `test_acceptsRealProof` is the one that matters;
 the four rejection tests exist because a verifier that accepts everything is
 not a verifier.
 
+## Deployments
+
+Same source, same compiler settings (solc 0.8.28, optimizer 200 runs, Cancun).
+`PoseidonT3` is an internal library, so nothing is linked.
+
+### Base Sepolia (chain id 84532)
+
+Deployed 5 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
+Sources verified on Blockscout (`base-sepolia.blockscout.com`, tab "Contract").
+
+| Contract | Address | Notes |
+|---|---|---|
+| `Tidex6Verifier` | `0x2c94135FB49840a0D6e0985AB1A6c48EE6c140d6` | development verifying key, see below |
+| `Tidex6Registry` | `0x6F6F07e14E8381D13D01f99867985D8c7D23E914` | |
+| `Tidex6Pool` | `0x8eb05Cb1b5E46e58C8ca91E3A3738CF534c1E74f` | constructor `(USDC, verifier, 1e6)`; deployed at block 46396085; empty-tree root on chain matches the reference |
+| USDC (Circle testnet) | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | 6 decimals, `faucet.circle.com` |
+
+The public `sepolia.base.org` node caps `eth_getLogs` at 10 000 blocks; the
+tidex6 relayer proxies Base reads through a node that allows 50 000, and the
+client reads deposits in windows of that size.
+
+### Whitechain Sepolia (chain id 1874)
+
+Addresses are recorded in the web client (`tidex6-web/static/js/core/evm-chain.js`,
+key `whitechain-sepolia`).
+
 ## Status and the honest caveat
 
 The verifier currently ships with the **development** verifying key, derived
