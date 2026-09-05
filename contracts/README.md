@@ -70,6 +70,22 @@ The public `sepolia.base.org` node caps `eth_getLogs` at 10 000 blocks; the
 tidex6 relayer proxies Base reads through a node that allows 50 000, and the
 client reads deposits in windows of that size.
 
+### Hyperliquid HyperEVM testnet (chain id 998)
+
+Deployed 6 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
+The pool deployment (5.83M gas) does not fit HyperEVM's 3M small blocks; the
+deployer was switched to big blocks for that one transaction (`evmUserModify
+usingBigBlocks`), which requires the deployer to exist as a HyperCore user
+first. No verification service covers this testnet; the explorer is
+`testnet.purrsec.com`.
+
+| Contract | Address | Notes |
+|---|---|---|
+| `TestUSDC` | `0x2c94135FB49840a0D6e0985AB1A6c48EE6c140d6` | ownerless, public `mint` |
+| `Tidex6Verifier` | `0x6F6F07e14E8381D13D01f99867985D8c7D23E914` | development verifying key |
+| `Tidex6Registry` | `0x8eb05Cb1b5E46e58C8ca91E3A3738CF534c1E74f` | |
+| `Tidex6Pool` | `0x28fbB1500875EaEbe303D195C1a3721BBed8AF5f` | constructor `(TestUSDC, verifier, 1e6)`; deployed at block 63469056 |
+
 ### Whitechain Sepolia (chain id 1874)
 
 Addresses are recorded in the web client (`tidex6-web/static/js/core/evm-chain.js`,
