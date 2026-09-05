@@ -15,6 +15,7 @@ First target: **Whitechain Sepolia** (chain id `1874`, OP Stack, Cancun EVM).
 | `src/Tidex6Verifier.sol` | Groth16 verifier for `WithdrawCircuit<20>`. Generated — never edit by hand. |
 | `test/Tidex6Verifier.t.sol` | Proof produced by the Rust prover, asserted to verify on-chain, plus four rejection cases. Generated. |
 | `test/fixture.json` | The same proof as data, for other tooling. |
+| `src/TestUSDC.sol` | Ownerless 6-decimal test token with a public `mint` (100 per call) for networks without a test stablecoin. |
 | `foundry.toml` | Build settings and the Whitechain Sepolia endpoints. |
 
 ## Regenerating
