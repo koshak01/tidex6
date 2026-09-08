@@ -115,3 +115,12 @@ category.txt
 contracts/out/
 contracts/cache/
 contracts/lib/
+
+# secrets — never commit
+helios.api.key
+token.txt
+pixel.access.txt
+google.api.txt
+synapse.toml
+synapse-bridge.log
+*-keypair.json

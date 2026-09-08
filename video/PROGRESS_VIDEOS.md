@@ -107,7 +107,7 @@
 2. **Request Invite flow** — приглашение через Telegram bot approval
 3. **IDE/terminal вставка** — RustRover с workspace `Cargo.toml`, в терминале
    `solana balance` 2.83 SOL — для зрителя контекст что это рабочий dev-сетап
-4. **Connect Phantom** — wallet подключён, `Cs9F9sdyc…8Y8n6`, кнопка "Connect
+4. **Connect Phantom** — wallet подключён, `2GdZHV6m…XJbcS`, кнопка "Connect
    Wallet" сменилась на адрес
 5. **Deposit form (browser):**
    - кнопки 0.1 / 0.5 / 1 / 10 SOL

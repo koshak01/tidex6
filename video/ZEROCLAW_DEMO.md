@@ -38,7 +38,7 @@ job. No slides.»* Непрерывная запись — самое сильн
 ### ① Платёж
 
 ```
-pay 1 USDT to Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6, memo — July retainer, auditor Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6
+pay 1 USDT to 2GdZHV6mLB2kAmXDdFG1jbZTT66c6zi3pvCqHvzXJbcS, memo — July retainer, auditor 2GdZHV6mLB2kAmXDdFG1jbZTT66c6zi3pvCqHvzXJbcS
 ```
 
 **Сеть намеренно не указана.** Агент переспросит — `mainnet (real money) or
@@ -63,7 +63,7 @@ devnet
 
 | когда | что придёт |
 |---|---|
-| сразу | `Accepted: 1 USDT → Cs9F9sdy…v8Y8n6 · auditor will read the amount and memo` |
+| сразу | `Accepted: 1 USDT → 2GdZHV6m…XJbcS · auditor will read the amount and memo` |
 | ~15 с | `Transfer confirmed — 1 USDT left the wallet` |
 | ~30 с | `Done. The payment is on chain.` + ссылка на Solscan |
 

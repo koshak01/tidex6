@@ -29,7 +29,7 @@ slides. Terminal + phone is perfect.»*
 ## ① Платёж — 60 секунд
 
 ```
-pay 1 USDT to Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6, memo — July retainer, auditor Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6
+pay 1 USDT to 2GdZHV6mLB2kAmXDdFG1jbZTT66c6zi3pvCqHvzXJbcS, memo — July retainer, auditor 2GdZHV6mLB2kAmXDdFG1jbZTT66c6zi3pvCqHvzXJbcS
 ```
 
 **Агент переспросит — и это в кадре работает на нас.** Он заметит, что получатель

@@ -73,7 +73,7 @@ Always write an address as a **Markdown link to Solscan**, with a shortened
 label:
 
 ```
-[Cs9F9sdy…v8Y8n6](https://solscan.io/account/Cs9F9sdycNUfYDLg7WGsYwbxRMubo2b4u8V4Mdv8Y8n6)
+[2GdZHV6m…XJbcS](https://solscan.io/account/2GdZHV6mLB2kAmXDdFG1jbZTT66c6zi3pvCqHvzXJbcS)
 ```
 
 Never print a bare 44-character address. The runtime's credential-leak filter
