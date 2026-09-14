@@ -354,9 +354,14 @@ EVM, где нет готового Token-2022.
 | Браузерный доказатель WASM | все сети | новые схемы |
 | Церемония | ceremony.tidex6.com, перезапускаема | одна церемония на все новые схемы |
 | CT-пул на Solana | mainnet | образец связки «шифротекст ↔ нота» |
+| **`crates/tidex6-confidential`** (ADR-015) | собирается; withdraw-схема под церемонией v2 | **готовые схемы со скрытой суммой**: `WithdrawCircuit` (8 входов: корень, nullifier, получатель hi/lo, релеер hi/lo, комиссия, сумма) и `TransferCircuit` (join-split 1→2, 4 входа), нота `Poseidon(secret, nullifier, amount)`, range 64 бит |
+| `programs/tidex6-confidential-pool` | написана, к web/relayer не подключена | Solana-пул со скрытой суммой: deposit, withdraw, transfer_note |
 
-Новое: схемы (перевод токена, депозит из шифротекста, join-split, вывод),
-контракт токена, расширение пула, клиентская криптография ElGamal.
+Новое: контракты пула со скрытой суммой на Solidity и Stylus под **уже
+готовые** схемы withdraw/transfer из `tidex6-confidential` (ни одной новой
+строки криптографии — это шаг 1 порядка работ), затем схемы токена (перевод,
+депозит из шифротекста, вывод в шифротекст), контракт токена и клиентская
+криптография ElGamal (шаг 2).
 
 ---
 
@@ -536,9 +541,15 @@ ERC-20. Между людьми, живущими в cUSDC и пуле, чисе
 
 ## 7. Порядок работ
 
-1. **Схемы** в arkworks рядом с `WithdrawCircuit`: ElGamal/Pedersen на Baby
-   Jubjub, range, пять схем из §6.2. Самая большая часть; тестовые векторы
-   сверяются с эталоном circom-реализации Baby Jubjub.
+0. **Pool v3 на EVM под готовые схемы** `tidex6-confidential` (withdraw с
+   суммой, join-split): контракты Solidity и Stylus, экспорт двух VK,
+   клиент и релеер. Даёт скрытую сумму внутри пула на всех EVM-сетях без
+   новой криптографии и с церемонией v2, которая уже идёт. Граница
+   (депозит/вывод в открытый ERC-20) на этом шаге ещё видна.
+1. **Схемы токена** в arkworks рядом с ними: ElGamal/Pedersen на Baby Jubjub,
+   `TokenTransfer`, `DepositFromToken`, `WithdrawToToken` из §6.2. Самая
+   большая часть; тестовые векторы сверяются с эталоном circom-реализации
+   Baby Jubjub.
 2. **Библиотека Baby Jubjub** для контрактов: Solidity (`mulmod`) и Stylus
    (u64-лимбы, как `field.rs`). Сверка побайтово, как делали с Poseidon.
 3. **Контракт токена** на Stylus и Solidity, один ABI.
