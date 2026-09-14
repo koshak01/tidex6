@@ -16,13 +16,13 @@ members = [
     "hidden-transfer-verifier",
     "hidden-pool",
 ]
-# `cargo stylus verify` checks for a constructor by running `cargo run
-# --features export-abi -- constructor` in the workspace root, not in the
-# crate. With five binaries here that run has nothing to pick, and the pool
-# (the only contract with a constructor) could not be verified. Naming it the
-# default member gives that run one target; the other crates are still built
-# with `--workspace` or `-p`.
-default-members = ["pool"]
+# No `default-members`: the reproducible build (`cargo stylus deploy` /
+# `verify`, stylus-tools 0.10.9) mounts the workspace root and runs a plain
+# `cargo build --lib --release --target wasm32-unknown-unknown` there, then
+# looks for `deps/<crate>.wasm`. With a narrowed default set every other
+# contract fails with "build did not generate wasm file" (hidden-withdraw-
+# verifier, 14.09.2026). Building all members costs a few seconds; the
+# constructor export runs with `--package`, so nothing is ambiguous.
 
 [workspace.package]
 version = "0.1.0"
