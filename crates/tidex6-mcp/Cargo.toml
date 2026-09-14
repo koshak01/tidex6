@@ -9,7 +9,7 @@
 [package]
 name = "tidex6-mcp"
 description = "MCP server exposing tidex6 private payments to AI agents (ADR-018)"
-version = "2.18.1"
+version = "2.19.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -30,14 +30,14 @@ serde_json = "1"
 
 tracing = "0.1"
 
-# MCP protocol. rmcp 2.x is what the collective's other MCP servers run
+# MCP protocol. rmcp 3 — the edition forge-mcp (and the whole collective) runs
 # on (oculus, mcpa9). No transport feature: this crate is a library, and the
 # transport is chosen by whoever mounts it — tidex6-web serves it over
 # streamable HTTP at mcp.tidex6.com (ADR-018 §8).
 # Ядро даёт гарантированный tool `version` (эпоха деплоя) и bootstrap
 # streamable-сервиса. rmcp берём из него же — один экземпляр в графе.
 forge-mcp = { path = "../../../forge/crates/forge-mcp" }
-rmcp = { version = "2.0", features = ["server", "macros"] }
+rmcp = { version = "3", features = ["server", "macros"] }
 # Только типы: `http::request::Parts` — то, во что rmcp кладёт HTTP-контекст
 # вызова. Через него инструмент узнаёт, чьим токеном его позвали.
 http = "1"

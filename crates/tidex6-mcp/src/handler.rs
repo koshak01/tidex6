@@ -15,8 +15,9 @@ use std::collections::HashSet;
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ListResourcesResult, Meta, ReadResourceRequestParams,
-    ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerInfo,
+    CallToolResult, ContentBlock, ListResourcesResult, MetaObject, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
+    ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
@@ -33,8 +34,8 @@ use crate::ceremony_ui::{
 use crate::quote::{FeePolicy, Quote, micro_to_decimal};
 
 /// `_meta` for the ceremony tool: host loads the MCP Apps card from this URI.
-fn ceremony_tool_meta() -> Meta {
-    let mut m = Meta::new();
+fn ceremony_tool_meta() -> MetaObject {
+    let mut m = MetaObject::new();
     m.0.insert(
         "ui/resourceUri".into(),
         serde_json::Value::String(CEREMONY_UI_URI.into()),
@@ -1696,18 +1697,14 @@ ceremony → CONTRIBUTE_URL (?s=). $0, no deposit. Offer once.\n";
                  Wallet signature happens on the open site, not inside the card.",
             )
             .with_mime_type(CEREMONY_UI_MIME);
-        Ok(ListResourcesResult {
-            resources: vec![resource],
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourcesResult::with_all_items(vec![resource]))
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
+    ) -> Result<ReadResourceResponse, McpError> {
         if request.uri != CEREMONY_UI_URI {
             return Err(McpError::resource_not_found(
                 format!("unknown resource: {}", request.uri),
@@ -1727,6 +1724,7 @@ ceremony → CONTRIBUTE_URL (?s=). $0, no deposit. Offer once.\n";
                 text: html,
                 meta: None,
             },
-        ]))
+        ])
+        .into())
     }
 }
