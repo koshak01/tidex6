@@ -109,10 +109,9 @@ contract Tidex6HiddenPool {
 
     /// @notice A note was created by a join-split. No amount, no depositor:
     ///         there is nothing public about it except its place in the tree.
+    ///         The spent note is readable through `nullifierSpent`; the two
+    ///         `NoteCreated` logs mark the transaction.
     event NoteCreated(uint256 indexed commitment, uint256 leafIndex, uint256 newRoot, bytes envelope);
-
-    /// @notice A note was spent by a join-split.
-    event NoteSpent(uint256 indexed nullifierHash);
 
     /// @notice A note left the pool.
     event Withdrawal(
@@ -125,7 +124,6 @@ contract Tidex6HiddenPool {
 
     error NotAFieldElement();
     error CommitmentAlreadyUsed();
-    error SameCommitment();
     error TreeFull();
     error RootNotRecent();
     error NullifierAlreadySpent();
@@ -202,7 +200,8 @@ contract Tidex6HiddenPool {
     ) external {
         if (nullifierSpent[nullifierHash]) revert NullifierAlreadySpent();
         if (!_isKnownRoot(merkleRoot)) revert RootNotRecent();
-        if (commitmentOut1 == commitmentOut2) revert SameCommitment();
+        // Two equal outputs fail here as well: the first reservation marks the
+        // commitment known and the second one trips on it.
         uint256 firstLeaf = _reserveLeaf(commitmentOut1, 2);
         _reserveLeaf(commitmentOut2, 1);
 
@@ -213,7 +212,6 @@ contract Tidex6HiddenPool {
 
         // Spend before inserting: the nullifier is the double-spend guard.
         nullifierSpent[nullifierHash] = true;
-        emit NoteSpent(nullifierHash);
 
         uint256 root1 = _appendLeaf(firstLeaf, commitmentOut1);
         emit NoteCreated(commitmentOut1, firstLeaf, root1, envelope1);
@@ -225,7 +223,9 @@ contract Tidex6HiddenPool {
     ///         `fee` out of it.
     /// @dev Recipient, relayer, fee and amount are public inputs to the proof,
     ///      so a relayer cannot redirect the payment, raise its own fee or
-    ///      change the amount: any change invalidates the proof.
+    ///      change the amount: any change invalidates the proof. The amount's
+    ///      range is the circuit's business — `amount` is the range-proved
+    ///      note amount — so it is not checked again here.
     function withdraw(
         uint256[2] calldata proofA,
         uint256[2][2] calldata proofB,
@@ -238,7 +238,6 @@ contract Tidex6HiddenPool {
         uint256 amount
     ) external {
         if (nullifierSpent[nullifierHash]) revert NullifierAlreadySpent();
-        if (amount == 0 || amount > MAX_AMOUNT) revert AmountOutOfRange();
         if (fee > amount) revert FeeExceedsAmount();
         if (!_isKnownRoot(merkleRoot)) revert RootNotRecent();
 

@@ -59,12 +59,10 @@ pub const MAX_AMOUNT: u64 = u64::MAX;
 sol! {
     event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 newRoot, address depositor, uint256 amount, bytes envelope);
     event NoteCreated(uint256 indexed commitment, uint256 leafIndex, uint256 newRoot, bytes envelope);
-    event NoteSpent(uint256 indexed nullifierHash);
     event Withdrawal(uint256 indexed nullifierHash, address indexed recipient, address relayer, uint256 fee, uint256 amount);
 
     error NotAFieldElement();
     error CommitmentAlreadyUsed();
-    error SameCommitment();
     error TreeFull();
     error RootNotRecent();
     error NullifierAlreadySpent();
@@ -78,7 +76,6 @@ sol! {
 pub enum PoolError {
     NotAFieldElement(NotAFieldElement),
     CommitmentAlreadyUsed(CommitmentAlreadyUsed),
-    SameCommitment(SameCommitment),
     TreeFull(TreeFull),
     RootNotRecent(RootNotRecent),
     NullifierAlreadySpent(NullifierAlreadySpent),
@@ -197,9 +194,8 @@ impl Tidex6HiddenPool {
         if !self.is_known_root_inner(merkle_root) {
             return Err(PoolError::RootNotRecent(RootNotRecent {}));
         }
-        if commitment_out1 == commitment_out2 {
-            return Err(PoolError::SameCommitment(SameCommitment {}));
-        }
+        // Two equal outputs fail here as well: the first reservation marks the
+        // commitment known and the second one trips on it.
         let first_leaf = self.reserve_leaf(commitment_out1, 2)?;
         self.reserve_leaf(commitment_out2, 1)?;
 
@@ -209,9 +205,11 @@ impl Tidex6HiddenPool {
             return Err(PoolError::InvalidProof(InvalidProof {}));
         }
 
-        // Spend before inserting: the nullifier is the double-spend guard.
+        // Spend before inserting: the nullifier is the double-spend guard. The
+        // spent nullifier is readable through `nullifierSpent`; no event, the
+        // contract has 24 KB and the two `NoteCreated` logs already mark the
+        // transaction.
         self.nullifier_spent.insert(nullifier_hash, true);
-        self.vm().log(NoteSpent { nullifierHash: nullifier_hash });
 
         let root1 = self.append_leaf(first_leaf, commitment_out1)?;
         self.vm().log(NoteCreated {
@@ -234,7 +232,9 @@ impl Tidex6HiddenPool {
     /// Withdraw a note of `amount` to `recipient`, paying `relayer` a `fee` out
     /// of it. Recipient, relayer, fee and amount are public inputs to the
     /// proof: a relayer cannot redirect the payment, raise its fee or change
-    /// the amount — any change invalidates the proof.
+    /// the amount — any change invalidates the proof. The amount's range is
+    /// the circuit's business: `amount` is the range-proved note amount, so
+    /// no check on it here.
     #[allow(clippy::too_many_arguments)]
     pub fn withdraw(
         &mut self,
@@ -250,9 +250,6 @@ impl Tidex6HiddenPool {
     ) -> Result<(), PoolError> {
         if self.nullifier_spent.get(nullifier_hash) {
             return Err(PoolError::NullifierAlreadySpent(NullifierAlreadySpent {}));
-        }
-        if amount.is_zero() || amount > U256::from(MAX_AMOUNT) {
-            return Err(PoolError::AmountOutOfRange(AmountOutOfRange {}));
         }
         if fee > amount {
             return Err(PoolError::FeeExceedsAmount(FeeExceedsAmount {}));
@@ -311,12 +308,6 @@ impl Tidex6HiddenPool {
     #[selector(name = "nullifierSpent")]
     pub fn nullifier_spent(&self, nullifier_hash: U256) -> bool {
         self.nullifier_spent.get(nullifier_hash)
-    }
-
-    /// Index the next inserted leaf will take.
-    #[selector(name = "nextLeafIndex")]
-    pub fn next_leaf_index(&self) -> U256 {
-        self.next_leaf_index.get()
     }
 }
 
