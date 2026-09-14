@@ -121,3 +121,19 @@ operation on Solana capped at 5 tokens today.
 Each network gets its own pool, its own Merkle tree and its own nullifier set.
 Deposit on Whitechain, withdraw on Whitechain. Nothing here proves anything
 about another chain's state, and nothing here should ever start to.
+
+## Hidden-amount pool deployments (14 September 2026)
+
+Same deployer, same compiler settings. Constructor `(token, withdrawVerifier,
+transferVerifier)`; the empty-tree root matches the fixed pools.
+
+| Contract | Base Sepolia (Blockscout verify Pass) | Hyperliquid testnet (no verify service) |
+|---|---|---|
+| `Tidex6HiddenWithdrawVerifier` | `0x28fbB1500875EaEbe303D195C1a3721BBed8AF5f` | `0x17F6cb7C4De0dbFE18e37fdF4CE08DdA33b9DEf3` |
+| `Tidex6HiddenTransferVerifier` | `0xCb8aeab3cA33Ba011B6A5b3a75edd1902A626B18` | `0xbAF576FFA109af38E2b2573b063e5A230eEf3070` |
+| `Tidex6HiddenPool` | `0xC821B4BF26CF181253b60C1116Bb1Fa6D7dCB0D4`, block 46822962 | `0x9776E68B41CA42970b81e4D33cc0f5729F4D8D5f`, block 64274657 (big block) |
+
+The withdraw verifier carries the ceremony **genesis** key of the hidden-amount
+circuit — no contributions applied yet, so treat it as a development key. The
+join-split verifier is the seeded development setup until that circuit joins
+the ceremony.

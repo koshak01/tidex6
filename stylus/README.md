@@ -123,7 +123,22 @@ exactly one target; the root manifest is part of the project hash sealed into
 a deployment, so pools deployed before that change cannot verify and are
 redeployed.
 
-### Why the Robinhood pool cannot show a green `cargo stylus verify`
+#### Hidden-amount pool (both networks, 14 September 2026)
+
+Deployed from `0xe84041bd169532f5c74666fff6a527257048f3a7`, reproducible Docker
+builds, `cargo stylus verify` green on every contract including the pool's
+constructor. Constructor `(token, withdrawVerifier, transferVerifier, poseidon)`.
+
+| Contract | Arbitrum Sepolia | Robinhood testnet |
+|---|---|---|
+| `hidden-withdraw-verifier` (8 inputs, ceremony genesis key) | `0xe00eca003e40bb3f2df30c5b7111c73cff9d0b00` | `0x6f6c5b8e4b2f637aa7c7c47eb90c73bc18c5008d` |
+| `hidden-transfer-verifier` (4 inputs, development key) | `0x5024f1348dccb7f612cf0f5dc08de81b99c3fbb8` | `0xeb8cfac5351089d9436fc9fc3a40c93f1aa282f4` |
+| `hidden-pool` | `0xe4c1f2bc121800b8e56ff11dced9a62d6ce3b383`, block 308906090 | `0xf4029451b6988d32ed1a9de847bf3250e83a87fe`, block 119527162 |
+
+The pool is 24.6 KB after brotli in the reproducible build and deploys as two
+fragments; the empty-tree root matches the fixed pools (`0x2134e76a…1f3e`).
+
+## Why the Robinhood pool cannot show a green `cargo stylus verify`
 
 `cargo stylus verify` on a contract with a constructor rebuilds the WASM,
 decodes the factory call from the deployment transaction, compares the
