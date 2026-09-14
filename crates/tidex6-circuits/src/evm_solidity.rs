@@ -88,6 +88,31 @@ fn g2_decimal(point: &G2Affine) -> (String, String, String, String) {
 /// # Возвращает
 /// * `String` — the complete contract source, ready to write to a `.sol` file.
 pub fn render_solidity_verifier(vk: &VerifyingKey<Bn254>, header: &str) -> String {
+    render_solidity_verifier_named(vk, header, "Tidex6Verifier", "withdraw circuit")
+}
+
+/// Render the verifier under a chosen contract name.
+///
+/// One verifying key is one contract, and a pool that checks two circuits (the
+/// hidden-amount pool: withdraw and join-split) needs two verifiers side by
+/// side in the same Solidity project — so they cannot both be called
+/// `Tidex6Verifier`. The assembly is identical whatever the name; only the
+/// header, the contract identifier and the circuit named in the docs change.
+///
+/// # Параметры
+/// * `vk` — the verifying key to embed.
+/// * `header` — comment block placed above the pragma.
+/// * `contract_name` — Solidity identifier of the emitted contract.
+/// * `circuit_label` — human-readable circuit name for the `@title` line.
+///
+/// # Возвращает
+/// * `String` — the complete contract source.
+pub fn render_solidity_verifier_named(
+    vk: &VerifyingKey<Bn254>,
+    header: &str,
+    contract_name: &str,
+    circuit_label: &str,
+) -> String {
     let public_inputs = vk.gamma_abc_g1.len() - 1;
 
     let (alpha_x, alpha_y) = g1_decimal(&vk.alpha_g1);
@@ -119,12 +144,12 @@ pub fn render_solidity_verifier(vk: &VerifyingKey<Bn254>, header: &str) -> Strin
         r#"{header}// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title Groth16 verifier for the tidex6 withdraw circuit
+/// @title Groth16 verifier for the tidex6 {circuit_label}
 /// @notice Verifies BN254 Groth16 proofs produced by the tidex6 browser
 ///         prover. Generated from the verifying key — do not edit by hand;
-///         regenerate with `cargo run --bin export_solidity_verifier`.
+///         regenerate with the exporter named in the header.
 /// @dev Public inputs: {public_inputs}
-contract Tidex6Verifier {{
+contract {contract_name} {{
     // Base field modulus.
     uint256 constant q =
         21888242871839275222246405745257275088696311157297823662689037894645226208583;

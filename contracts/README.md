@@ -13,6 +13,11 @@ First target: **Whitechain Sepolia** (chain id `1874`, OP Stack, Cancun EVM).
 | Path | What it is |
 |---|---|
 | `src/Tidex6Verifier.sol` | Groth16 verifier for `WithdrawCircuit<20>`. Generated — never edit by hand. |
+| `src/Tidex6Pool.sol` | Fixed-denomination shielded pool: one note size, five public inputs. |
+| `src/Tidex6HiddenPool.sol` | Hidden-amount shielded pool: notes of any size, amount inside the commitment, join-split transfers. Circuits from `crates/tidex6-confidential`. |
+| `src/Tidex6HiddenWithdrawVerifier.sol` | Groth16 verifier for the hidden-amount withdraw circuit (8 public inputs). Generated. |
+| `src/Tidex6HiddenTransferVerifier.sol` | Groth16 verifier for the join-split circuit (4 public inputs). Generated. |
+| `src/Tidex6Registry.sol` | On-chain registry of reading keys (ADR-019). |
 | `test/Tidex6Verifier.t.sol` | Proof produced by the Rust prover, asserted to verify on-chain, plus four rejection cases. Generated. |
 | `test/fixture.json` | The same proof as data, for other tooling. |
 | `src/TestUSDC.sol` | Ownerless 6-decimal test token with a public `mint` (100 per call) for networks without a test stablecoin. |
@@ -26,7 +31,15 @@ never drift from the one the prover uses:
 ```sh
 cargo run --bin export_solidity_verifier --release   # → src/Tidex6Verifier.sol
 cargo run --bin export_solidity_fixture  --release   # → test/fixture.json
+cargo run --bin export_evm_verifiers --release -p tidex6-confidential
+    # → src/Tidex6HiddenWithdrawVerifier.sol, src/Tidex6HiddenTransferVerifier.sol
+    #   (and the Stylus vk.rs of both)
 ```
+
+`export_evm_verifiers` reads the hidden-amount ceremony state (argument,
+`~/.tidex6-ceremony/final.state`, or the checked-in genesis) for the withdraw
+key; the join-split key is the development setup until that circuit joins the
+ceremony. Each header says which.
 
 `export_solidity_verifier` reads `~/.tidex6-ceremony/final.state` when it
 exists and falls back to the development setup otherwise. The generated header

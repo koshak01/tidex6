@@ -1,0 +1,27 @@
+[package]
+name = "tidex6-stylus-hidden-withdraw-verifier"
+description = "Groth16 verifier for the tidex6 hidden-amount withdraw circuit (WithdrawCircuit, eight public inputs), on Arbitrum Stylus. Same verifying key and same ABI as contracts/src/Tidex6HiddenWithdrawVerifier.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# `cargo stylus verify` shells out to `cargo run`; with a lib and a bin in one
+# crate it needs to be told which binary. Part of the project hash sealed
+# into the deployment — change it only together with a redeploy.
+default-run = "tidex6-stylus-hidden-withdraw-verifier"
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]

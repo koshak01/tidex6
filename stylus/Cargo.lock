@@ -947,6 +947,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-stylus-hidden-pool"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-hidden-transfer-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-hidden-withdraw-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
 name = "tidex6-stylus-pool"
 version = "0.1.0"
 dependencies = [

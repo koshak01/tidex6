@@ -6,7 +6,16 @@
 # stylus-sdk and must be built with `cargo stylus`, not with the host build.
 [workspace]
 resolver = "2"
-members = ["common", "poseidon", "verifier", "pool", "registry"]
+members = [
+    "common",
+    "poseidon",
+    "verifier",
+    "pool",
+    "registry",
+    "hidden-withdraw-verifier",
+    "hidden-transfer-verifier",
+    "hidden-pool",
+]
 # `cargo stylus verify` checks for a constructor by running `cargo run
 # --features export-abi -- constructor` in the workspace root, not in the
 # crate. With five binaries here that run has nothing to pick, and the pool

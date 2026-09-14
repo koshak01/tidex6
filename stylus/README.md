@@ -21,10 +21,28 @@ drift from what the prover uses:
 ```sh
 cargo run --bin export_solidity_verifier --release   # → verifier/src/vk.rs (+ contracts/src/Tidex6Verifier.sol)
 cargo run --bin export_solidity_poseidon --release   # → common/src/poseidon_consts.rs (+ contracts/src/PoseidonT3.sol)
+cargo run --bin export_evm_verifiers   --release -p tidex6-confidential
+    # → hidden-withdraw-verifier/src/vk.rs, hidden-transfer-verifier/src/vk.rs
+    #   (+ contracts/src/Tidex6HiddenWithdrawVerifier.sol, Tidex6HiddenTransferVerifier.sol)
 ```
 
 One verifying key, one Poseidon parameter set, three verifiers (Solana,
 Solidity, Stylus).
+
+The pairing check itself is written once, in `common/src/groth16.rs`; each
+verifier crate is a generated `vk.rs` plus the entry point that hands the key
+to it.
+
+## Hidden-amount pool
+
+`hidden-pool` is the second pool: notes of any size, the amount inside the
+commitment (`Poseidon(secret, nullifier, amount)`, range-proved to 64 bits),
+join-split transfers inside the pool that move no token and show no amount.
+Its circuits are `crates/tidex6-confidential` — the same ones the public
+ceremony runs on — and its two verifiers are `hidden-withdraw-verifier`
+(eight public inputs) and `hidden-transfer-verifier` (four). Constructor:
+`(token, withdrawVerifier, transferVerifier, poseidon)`. Same ABI as
+`contracts/src/Tidex6HiddenPool.sol`.
 
 ## Building
 

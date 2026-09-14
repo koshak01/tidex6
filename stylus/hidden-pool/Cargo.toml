@@ -1,0 +1,28 @@
+[package]
+name = "tidex6-stylus-hidden-pool"
+description = "Hidden-amount shielded pool for a single ERC-20 on Arbitrum Stylus: notes of any size, the amount inside the Poseidon commitment and proven in range; withdrawals and join-split transfers verified by Groth16. Same ABI, events and errors as contracts/src/Tidex6HiddenPool.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# `cargo stylus verify` shells out to `cargo run`; with a lib and a bin in one
+# crate it needs to be told which binary. Part of the project hash sealed
+# into the deployment — change it only together with a redeploy.
+default-run = "tidex6-stylus-hidden-pool"
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]
