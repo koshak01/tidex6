@@ -135,10 +135,12 @@ impl Network {
                 symbol: "wUSDC",
                 decimals: 6,
                 // Devnet test-USDC — синхронизировано с оператор-config.toml
-                // (источник истины: `[mints.devnet_wusdc]`, сверено 2026-07-15).
-                underlying_mint: Some("F9smufbnpSkW7tSxjEWzTaNnjBASJLCfXcpPyvACeUyr"),
+                // (источник истины: `[mints.devnet_wusdc]`, выпущено 2026-09-15
+                // под оператора wARvfUk1…; прежние минты F9smufbn…/396nGJn8…
+                // остались за выброшенным ключом ED1HHGK6…).
+                underlying_mint: Some("8FHTQTvfBXhUyTHdH93njdd8MM4W1YC7JVkLQj1FhHD8"),
                 // wUSDC Token-2022 CT-обёртка (config `wrapped`).
-                wrapped_mint: Some("396nGJn8DLuRBsT7pS7syop6BLqL6LfAoU4h7x1hbkEN"),
+                wrapped_mint: Some("E61QuV37pdJdrkUJ7tqskR5pwhN9kEv8wE948fVzoV4m"),
                 // Пул задеплоен на devnet по тому же адресу (2026-07-06,
                 // tx 5dFvpRAraE3g…). Пул сам верифицирует — verifier не нужен.
                 pool_program: Some("AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU"),
@@ -148,10 +150,11 @@ impl Network {
                 symbol: "wUSDT",
                 decimals: 6,
                 // Devnet test-USDT — синхронизировано с оператор-config.toml
-                // (источник истины: `[mints.devnet_wusdt]`, сверено 2026-07-15).
-                underlying_mint: Some("95LWdVc5WR5nB1GPuekXZq1siaJXpzeVV6TeuN488F9T"),
+                // (источник истины: `[mints.devnet_wusdt]`, выпущено 2026-09-15
+                // под оператора wARvfUk1…; прежние 95LWdVc5…/ELq1Hytw… мертвы).
+                underlying_mint: Some("DgTydsx2TpyXCkZ6JmSvjrwRCvXXS76z4mZao6RWwov4"),
                 // wUSDT Token-2022 CT-обёртка (config `wrapped`).
-                wrapped_mint: Some("ELq1Hytw5Ujhyg5X2tQ4SswjoEPm4PnbATJCSJoK9Tf6"),
+                wrapped_mint: Some("7AZiD9KbkmM7zxnrjbW8cc8GHHsGsqi5AvYmYsJMuv6Q"),
                 // Тот же program-id QGPY на devnet (деплой того же .so).
                 pool_program: Some("QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2"),
             }),
