@@ -18,7 +18,14 @@
 //! contracts/src/Tidex6HiddenTransferVerifier.sol
 //! stylus/hidden-withdraw-verifier/src/vk.rs
 //! stylus/hidden-transfer-verifier/src/vk.rs
+//! crates/tidex6-confidential/artifacts/hidden_withdraw_pk.bin
+//! crates/tidex6-confidential/artifacts/hidden_transfer_pk.bin
 //! ```
+//!
+//! The two `.bin` files are the matching proving keys, serialized the way the
+//! browser prover reads them (`ProvingKey::serialize_uncompressed`). A verifier
+//! and its proving key must come from the same setup, so they leave here
+//! together. Copy them to `tidex6-web/static/wasm/` on deploy.
 //!
 //! Usage:
 //!
@@ -35,7 +42,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use ark_bn254::Bn254;
-use ark_groth16::VerifyingKey;
+use ark_groth16::{ProvingKey, VerifyingKey};
+use ark_serialize::CanonicalSerialize;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::rngs::StdRng;
 
@@ -115,7 +123,7 @@ fn locate_withdraw_source(root: &std::path::Path) -> WithdrawSource {
 }
 
 /// Load a ceremony state and prove that its key drives this circuit.
-fn withdraw_vk_from_state(path: &std::path::Path) -> VerifyingKey<Bn254> {
+fn withdraw_key_from_state(path: &std::path::Path) -> (ProvingKey<Bn254>, VerifyingKey<Bn254>) {
     let bytes = fs::read(path).expect("read ceremony state");
     let state = CeremonyState::from_bytes(&bytes).expect("parse ceremony state");
     println!(
@@ -125,7 +133,18 @@ fn withdraw_vk_from_state(path: &std::path::Path) -> VerifyingKey<Bn254> {
     );
     let vk = selftest_pk(&state.pk, SELFTEST_SEED).expect("ceremony pk self-test failed");
     println!("self-test OK — key encodes a working hidden-amount WithdrawCircuit");
-    vk
+    (state.pk, vk)
+}
+
+/// Write the proving key next to the verifier it belongs to.
+fn write_proving_key(root: &std::path::Path, pk: &ProvingKey<Bn254>, name: &str) {
+    let dir = root.join("crates/tidex6-confidential/artifacts");
+    fs::create_dir_all(&dir).expect("create artifacts dir");
+    let path = dir.join(format!("{name}_pk.bin"));
+    let mut bytes = Vec::new();
+    pk.serialize_uncompressed(&mut bytes).expect("serialize proving key");
+    fs::write(&path, &bytes).expect("write proving key");
+    println!("wrote {} ({} bytes)", path.display(), bytes.len());
 }
 
 /// Write one verifier pair: the Solidity contract and the Stylus `vk.rs`.
@@ -155,14 +174,13 @@ fn write_pair(
 fn main() {
     let root = find_workspace_root();
 
-    let (withdraw_vk, withdraw_header) = match locate_withdraw_source(&root) {
-        WithdrawSource::Ceremony(path) => (withdraw_vk_from_state(&path), CEREMONY_HEADER),
-        WithdrawSource::Genesis(path) => (withdraw_vk_from_state(&path), GENESIS_HEADER),
+    let ((withdraw_pk, withdraw_vk), withdraw_header) = match locate_withdraw_source(&root) {
+        WithdrawSource::Ceremony(path) => (withdraw_key_from_state(&path), CEREMONY_HEADER),
+        WithdrawSource::Genesis(path) => (withdraw_key_from_state(&path), GENESIS_HEADER),
         WithdrawSource::Development => {
             println!("no ceremony state found — using the DEVELOPMENT setup");
             let mut rng = StdRng::seed_from_u64(WITHDRAW_SEED);
-            let (_pk, vk) = withdraw::setup(&mut rng).expect("withdraw dev setup");
-            (vk, DEV_HEADER)
+            (withdraw::setup(&mut rng).expect("withdraw dev setup"), DEV_HEADER)
         }
     };
     assert_eq!(
@@ -178,10 +196,11 @@ fn main() {
         "hidden-amount withdraw circuit",
         "hidden-withdraw-verifier",
     );
+    write_proving_key(&root, &withdraw_pk, "hidden_withdraw");
 
     println!("transfer (join-split): DEVELOPMENT setup — not yet in the ceremony");
     let mut rng = StdRng::seed_from_u64(TRANSFER_SEED);
-    let (_pk, transfer_vk) = transfer::setup(&mut rng).expect("transfer dev setup");
+    let (transfer_pk, transfer_vk) = transfer::setup(&mut rng).expect("transfer dev setup");
     assert_eq!(
         transfer_vk.gamma_abc_g1.len() - 1,
         transfer::TRANSFER_NR_PUBLIC_INPUTS,
@@ -195,4 +214,5 @@ fn main() {
         "hidden-amount join-split circuit",
         "hidden-transfer-verifier",
     );
+    write_proving_key(&root, &transfer_pk, "hidden_transfer");
 }

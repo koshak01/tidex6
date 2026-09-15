@@ -32,6 +32,7 @@ use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
+use tidex6_circuits::circom_qap::CircomReduction;
 use tidex6_circuits::poseidon_gadget::{poseidon_hash_n_var, poseidon_hash_pair_var};
 
 use crate::bytes::{fr_from_u64, fr_to_be_bytes, split_pubkey};
@@ -220,13 +221,38 @@ pub struct WithdrawWitness {
     pub relayer_fee: u64,
 }
 
-/// Доказать право вывести ноту. Возвращает proof + публичные входы в
-/// каноническом порядке (см. модульный docstring).
+/// Доказать право вывести ноту ключом из arkworks-setup (`setup`).
+/// Возвращает proof + публичные входы в каноническом порядке (см. модульный
+/// docstring).
 pub fn prove<R: RngCore + CryptoRng>(
     pk: &ProvingKey<Bn254>,
     w: &WithdrawWitness,
     rng: &mut R,
 ) -> Result<(Proof<Bn254>, [Fr; WITHDRAW_NR_PUBLIC_INPUTS]), SynthesisError> {
+    let (circuit, public_inputs) = circuit_and_inputs(w);
+    let proof = Groth16::<Bn254>::prove(pk, circuit, rng)?;
+    Ok((proof, public_inputs))
+}
+
+/// То же доказательство ключом церемонии (генезис или финальное состояние).
+///
+/// Ключ церемонии рождается в snarkjs, а его `h_query` разложен иначе, чем
+/// ждёт дефолтная редукция arkworks: доказательство, собранное `prove`, такой
+/// ключ не примет. `CircomReduction` повторяет раскладку snarkjs — та же
+/// причина, по которой ей пользуется `ceremony::selftest_pk`.
+pub fn prove_ceremony<R: RngCore + CryptoRng>(
+    pk: &ProvingKey<Bn254>,
+    w: &WithdrawWitness,
+    rng: &mut R,
+) -> Result<(Proof<Bn254>, [Fr; WITHDRAW_NR_PUBLIC_INPUTS]), SynthesisError> {
+    let (circuit, public_inputs) = circuit_and_inputs(w);
+    let proof = Groth16::<Bn254, CircomReduction>::prove(pk, circuit, rng)?;
+    Ok((proof, public_inputs))
+}
+
+/// Схема с заполненными свидетелями и её публичные входы в каноническом
+/// порядке — общая часть `prove` и `prove_ceremony`.
+fn circuit_and_inputs(w: &WithdrawWitness) -> (WithdrawCircuit, [Fr; WITHDRAW_NR_PUBLIC_INPUTS]) {
     let amount = fr_from_u64(w.amount);
     let nh = nullifier_hash(w.nullifier);
     let (recipient_hi, recipient_lo) = split_pubkey(&w.recipient);
@@ -248,7 +274,6 @@ pub fn prove<R: RngCore + CryptoRng>(
         relayer_fee: Some(relayer_fee),
         amount_public: Some(amount),
     };
-    let proof = Groth16::<Bn254>::prove(pk, circuit, rng)?;
     let public_inputs = [
         w.merkle_root,
         nh,
@@ -259,7 +284,7 @@ pub fn prove<R: RngCore + CryptoRng>(
         relayer_fee,
         amount,
     ];
-    Ok((proof, public_inputs))
+    (circuit, public_inputs)
 }
 
 pub fn verify(
