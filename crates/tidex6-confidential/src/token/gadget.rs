@@ -13,7 +13,9 @@ use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::eq::EqGadget;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::groups::CurveVar;
+use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
+use tidex6_circuits::poseidon_gadget::{poseidon_hash_n_var, poseidon_hash_pair_var};
 
 use super::elgamal::{amount_bits_le, generator_g, generator_h, scalar_bits_le, AMOUNT_BITS, SCALAR_BITS};
 
@@ -82,4 +84,58 @@ pub fn enforce_balance(
 /// Коммитмент `m·G + r·H`.
 pub fn commitment(amount_bits: &[Boolean<Fr>], opening_bits: &[Boolean<Fr>]) -> Result<EdwardsVar, SynthesisError> {
     Ok(mul(&constant_g(), amount_bits)? + mul(&constant_h(), opening_bits)?)
+}
+
+/// Путь Меркла в схеме: соседи по уровням и биты направления.
+pub type MerklePathVars = (Vec<FpVar<Fr>>, Vec<Boolean<Fr>>);
+
+/// Путь Меркла как свидетели: `depth` соседей и `depth` бит направления.
+pub fn merkle_witness<const DEPTH: usize>(
+    cs: ConstraintSystemRef<Fr>,
+    siblings: Option<[Fr; DEPTH]>,
+    indices: Option<[bool; DEPTH]>,
+) -> Result<MerklePathVars, SynthesisError> {
+    let sibling_vars = (0..DEPTH)
+        .map(|level| FpVar::new_witness(cs.clone(), || siblings.map(|s| s[level]).ok_or_else(missing)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let index_vars = (0..DEPTH)
+        .map(|level| Boolean::new_witness(cs.clone(), || indices.map(|b| b[level]).ok_or_else(missing)))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((sibling_vars, index_vars))
+}
+
+/// Корень дерева от листа по пути — тот же обход, что в пуле: бит `1`
+/// значит «текущий узел справа».
+///
+/// Схемы пула (`crate::withdraw`, `crate::transfer`) держат свою копию этого
+/// цикла и не могут перейти на эту функцию: их форма ограничений заморожена
+/// ключом церемонии, и любое изменение — новый ключ.
+pub fn merkle_root(
+    cs: ConstraintSystemRef<Fr>,
+    leaf: FpVar<Fr>,
+    siblings: &[FpVar<Fr>],
+    index_bits: &[Boolean<Fr>],
+) -> Result<FpVar<Fr>, SynthesisError> {
+    let mut current = leaf;
+    for (sibling, bit) in siblings.iter().zip(index_bits) {
+        let left = FpVar::conditionally_select(bit, sibling, &current)?;
+        let right = FpVar::conditionally_select(bit, &current, sibling)?;
+        current = poseidon_hash_pair_var(cs.clone(), &left, &right)?;
+    }
+    Ok(current)
+}
+
+/// Нота пула `Poseidon(secret, nullifier, amount)` внутри схемы.
+pub fn note_commitment(
+    cs: ConstraintSystemRef<Fr>,
+    secret: &FpVar<Fr>,
+    nullifier: &FpVar<Fr>,
+    amount: &FpVar<Fr>,
+) -> Result<FpVar<Fr>, SynthesisError> {
+    poseidon_hash_n_var(cs, &[secret.clone(), nullifier.clone(), amount.clone()])
+}
+
+/// `Poseidon(nullifier)` внутри схемы.
+pub fn nullifier_hash(cs: ConstraintSystemRef<Fr>, nullifier: &FpVar<Fr>) -> Result<FpVar<Fr>, SynthesisError> {
+    poseidon_hash_n_var(cs, std::slice::from_ref(nullifier))
 }

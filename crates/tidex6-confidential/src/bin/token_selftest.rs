@@ -14,9 +14,16 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisMode};
 use ark_std::rand::rngs::StdRng;
 use ark_std::rand::SeedableRng;
+use tidex6_confidential::bytes::{fr_from_u64, fr_to_be_bytes};
+use tidex6_confidential::token::deposit::{self, DepositFromTokenCircuit, DepositFromTokenWitness};
 use tidex6_confidential::token::elgamal::{self, PublicKey, SecretKey};
+use tidex6_confidential::token::exit::{self, WithdrawToTokenCircuit, WithdrawToTokenWitness};
 use tidex6_confidential::token::pubkey::{self, PubkeyValidityCircuit};
 use tidex6_confidential::token::transfer::{self, TokenTransferCircuit, TokenTransferWitness};
+use tidex6_confidential::token::unwrap::{self, TokenUnwrapCircuit, TokenUnwrapWitness};
+use tidex6_confidential::withdraw::{note_commitment, POOL_TREE_DEPTH};
+use tidex6_core::merkle::MerkleTree;
+use tidex6_core::types::Commitment;
 
 fn hex(f: &Fr) -> String {
     let bytes = f.into_bigint().to_bytes_be();
@@ -108,5 +115,95 @@ fn main() {
     let overspend = TokenTransferWitness { amount: 1_000_001, ..witness };
     assert!(transfer::prove(&pk_tr, &overspend, &mut rng).is_err());
     println!("  overspend rejected");
+
+    // ── unwrap circuit ───────────────────────────────────────────────
+    let (n, inputs) = count_constraints(TokenUnwrapCircuit::default());
+    println!("TokenUnwrap: {n} constraints, {inputs} public inputs");
+    let t = Instant::now();
+    let (pk_un, vk_un) = unwrap::setup(&mut rng).expect("setup");
+    println!("  setup {:?}", t.elapsed());
+    let t = Instant::now();
+    let (proof, public) = unwrap::prove(
+        &pk_un,
+        &TokenUnwrapWitness { secret: alice.clone(), balance: 1_000_000, available: wrap, amount: 400_000 },
+        &mut rng,
+    )
+    .expect("prove");
+    println!("  prove {:?}", t.elapsed());
+    let ok = unwrap::verify(&unwrap::prepare_vk(&vk_un), &proof, &public).expect("verify");
+    println!("  verify: {ok}");
+    assert!(ok);
+
+    // ── deposit-from-token circuit ───────────────────────────────────
+    let (n, inputs) = count_constraints(DepositFromTokenCircuit::default());
+    println!("DepositFromToken: {n} constraints, {inputs} public inputs");
+    let t = Instant::now();
+    let (pk_dep, vk_dep) = deposit::setup(&mut rng).expect("setup");
+    println!("  setup {:?}", t.elapsed());
+    let note_secret = Fr::from(0x5ec2e7_u64);
+    let note_nullifier = Fr::from(0x4011_u64);
+    let t = Instant::now();
+    let (proof, public) = deposit::prove(
+        &pk_dep,
+        &DepositFromTokenWitness {
+            secret: alice.clone(),
+            balance: 1_000_000,
+            available: wrap,
+            amount: 300_000,
+            opening: r,
+            note_secret,
+            note_nullifier,
+        },
+        &mut rng,
+    )
+    .expect("prove");
+    println!("  prove {:?}", t.elapsed());
+    let ok = deposit::verify(&deposit::prepare_vk(&vk_dep), &proof, &public.inputs()).expect("verify");
+    println!("  verify: {ok}");
+    assert!(ok);
+
+    // ── withdraw-to-token circuit ────────────────────────────────────
+    let (n, inputs) = count_constraints(WithdrawToTokenCircuit::default());
+    println!("WithdrawToToken: {n} constraints, {inputs} public inputs");
+    let t = Instant::now();
+    let (pk_ex, vk_ex) = exit::setup(&mut rng).expect("setup");
+    println!("  setup {:?}", t.elapsed());
+    // The note deposited above sits at leaf 0 of an otherwise empty tree.
+    let leaf = note_commitment(note_secret, note_nullifier, fr_from_u64(300_000));
+    let mut tree = MerkleTree::new(POOL_TREE_DEPTH).expect("tree");
+    tree.insert(Commitment::from_bytes(fr_to_be_bytes(leaf))).expect("insert");
+    let merkle_proof = tree.proof(0).expect("proof");
+    let mut siblings = [Fr::from(0u64); POOL_TREE_DEPTH];
+    for (slot, sibling) in siblings.iter_mut().zip(merkle_proof.siblings.iter()) {
+        *slot = Fr::from_be_bytes_mod_order(sibling.as_bytes());
+    }
+    let mut indices = [false; POOL_TREE_DEPTH];
+    for (i, bit) in indices.iter_mut().enumerate() {
+        *bit = (merkle_proof.leaf_index >> i) & 1 == 1;
+    }
+    let t = Instant::now();
+    let (proof, public) = exit::prove(
+        &pk_ex,
+        &WithdrawToTokenWitness {
+            note_secret,
+            note_nullifier,
+            amount: 300_000,
+            path_siblings: siblings,
+            path_indices: indices,
+            merkle_root: Fr::from_be_bytes_mod_order(tree.root().as_bytes()),
+            opening: elgamal::random_opening(&mut rng),
+            recipient: bob_pk,
+        },
+        &mut rng,
+    )
+    .expect("prove");
+    println!("  prove {:?}", t.elapsed());
+    let ok = exit::verify(&exit::prepare_vk(&vk_ex), &proof, &public.inputs()).expect("verify");
+    println!("  verify: {ok}");
+    assert!(ok);
+    // Bob reads what landed on his pending balance.
+    let credited = elgamal::decode_amount(&bob.decrypt_point(&public.credited), 32).expect("decode");
+    println!("  recipient decodes pending credit: {credited}");
+    assert_eq!(credited, 300_000);
     println!("Done.");
 }
