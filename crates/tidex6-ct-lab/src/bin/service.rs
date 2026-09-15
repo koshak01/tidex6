@@ -843,6 +843,18 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 }
             }
         }
+        // Devnet-кран тестового underlying для кошелька со страницы: судья
+        // пробует приватный платёж без денег. Реестр-гейт по кошельку делает
+        // web, здесь — только сеть и чеканка.
+        "faucet" => {
+            if net != Network::Devnet {
+                anyhow::bail!("faucet only on devnet");
+            }
+            let wallet = field_str(req, "wallet")
+                .filter(|w| !w.trim().is_empty())
+                .context("faucet: missing wallet")?;
+            ct::faucet(rpc.clone(), payer, &wallet).await
+        }
         other => anyhow::bail!("unknown operation: {other}"),
     }
 }

@@ -941,3 +941,53 @@ fn json_num(json: &str, key: &str) -> Option<u64> {
         .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
+
+// ── faucet: тестовый underlying для devnet-кошелька ─────────────────────
+/// Сколько тестового underlying выдаёт кран за один запрос: 100 токенов
+/// (6 знаков). Хватает на десятки платежей и не имеет цены.
+const FAUCET_AMOUNT: u64 = 100 * 1_000_000;
+
+/// Чеканит тестовый underlying (test-USDC / test-USDT) на кошелёк `wallet`.
+///
+/// Только devnet: там настоящего Circle-USDC нет, а mint authority тестовых
+/// минтов — оператор, поэтому он и чеканит. Порядок:
+/// 1. Разобрать адрес кошелька и взять underlying активного актива
+///    (config-оверрайд или реестр).
+/// 2. Создать ATA кошелька, если её нет (рента за счёт оператора; кошелёк
+///    уже прошёл реестр читателей на стороне web, так что это не бесплатный
+///    цикл).
+/// 3. `mint_to` на FAUCET_AMOUNT.
+///
+/// # Параметры
+/// * `rpc` — узел devnet
+/// * `payer` — оператор, mint authority тестовых минтов
+/// * `wallet` — base58-адрес получателя
+///
+/// # Возвращает
+/// * `Result<String>` — текст с суммой, минтом и подписью транзакции
+pub async fn faucet(rpc: Arc<RpcClient>, payer: &Keypair, wallet: &str) -> Result<String> {
+    let owner: Pubkey = wallet.trim().parse().context("faucet: wallet is not a base58 pubkey")?;
+    let (u, _) = symbols();
+    let mint: Pubkey = usdc_mint().parse()?;
+    let pc = program_client(rpc);
+    let test_token = token(pc, &spl_token::id(), &mint, payer);
+    let ata = test_token.get_associated_token_address(&owner);
+    if test_token.get_account_info(&ata).await.is_err() {
+        test_token
+            .create_associated_token_account(&owner)
+            .await
+            .map_err(|e| anyhow!("faucet: create ATA for {owner}: {e}"))?;
+    }
+    let sig = test_token
+        .mint_to(&ata, &payer.pubkey(), FAUCET_AMOUNT, &[payer])
+        .await
+        .context("faucet: mint_to")?;
+    let sig = match sig {
+        spl_token_client::client::RpcClientResponse::Signature(s) => s.to_string(),
+        other => format!("{other:?}"),
+    };
+    Ok(format!(
+        "minted {} test-{u} to {owner}\nmint: {mint}\ntx: {sig}",
+        FAUCET_AMOUNT / 1_000_000
+    ))
+}
