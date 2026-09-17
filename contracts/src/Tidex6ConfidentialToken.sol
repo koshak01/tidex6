@@ -120,17 +120,15 @@ contract Tidex6ConfidentialToken {
     ///         sealed opening `(m, r)` plus the memo, readable by the
     ///         recipient and by an auditor the sender named — and by nobody
     ///         else, including this contract.
+    /// @dev `points` carries four `(x, y)` pairs in this order: amount
+    ///      commitment, recipient handle, auditor key, auditor handle. One
+    ///      static array instead of eight scalars keeps `transfer` under the
+    ///      legacy code generator's stack limit — the build profile stays the
+    ///      one every deployed contract was verified with.
     event ConfidentialTransfer(
         bytes32 indexed recipientKeyHash,
         bytes32 indexed senderKeyHash,
-        uint256 commitmentX,
-        uint256 commitmentY,
-        uint256 recipientHandleX,
-        uint256 recipientHandleY,
-        uint256 auditorKeyX,
-        uint256 auditorKeyY,
-        uint256 auditorHandleX,
-        uint256 auditorHandleY,
+        uint256[8] points,
         bytes envelope
     );
     event Unwrapped(address indexed owner, uint64 amount);
@@ -279,19 +277,7 @@ contract Tidex6ConfidentialToken {
         Cipher memory credit = Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[12], input[13]));
         _credit(recipient, credit);
 
-        emit ConfidentialTransfer(
-            keccak256(abi.encodePacked(input[10], input[11])),
-            keccak256(abi.encodePacked(input[0], input[1])),
-            input[6],
-            input[7],
-            input[12],
-            input[13],
-            input[14],
-            input[15],
-            input[16],
-            input[17],
-            envelope
-        );
+        _emitTransfer(input, envelope);
     }
 
     /// @notice Leave for the plain token: burn `amount` from your confidential
@@ -432,6 +418,29 @@ contract Tidex6ConfidentialToken {
             account.pending.handle.y,
             account.pendingCount,
             account.registered
+        );
+    }
+
+    /// Emit `ConfidentialTransfer` from the circuit's public inputs.
+    ///
+    /// A separate function so its locals live in their own stack frame; inlined
+    /// into `transfer`, the event alone pushed that function past the limit.
+    function _emitTransfer(uint256[18] calldata input, bytes calldata envelope) private {
+        uint256[8] memory points = [
+            input[6],
+            input[7],
+            input[12],
+            input[13],
+            input[14],
+            input[15],
+            input[16],
+            input[17]
+        ];
+        emit ConfidentialTransfer(
+            keccak256(abi.encodePacked(input[10], input[11])),
+            keccak256(abi.encodePacked(input[0], input[1])),
+            points,
+            envelope
         );
     }
 
