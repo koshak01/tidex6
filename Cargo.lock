@@ -557,6 +557,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-r1cs-std",
  "ark-std 0.5.0",
 ]
 
@@ -5201,6 +5202,8 @@ name = "tidex6-confidential"
 version = "2.18.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bn254",
  "ark-ff 0.5.0",
  "ark-groth16",
  "ark-r1cs-std",

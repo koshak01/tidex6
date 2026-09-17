@@ -21,12 +21,16 @@
 //! so a hostile JS page cannot forward them — verifiable via
 //! `WebAssembly.Module.imports(...)` in DevTools.
 
-use ark_bn254::Bn254;
+use ark_bn254::{Bn254, Fr};
+use ark_ff::PrimeField;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use js_sys::Uint8Array;
+use tidex6_circuits::evm_solidity::groth16_proof_to_evm_bytes;
 use tidex6_circuits::solana_bytes::{groth16_to_solana_bytes, Groth16SolanaBytes};
 use tidex6_circuits::withdraw::{prove_withdraw as prove_withdraw_inner, WithdrawWitness};
+use tidex6_confidential::bytes::fr_to_be_bytes;
+use tidex6_confidential::{transfer, withdraw as hidden};
 use tidex6_core::envelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::poseidon;
@@ -695,9 +699,7 @@ fn prove_withdraw_impl(
         .map_err(|e| JsError::new(&format!("prove_withdraw failed: {e}")))?;
 
     let out = match layout {
-        Layout::Evm => {
-            tidex6_circuits::evm_solidity::groth16_proof_to_evm_bytes(&proof).to_vec()
-        }
+        Layout::Evm => groth16_proof_to_evm_bytes(&proof).to_vec(),
         Layout::Solana => {
             let Groth16SolanaBytes {
                 proof_a,
@@ -746,6 +748,170 @@ pub fn ceremony_contribute(state_bytes: &Uint8Array, name: &str) -> Result<Uint8
 
     let out = state.to_bytes();
     Ok(Uint8Array::from(out.as_slice()))
+}
+
+// ─── Hidden-amount pool (ADR-015) ───────────────────────────────────────────
+//
+// Notes of any size: `commitment = Poseidon(secret, nullifier, amount)`, the
+// amount proven in range by the circuits in `tidex6-confidential`. Amounts are
+// `u64` base units and cross the JS boundary as `BigInt`.
+
+/// Field element from 32 big-endian bytes.
+fn fr_from_be(bytes: &[u8; FIELD_BYTES]) -> Fr {
+    Fr::from_be_bytes_mod_order(bytes)
+}
+
+/// The Merkle path as the hidden-amount circuits take it: `DEPTH` sibling
+/// field elements and `DEPTH` direction bits.
+fn hidden_merkle_path(
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+) -> Result<([Fr; DEPTH], [bool; DEPTH]), JsError> {
+    let siblings_buf = uint8array_to_vec(path_siblings_concat);
+    if siblings_buf.len() != DEPTH * FIELD_BYTES {
+        return Err(JsError::new(&format!(
+            "path_siblings_concat must be {} bytes ({} levels × 32), got {}",
+            DEPTH * FIELD_BYTES,
+            DEPTH,
+            siblings_buf.len()
+        )));
+    }
+    let siblings: [Fr; DEPTH] = std::array::from_fn(|i| {
+        let mut word = [0u8; FIELD_BYTES];
+        word.copy_from_slice(&siblings_buf[i * FIELD_BYTES..(i + 1) * FIELD_BYTES]);
+        fr_from_be(&word)
+    });
+
+    let indices_buf = uint8array_to_vec(path_indices_packed);
+    if indices_buf.len() != DEPTH {
+        return Err(JsError::new(&format!(
+            "path_indices_packed must be {DEPTH} bytes, got {}",
+            indices_buf.len()
+        )));
+    }
+    let mut indices = [false; DEPTH];
+    for (i, slot) in indices.iter_mut().enumerate() {
+        *slot = match indices_buf[i] {
+            0 => false,
+            1 => true,
+            other => {
+                return Err(JsError::new(&format!(
+                    "path_indices_packed[{i}] must be 0 or 1, got {other}"
+                )));
+            }
+        };
+    }
+    Ok((siblings, indices))
+}
+
+/// Deserialize a proving key the browser fetched.
+fn proving_key_from(bytes: &Uint8Array) -> Result<ProvingKey<Bn254>, JsError> {
+    let pk_bytes = uint8array_to_vec(bytes);
+    ProvingKey::<Bn254>::deserialize_uncompressed_unchecked(&pk_bytes[..])
+        .map_err(|e| JsError::new(&format!("failed to deserialize proving key: {e}")))
+}
+
+/// `Poseidon(secret, nullifier, amount)` — the leaf a hidden-amount note
+/// occupies. Same function on every chain the hidden pool runs on.
+#[wasm_bindgen(js_name = commitmentHidden)]
+pub fn commitment_hidden(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    amount: u64,
+) -> Result<Uint8Array, JsError> {
+    let secret = fr_from_be(&to_field_bytes(secret, "secret")?);
+    let nullifier = fr_from_be(&to_field_bytes(nullifier, "nullifier")?);
+    let commitment = hidden::note_commitment(secret, nullifier, Fr::from(amount));
+    Ok(Uint8Array::from(&fr_to_be_bytes(commitment)[..]))
+}
+
+/// Withdraw proof for the hidden-amount pool, in the byte layout the EVM
+/// verifier reads. Recipient and relayer are 32-byte words (an address
+/// left-padded with 12 zero bytes); `relayer_fee` and `amount` are base units.
+///
+/// The key is a ceremony key (genesis or final), so the proof is built with
+/// the snarkjs-compatible reduction — `hidden::prove_ceremony`.
+#[wasm_bindgen(js_name = proveHiddenWithdrawEvm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_hidden_withdraw_evm(
+    secret: &Uint8Array,
+    nullifier: &Uint8Array,
+    amount: u64,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: u64,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    let (path_siblings, path_indices) = hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let witness = hidden::WithdrawWitness {
+        amount,
+        secret: fr_from_be(&to_field_bytes(secret, "secret")?),
+        nullifier: fr_from_be(&to_field_bytes(nullifier, "nullifier")?),
+        path_siblings,
+        path_indices,
+        merkle_root: fr_from_be(&to_field_bytes(merkle_root, "merkle_root")?),
+        recipient: to_field_bytes(recipient, "recipient")?,
+        relayer: to_field_bytes(relayer_address, "relayer_address")?,
+        relayer_fee,
+    };
+    let pk = proving_key_from(proving_key)?;
+    let mut rng = rand::thread_rng();
+    let (proof, _public_inputs) = hidden::prove_ceremony(&pk, &witness, &mut rng)
+        .map_err(|e| JsError::new(&format!("prove_hidden_withdraw failed: {e}")))?;
+    Ok(Uint8Array::from(&groth16_proof_to_evm_bytes(&proof)[..]))
+}
+
+/// Join-split proof: spend one note into two, every amount hidden. Returns the
+/// proof in the EVM layout; the caller computes the two output commitments
+/// with `commitmentHidden` and the spent note's `nullifierHash` for the public
+/// inputs `[merkle_root, nullifier_hash, commitment_out1, commitment_out2]`.
+///
+/// The join-split key is the seeded development setup (arkworks), so this uses
+/// the default reduction. When the circuit joins the ceremony, switch to
+/// `transfer::prove_ceremony` together with the verifier.
+#[wasm_bindgen(js_name = proveHiddenTransferEvm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_hidden_transfer_evm(
+    secret_in: &Uint8Array,
+    nullifier_in: &Uint8Array,
+    amount_in: u64,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    secret_out1: &Uint8Array,
+    nullifier_out1: &Uint8Array,
+    amount_out1: u64,
+    secret_out2: &Uint8Array,
+    nullifier_out2: &Uint8Array,
+    amount_out2: u64,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    if amount_in != amount_out1.saturating_add(amount_out2) || amount_out1.checked_add(amount_out2).is_none() {
+        return Err(JsError::new("join-split must conserve the amount: in == out1 + out2"));
+    }
+    let (path_siblings, path_indices) = hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let witness = transfer::TransferWitness {
+        amount_in,
+        secret_in: fr_from_be(&to_field_bytes(secret_in, "secret_in")?),
+        nullifier_in: fr_from_be(&to_field_bytes(nullifier_in, "nullifier_in")?),
+        path_siblings,
+        path_indices,
+        amount_out1,
+        secret_out1: fr_from_be(&to_field_bytes(secret_out1, "secret_out1")?),
+        nullifier_out1: fr_from_be(&to_field_bytes(nullifier_out1, "nullifier_out1")?),
+        amount_out2,
+        secret_out2: fr_from_be(&to_field_bytes(secret_out2, "secret_out2")?),
+        nullifier_out2: fr_from_be(&to_field_bytes(nullifier_out2, "nullifier_out2")?),
+        merkle_root: fr_from_be(&to_field_bytes(merkle_root, "merkle_root")?),
+    };
+    let pk = proving_key_from(proving_key)?;
+    let mut rng = rand::thread_rng();
+    let (proof, _public_inputs) = transfer::prove(&pk, &witness, &mut rng)
+        .map_err(|e| JsError::new(&format!("prove_hidden_transfer failed: {e}")))?;
+    Ok(Uint8Array::from(&groth16_proof_to_evm_bytes(&proof)[..]))
 }
 
 fn to_field_bytes(input: &Uint8Array, name: &str) -> Result<[u8; FIELD_BYTES], JsError> {

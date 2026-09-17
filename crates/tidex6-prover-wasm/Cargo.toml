@@ -1,7 +1,7 @@
 [package]
 name = "tidex6-prover-wasm"
 description = "Browser-side Groth16 proving for the tidex6 withdraw circuit. Compiled to WebAssembly via wasm-pack so the user's secret/nullifier never leave their machine. Excluded from the workspace because it targets wasm32-unknown-unknown and pulls in browser-only crates (getrandom/js, wasm-bindgen)."
-version = "2.5.20"
+version = "2.6.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -17,6 +17,9 @@ tidex6-circuits = { path = "../tidex6-circuits" }
 # browser needs to compute `commitment` and `nullifier_hash`
 # without sending secret/nullifier to any server.
 tidex6-core = { path = "../tidex6-core" }
+# Hidden-amount circuits (ADR-015): note commitment with the amount inside,
+# withdraw with a ceremony key, join-split.
+tidex6-confidential = { path = "../tidex6-confidential" }
 
 ark-bn254 = "0.5"
 ark-groth16 = "0.5"
