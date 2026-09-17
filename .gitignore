@@ -124,3 +124,10 @@ google.api.txt
 synapse.toml
 synapse-bridge.log
 *-keypair.json
+
+# Proving keys of the confidential-token circuits (22 MB).
+# Reproducible: `cargo run --bin export_token_verifiers --release` writes them
+# byte for byte from the seeds in that file. They enter git only where they are
+# actually served — `tidex6-web/static/wasm/` — once the browser prover wires
+# these circuits up. The pool's two keys predate this rule and stay tracked.
+crates/tidex6-confidential/artifacts/token_*_pk.bin
