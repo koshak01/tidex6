@@ -150,22 +150,54 @@ library BabyJubjub {
     /// Unified: the same expression adds two distinct points and doubles one,
     /// so there is no special case to branch on and no way to take the wrong
     /// branch on attacker-chosen input.
-    function addExt(Ext memory q1, Ext memory q2) private pure returns (Ext memory) {
+    function addExt(Ext memory q1, Ext memory q2) private pure returns (Ext memory r) {
+        r = Ext(0, 0, 0, 0);
         uint256 p = C.P;
-        uint256 a = mulmod(q1.x, q2.x, p);
-        uint256 b = mulmod(q1.y, q2.y, p);
-        uint256 c = mulmod(C.D, mulmod(q1.t, q2.t, p), p);
-        uint256 d = mulmod(q1.z, q2.z, p);
-        uint256 e = addmod(
-            addmod(mulmod(addmod(q1.x, q1.y, p), addmod(q2.x, q2.y, p), p), p - a, p),
-            p - b,
-            p
-        );
-        uint256 f = addmod(d, p - c, p);
-        uint256 g = addmod(d, c, p);
-        // a = 1, so H = B - a*A = B - A.
-        uint256 h = addmod(b, p - a, p);
-        return Ext(mulmod(e, f, p), mulmod(g, h, p), mulmod(e, h, p), mulmod(f, g, p));
+        uint256 d = C.D;
+        // Written in assembly with deliberately few live variables. The same
+        // arithmetic in Solidity needs nine locals plus a nested expression,
+        // which is past what the legacy code generator can address on the
+        // stack — and switching the build to via-IR would change the bytecode
+        // of every contract already verified under the current profile.
+        //
+        // Intermediate E and H are parked in `r` itself (fresh memory, never
+        // aliasing `q1` or `q2`), and the variables that held A and B are
+        // reused for C and D once A and B are no longer needed.
+        assembly ("memory-safe") {
+            let a := mulmod(mload(q1), mload(q2), p)
+            let b := mulmod(mload(add(q1, 0x20)), mload(add(q2, 0x20)), p)
+            // E = (X1 + Y1)(X2 + Y2) - A - B, parked in r.x
+            mstore(
+                r,
+                addmod(
+                    addmod(
+                        mulmod(
+                            addmod(mload(q1), mload(add(q1, 0x20)), p),
+                            addmod(mload(q2), mload(add(q2, 0x20)), p),
+                            p
+                        ),
+                        sub(p, a),
+                        p
+                    ),
+                    sub(p, b),
+                    p
+                )
+            )
+            // H = B - A (a = 1), parked in r.z
+            mstore(add(r, 0x60), addmod(b, sub(p, a), p))
+            // C = d * T1 * T2, reusing `a`
+            a := mulmod(d, mulmod(mload(add(q1, 0x40)), mload(add(q2, 0x40)), p), p)
+            // D = Z1 * Z2, reusing `b`
+            b := mulmod(mload(add(q1, 0x60)), mload(add(q2, 0x60)), p)
+            let f := addmod(b, sub(p, a), p)
+            let g := addmod(b, a, p)
+            let e := mload(r)
+            let h := mload(add(r, 0x60))
+            mstore(r, mulmod(e, f, p))
+            mstore(add(r, 0x20), mulmod(g, h, p))
+            mstore(add(r, 0x40), mulmod(e, h, p))
+            mstore(add(r, 0x60), mulmod(f, g, p))
+        }
     }
 
     /// Extended to affine: one inverse of `Z`.

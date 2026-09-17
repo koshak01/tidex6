@@ -259,24 +259,12 @@ contract Tidex6ConfidentialToken {
         uint256[18] calldata input,
         bytes calldata envelope
     ) external {
-        for (uint256 i = 0; i < 18; ++i) {
-            _requireField(input[i]);
-        }
-
-        Account storage sender = _accountByKey(input[0], input[1]);
-        _requireAvailable(sender, input[2], input[3], input[4], input[5]);
-
-        Account storage recipient = _accountByKey(input[10], input[11]);
-
-        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
-        if (!transferVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
-
-        Cipher memory spent = Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[8], input[9]));
-        _debit(sender, spent);
-
-        Cipher memory credit = Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[12], input[13]));
-        _credit(recipient, credit);
-
+        // Each step lives in its own function frame: a single body with the
+        // loops, the lookups, the proof and the ciphertexts overflows the
+        // legacy code generator's stack. Order is checks, proof, effects.
+        (Account storage sender, Account storage recipient) = _transferChecks(input);
+        _verifyTransfer(proofA, proofB, proofC, input);
+        _applyTransfer(sender, recipient, input);
         _emitTransfer(input, envelope);
     }
 
@@ -298,24 +286,12 @@ contract Tidex6ConfidentialToken {
         uint256[2] calldata proofC,
         uint256[7] calldata input
     ) external {
-        for (uint256 i = 0; i < 7; ++i) {
-            _requireField(input[i]);
-        }
-        if (input[6] > MAX_AMOUNT) revert AmountTooLarge();
-        uint64 amount = uint64(input[6]);
-        if (amount == 0) revert ZeroAmount();
-
-        Account storage account = accounts[msg.sender];
-        if (!account.registered) revert NotRegistered();
-        if (account.key.x != input[0] || account.key.y != input[1]) revert NotRegistered();
-        _requireAvailable(account, input[2], input[3], input[4], input[5]);
-
-        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
-        if (!unwrapVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
+        (Account storage account, uint64 amount) = _unwrapChecks(input);
+        _verifyUnwrap(proofA, proofB, proofC, input);
 
         // The amount is public, so its ciphertext is the unblinded one the
         // contract can build itself — the mirror image of `wrap`.
-        _debit(account, Cipher(BJJ.mulG(amount), BJJ.identity()));
+        _debitPlain(account, amount);
 
         if (!token.transfer(msg.sender, amount)) revert TransferFailed();
         emit Unwrapped(msg.sender, amount);
@@ -339,22 +315,11 @@ contract Tidex6ConfidentialToken {
         uint256[11] calldata input,
         bytes calldata envelope
     ) external {
-        address poolAddress = pool;
-        if (poolAddress == address(0)) revert PoolNotSet();
-        for (uint256 i = 0; i < 11; ++i) {
-            _requireField(input[i]);
-        }
-
-        Account storage sender = _accountByKey(input[0], input[1]);
-        _requireAvailable(sender, input[2], input[3], input[4], input[5]);
-
-        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
-        if (!depositVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
-
-        _debit(sender, Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[8], input[9])));
-
-        emit DepositedToPool(keccak256(abi.encodePacked(input[0], input[1])), input[10]);
-        IConfidentialPoolBridge(poolAddress).depositFromToken(input[10], envelope);
+        if (pool == address(0)) revert PoolNotSet();
+        Account storage sender = _depositChecks(input);
+        _verifyDeposit(proofA, proofB, proofC, input);
+        _applyDeposit(sender, input);
+        _handToPool(input, envelope);
     }
 
     /// @notice Credit a confidential balance on the way out of the pool.
@@ -376,7 +341,7 @@ contract Tidex6ConfidentialToken {
         _requireField(handle[1]);
 
         Account storage recipient = _accountByKey(recipientKey[0], recipientKey[1]);
-        _credit(recipient, Cipher(BJJ.Point(commitment[0], commitment[1]), BJJ.Point(handle[0], handle[1])));
+        _creditPoints(recipient, commitment, handle);
         emit CreditedFromPool(
             keccak256(abi.encodePacked(recipientKey[0], recipientKey[1])),
             commitment[0],
@@ -386,39 +351,30 @@ contract Tidex6ConfidentialToken {
 
     /// @notice Everything a wallet needs to build its next proof: the key, both
     ///         ciphertexts and how many credits are waiting.
+    /// @return points ten coordinates in this order: key `(x, y)`, available
+    ///         commitment, available handle, pending commitment, pending handle
+    /// @return pendingCount credits waiting in `pending`
+    /// @return registered whether `owner` has a confidential account
+    /// @dev One array instead of twelve named returns: twelve return slots plus
+    ///      the storage pointer overflow the legacy code generator's stack.
     function accountOf(address owner)
         external
         view
-        returns (
-            uint256 keyX,
-            uint256 keyY,
-            uint256 availableCommitmentX,
-            uint256 availableCommitmentY,
-            uint256 availableHandleX,
-            uint256 availableHandleY,
-            uint256 pendingCommitmentX,
-            uint256 pendingCommitmentY,
-            uint256 pendingHandleX,
-            uint256 pendingHandleY,
-            uint64 pendingCount,
-            bool registered
-        )
+        returns (uint256[10] memory points, uint64 pendingCount, bool registered)
     {
         Account storage account = accounts[owner];
-        return (
-            account.key.x,
-            account.key.y,
-            account.available.commitment.x,
-            account.available.commitment.y,
-            account.available.handle.x,
-            account.available.handle.y,
-            account.pending.commitment.x,
-            account.pending.commitment.y,
-            account.pending.handle.x,
-            account.pending.handle.y,
-            account.pendingCount,
-            account.registered
-        );
+        points[0] = account.key.x;
+        points[1] = account.key.y;
+        points[2] = account.available.commitment.x;
+        points[3] = account.available.commitment.y;
+        points[4] = account.available.handle.x;
+        points[5] = account.available.handle.y;
+        points[6] = account.pending.commitment.x;
+        points[7] = account.pending.commitment.y;
+        points[8] = account.pending.handle.x;
+        points[9] = account.pending.handle.y;
+        pendingCount = account.pendingCount;
+        registered = account.registered;
     }
 
     /// Emit `ConfidentialTransfer` from the circuit's public inputs.
@@ -442,6 +398,119 @@ contract Tidex6ConfidentialToken {
             points,
             envelope
         );
+    }
+
+    /// Field range, sender freshness and recipient existence for `transfer`.
+    function _transferChecks(uint256[18] calldata input)
+        private
+        view
+        returns (Account storage sender, Account storage recipient)
+    {
+        for (uint256 i = 0; i < 18; ++i) {
+            _requireField(input[i]);
+        }
+        sender = _accountByKey(input[0], input[1]);
+        _requireAvailable(sender, input[2], input[3], input[4], input[5]);
+        recipient = _accountByKey(input[10], input[11]);
+    }
+
+    /// Record and verify a transfer proof.
+    function _verifyTransfer(
+        uint256[2] calldata proofA,
+        uint256[2][2] calldata proofB,
+        uint256[2] calldata proofC,
+        uint256[18] calldata input
+    ) private {
+        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
+        if (!transferVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
+    }
+
+    /// Debit the sender by `(C_m, D_s)` and credit the recipient by `(C_m, D_r)`.
+    ///
+    /// The commitment `C_m` is the same on both sides; only the handle differs,
+    /// because each side decrypts with its own key.
+    function _applyTransfer(Account storage sender, Account storage recipient, uint256[18] calldata input)
+        private
+    {
+        _debit(sender, Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[8], input[9])));
+        _credit(recipient, Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[12], input[13])));
+    }
+
+    /// Field range, amount bounds, ownership and freshness for `unwrap`.
+    function _unwrapChecks(uint256[7] calldata input)
+        private
+        view
+        returns (Account storage account, uint64 amount)
+    {
+        for (uint256 i = 0; i < 7; ++i) {
+            _requireField(input[i]);
+        }
+        if (input[6] > MAX_AMOUNT) revert AmountTooLarge();
+        amount = uint64(input[6]);
+        if (amount == 0) revert ZeroAmount();
+
+        account = accounts[msg.sender];
+        if (!account.registered) revert NotRegistered();
+        if (account.key.x != input[0] || account.key.y != input[1]) revert NotRegistered();
+        _requireAvailable(account, input[2], input[3], input[4], input[5]);
+    }
+
+    /// Record and verify an unwrap proof.
+    function _verifyUnwrap(
+        uint256[2] calldata proofA,
+        uint256[2][2] calldata proofB,
+        uint256[2] calldata proofC,
+        uint256[7] calldata input
+    ) private {
+        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
+        if (!unwrapVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
+    }
+
+    /// Debit an unblinded ciphertext of a public amount, `(m*G, O)`.
+    function _debitPlain(Account storage account, uint64 amount) private {
+        _debit(account, Cipher(BJJ.mulG(amount), BJJ.identity()));
+    }
+
+    /// Field range and sender freshness for `depositToPool`.
+    function _depositChecks(uint256[11] calldata input) private view returns (Account storage sender) {
+        for (uint256 i = 0; i < 11; ++i) {
+            _requireField(input[i]);
+        }
+        sender = _accountByKey(input[0], input[1]);
+        _requireAvailable(sender, input[2], input[3], input[4], input[5]);
+    }
+
+    /// Record and verify a deposit-to-pool proof.
+    function _verifyDeposit(
+        uint256[2] calldata proofA,
+        uint256[2][2] calldata proofB,
+        uint256[2] calldata proofC,
+        uint256[11] calldata input
+    ) private {
+        _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
+        if (!depositVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
+    }
+
+    /// Debit the spent ciphertext `(C_m, D_s)`.
+    function _applyDeposit(Account storage sender, uint256[11] calldata input) private {
+        _debit(sender, Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[8], input[9])));
+    }
+
+    /// Emit the deposit and hand the note commitment to the pool.
+    ///
+    /// Last in `depositToPool` on purpose: it is the only external call with
+    /// state-changing effects on another contract, and every check and debit
+    /// here has already happened.
+    function _handToPool(uint256[11] calldata input, bytes calldata envelope) private {
+        emit DepositedToPool(keccak256(abi.encodePacked(input[0], input[1])), input[10]);
+        IConfidentialPoolBridge(pool).depositFromToken(input[10], envelope);
+    }
+
+    /// Credit a ciphertext handed over by the pool.
+    function _creditPoints(Account storage recipient, uint256[2] calldata commitment, uint256[2] calldata handle)
+        private
+    {
+        _credit(recipient, Cipher(BJJ.Point(commitment[0], commitment[1]), BJJ.Point(handle[0], handle[1])));
     }
 
     /// A ciphertext of zero: both points are the neutral element.
