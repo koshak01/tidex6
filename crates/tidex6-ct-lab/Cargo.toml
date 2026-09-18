@@ -76,6 +76,12 @@ spl-token-client = "0.19"
 spl-token-confidential-transfer-proof-generation = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
 bytemuck = "1.25.0"
+# Сторож газа (src/gas.rs): котировка и сборка обмена в Jupiter по HTTP, разбор
+# присланной транзакции. Все три уже в дереве транзитивно с solana-*; объявлены
+# явно, потому что код на них ссылается.
+reqwest = { version = "0.12", default-features = false }
+base64 = "0.22"
+bincode = "1.3"
 solana-zk-elgamal-proof-interface = "0.1"
 spl-token = "9"
 

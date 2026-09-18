@@ -70,6 +70,41 @@ pub struct Config {
     /// — только offchain-шифрование. Слоган: «I grant access, not permission».
     #[serde(default)]
     pub pool_auditors: Vec<String>,
+    /// Автономный газ оператора на mainnet (см. `gas.rs`): пока SOL ниже
+    /// порога, комиссия платежа меняется на SOL через Jupiter вместо ноты в
+    /// казну. Секция `[gas_keeper]`; отсутствует — действуют дефолты.
+    #[serde(default)]
+    pub gas_keeper: GasKeeper,
+}
+
+/// Настройки сторожа газа.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GasKeeper {
+    /// Выключатель. Devnet сторож не трогает в любом случае: рынка у тестовых
+    /// минтов нет.
+    pub is_enabled: bool,
+    /// Порог SOL оператора в лампортах: ниже — комиссия идёт на газ.
+    pub target_lamports: u64,
+    /// Потолок одного обмена в минимальных единицах токена. Комиссия крупнее
+    /// уходит в казну как обычно: потеря на плохом курсе ограничена.
+    pub max_swap_micro: u64,
+    /// Допустимое проскальзывание обмена, basis points.
+    pub slippage_bps: u16,
+    /// Базовый адрес Swap API Jupiter.
+    pub jupiter_url: String,
+}
+
+impl Default for GasKeeper {
+    fn default() -> Self {
+        Self {
+            is_enabled: true,
+            target_lamports: 100_000_000, // 0.1 SOL
+            max_swap_micro: 5_000_000,    // 5 токенов
+            slippage_bps: 100,            // 1%
+            jupiter_url: "https://lite-api.jup.ag/swap/v1".to_string(),
+        }
+    }
 }
 
 /// Оверрайд минтов одного (сеть,актив): все три поля опциональны, незаданные
@@ -131,6 +166,7 @@ impl Default for Config {
             fee_floor_micro: default_fee_floor_micro(),
             fee_collector_address: None,
             pool_auditors: Vec::new(),
+            gas_keeper: GasKeeper::default(),
         }
     }
 }

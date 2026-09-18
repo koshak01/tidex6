@@ -540,6 +540,18 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 );
                 collected_fee = fee;
             }
+            // Сторож газа (gas.rs): пока SOL оператора ниже порога, комиссия
+            // этого платежа не уходит в казну, а меняется на SOL. Решаем ДО
+            // wrap: от ответа зависит, оборачивать ли комиссию вместе с суммой.
+            // Сбой чтения баланса — комиссия идёт в казну, как без сторожа.
+            let keeper = &config.gas_keeper;
+            let is_fee_for_gas = net == Network::Mainnet
+                && keeper.is_enabled
+                && collected_fee > 0
+                && collected_fee <= keeper.max_swap_micro
+                && tidex6_ct_lab::gas::is_gas_low(rpc, payer, keeper)
+                    .await
+                    .unwrap_or(false);
             // Приватный сбор комиссии (ADR-016 этап 4): если задан fee-collector
             // и комиссия удержана — оборачиваем ВСЮ сумму (amount + fee) и кладём
             // fee отдельной stealth-нотой оператору; иначе оборачиваем только
@@ -550,7 +562,7 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
             {
-                Some(hexs) if collected_fee > 0 => Some(
+                Some(hexs) if collected_fee > 0 && !is_fee_for_gas => Some(
                     tidex6_core::envelope::ReaderAddress::from_bytes(
                         &hex_bytes(hexs).context("fee_collector_address: hex")?,
                     )
@@ -637,6 +649,37 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                             "\n━━ fee note deferred (stays in operator confidential balance) ━━"
                         );
                         let _ = writeln!(log, "fee note failed (non-fatal): {e}");
+                    }
+                }
+            }
+            // Комиссия на газ: она не оборачивалась и лежит открытым токеном
+            // на счёте оператора. Депозит уже на цепочке, поэтому сбой обмена
+            // не пробрасываем — комиссия просто остаётся на счёте.
+            if is_fee_for_gas {
+                match tidex6_ct_lab::gas::swap_to_sol(
+                    rpc,
+                    payer,
+                    keeper,
+                    &ct::usdc_mint(),
+                    collected_fee,
+                )
+                .await
+                {
+                    Ok((swap_sig, lamports)) => {
+                        let _ = writeln!(log, "\n━━ fee swapped to operator gas ━━");
+                        let _ = writeln!(
+                            log,
+                            "fee: {:.6} -> ~{:.6} SOL\ntx: {swap_sig}",
+                            collected_fee as f64 / 1e6,
+                            lamports as f64 / 1e9
+                        );
+                    }
+                    Err(e) => {
+                        let _ = writeln!(
+                            log,
+                            "\n━━ gas swap deferred (fee stays on operator account) ━━"
+                        );
+                        let _ = writeln!(log, "gas swap failed (non-fatal): {e:#}");
                     }
                 }
             }
