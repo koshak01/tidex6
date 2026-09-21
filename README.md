@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>I grant access, not permission.</strong><br>
-  <em>The Rust-native privacy framework for Solana.</em>
+  <em>Private stablecoin payments with disclosure by consent — one Rust
+  codebase, live on Solana mainnet, on Arc and on EVM chains.</em>
 </p>
 
 ---
@@ -16,6 +17,51 @@ tidex6 is a Rust-native, open-source framework that lets Solana developers add f
 **Status:** full MVP product stack **live on Solana mainnet**. The privacy-core verifier program at [`CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd`](https://solscan.io/account/CSDD31Zmm3pRMHAMB8c3TBqsj9mbmH2rXBzV7jrsJhcd) is OtterSec-verified and immutable (upgrade authority renounced). The full feature stack — deposit, ZK withdraw (Groth16 `WithdrawCircuit<20>` verified via `alt_bn128` syscalls), per-nullifier double-spend PDA, recipient-binding front-run protection, **unlinkable withdraw via reference relayer** at [`relayer.tidex6.com`](https://relayer.tidex6.com), opaque hex notes + **post-quantum ML-KEM-768 encrypted memos in a dedicated on-chain account**, **stealth payments** (the recipient is never handed the note — they scan the chain with their own ML-KEM secret) and **per-deposit revoke**, **client-side proof generation in the browser via WebAssembly** (`tidex6-prover-wasm`, ~1.7 s per proof, secret never leaves the user's tab), user-facing `tidex6` CLI, `tidex6-client` SDK, web app at [tidex6.com](https://tidex6.com), the flagship `examples/private-payroll` three-binary demo, and a **third-party CPI integration example** (`tidex6-tip-jar`, ~30 lines of Rust to add privacy to any Anchor program — deployed and OtterSec-verified on mainnet at [`5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x`](https://solscan.io/account/5WohQRRzC31SkFMSWgEqJC9p2KvNhGkQbzUSsNUi9b9x) in April 2026, demo deployment since closed) — all validated end-to-end on mainnet. MVP shipped for the **Colosseum Frontier hackathon (2026-05-11)**; development continues — since then the **hidden-amount pools** (Token-2022 Confidential Transfers, wUSDC [`AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU`](https://solscan.io/account/AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU) and wUSDT [`QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2`](https://solscan.io/account/QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2)), a configurable **per-operation fee** paid on top by the sender and **collected privately** as a stealth note (ADR-016), and the live **public trusted-setup ceremony** at [ceremony.tidex6.com](https://ceremony.tidex6.com) (ADR-017) have shipped.
 
 > **DEVELOPMENT ONLY.** Pre-audit, single-contributor trusted setup, hackathon-grade trust assumptions. Verifier `upgrade-authority` has been renounced with `solana program set-upgrade-authority --final` — the program is immutable. Do not use to secure real funds. A **public multi-party trusted-setup ceremony is live** at [ceremony.tidex6.com](https://ceremony.tidex6.com) (publicly verifiable transcript, see [CEREMONY.md](docs/release/CEREMONY.md)); the on-chain VK is replaced only when the ceremony finalizes and a fresh immutable verifier ships. See [`docs/release/security.md`](docs/release/security.md).
+
+---
+
+## The same circuit off Solana — Arc and the EVM chains
+
+Solana is where this started and where the deepest integration lives, but the
+proof system is not tied to it. The same Groth16 circuit and the same verifying
+key run unchanged on EVM chains through a Solidity verifier and a Solidity
+Poseidon (`contracts/`), against a hidden-amount pool where the value sits
+inside the commitment rather than next to it. One rail, not one protocol per
+chain.
+
+**Arc** — Circle's chain, where the loop closes. The contracts needed no
+modification: Arc's BN254 precompiles (`0x05`–`0x08`) were checked live before
+deploying. Six contracts on chain 5042, deployed 18 September 2026:
+
+| contract | address |
+|---|---|
+| HiddenPool (sealed amounts) | `0x28fbB1500875EaEbe303D195C1a3721BBed8AF5f` |
+| Pool (fixed denomination) | `0x8eb05Cb1b5E46e58C8ca91E3A3738CF534c1E74f` |
+| Groth16 Verifier | `0x2c94135FB49840a0D6e0985AB1A6c48EE6c140d6` |
+| HiddenWithdrawVerifier | `0x6fF8E8393F0dD9D2592332e9f9adC3232FC41786` |
+| HiddenTransferVerifier | `0xca4fECF177dBb1025CC64B3D3618AdfA2f44D7AD` |
+| Reader-key Registry | `0x6F6F07e14E8381D13D01f99867985D8c7D23E914` |
+
+The same addresses exist on Arc Testnet (chain 5042002) — same deployer, same
+nonces — and testnet is the place to put hands on it: faucet at
+[faucet.circle.com](https://faucet.circle.com), flow identical to mainnet.
+
+What makes Arc more than another deployment target: **gas there is USDC**, the
+same token the pools move and the same token the fee is charged in. Everywhere
+else, a service paying its own running costs out of its own revenue has to
+convert one asset into another — on Solana the fee is swapped to SOL through an
+aggregator when the operator's balance falls under a threshold
+(`crates/tidex6-ct-lab/src/gas.rs`). On Arc there is nothing to convert: fee in
+USDC, gas in USDC, no swap, no price risk, no third party. On the remaining EVM
+chains that loop is still open — fee in USDC, gas in ETH or HYPE — and closing
+it is the next piece of work.
+
+How the fee works and what it costs, including the parts that do not work yet,
+is written out in [docs/release/BUSINESS.md](docs/release/BUSINESS.md).
+
+> The EVM and Arc deployments carry the same caveat as Solana, and one more:
+> the verifying key comes from the ceremony still in progress, so these pools
+> are for review and testing, not for real money.
 
 ---
 
