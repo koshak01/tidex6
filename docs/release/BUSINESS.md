@@ -58,10 +58,46 @@ contractor invoices — the case this was built for — sit in the hundreds, not
 single digits. Ten thousand payments a month is one mid-size company paying two
 hundred contractors twice a month, plus a handful of others.
 
-Costs against that: rent for one envelope account per payment (~0.018 SOL,
-recoverable), compute, and an RPC bill. At 10 000 payments a month the on-chain
-cost is roughly 180 SOL of *rent-locked* capital, not expense — it returns when
-accounts close after the reclaim window.
+### Costs against that, corrected 22.09.2026
+
+An earlier version of this page called the envelope rent "recoverable capital,
+returned when accounts close after the reclaim window". That was wrong, and the
+correction matters more than the revenue table above it.
+
+Measured on the live mainnet pool: an envelope account holds **0.0102–0.0191
+SOL** of rent depending on how many readers the envelope carries, and the
+nullifier record written at withdrawal holds **0.00117 SOL**. The envelope
+account is closed in exactly one instruction — `refund`, the path taken when a
+payment is *never collected* and the sender takes it back. A payment that is
+collected normally leaves its envelope account on chain permanently. So the rent
+is an **expense, not a float**: roughly **1–2 USD per payment** at SOL around
+100 USD.
+
+Against that, the fee on a small payment is 0.1 USDC. The floor does not cover
+the rent — it is an order of magnitude short, and the sentence above about the
+floor "making the economics honest at the bottom" is only true for compute, not
+for rent. Below roughly 200 USDC per payment, Solana payments lose money at the
+current parameters.
+
+Three ways out, none of them chosen yet (the decision is the operator's):
+
+1. **Collect the fee once a day, not per payment.** Today a private fee note is
+   its own deposit, so each payment writes *two* envelope accounts instead of
+   one. Batching removes about half the rent immediately and needs no program
+   change.
+2. **Raise the floor** to cover the rent (~0.3 USDC), which prices out small
+   payments.
+3. **Stop storing envelopes in accounts.** The envelope is already in the
+   deposit transaction's instruction data; readers could be found by replaying
+   transactions instead of listing accounts, leaving only a small header account
+   for the refund path (~0.0016 SOL). This is the only option that removes the
+   cost rather than moving it, and it is a program change plus a rewrite of how
+   both the recipient and the auditor find their payments.
+
+Compute and the RPC bill are the rest, and they are small next to the above.
+
+**On the EVM chains none of this applies:** the envelope rides in the event log,
+which costs gas once and no rent ever.
 
 ## The fee is collected privately
 
@@ -72,6 +108,44 @@ from any other payment in the pool, and cannot count our revenue by watching the
 chain.
 
 We can. Nobody else can. That is exactly what we sell.
+
+**Same on the EVM hidden-amount pools since 22.09.2026.** Before that date the
+EVM side worked the other way round: the sender saw no fee at all and the
+relayer took 1% out of the note when the recipient withdrew — publicly, as a
+parameter of the withdrawal. Now the sender pays the fee on top, sees the exact
+total before signing (enter 1, the page says 1.01), and the fee travels as its
+own sealed note to the treasury's published reader key. The recipient gets the
+full amount named, and the relayer charges nothing at the exit. The
+fixed-denomination pools still work the old way; they are not the product we
+are building on.
+
+One consequence, stated because it is the kind of thing that should not be
+discovered by a reader: the fee note and the payment note are two separate
+deposits from the same wallet, seconds apart. Their *values* are individually
+visible on the token's transfer log — that is how ERC-20 works, and it was
+already true of every deposit before any fee mechanism existed. What the pool
+hides is which withdrawal later spends which note, not how much went in.
+
+## What the fee pays for
+
+The fee is also how the system pays its own running costs, and on one chain that
+loop is closed.
+
+**Arc** is the clean case: gas there is USDC, the same token the pools move. The
+relayer keeps a 2 USDC reserve on its hot wallet and sweeps the rest to the
+treasury once a day — no conversion, nothing to buy.
+
+**Solana** needs a swap, and it has one: when the operator's SOL falls below
+0.1, the fee of the next payment is swapped to SOL through Jupiter instead of
+being sealed to the treasury (`crates/tidex6-ct-lab/src/gas.rs`). The swap
+transaction is built by Jupiter and checked against a whitelist before the
+operator key signs it.
+
+**The other EVM chains** have no such loop yet: gas there is ETH or HYPE, the
+fee is USDC, and nothing converts one to the other. Their relayer gas is
+topped up by hand. Closing that is the next piece of work on this page, and the
+target is the shape above: fee into a fund, fund into whichever gas each chain
+needs, no human in the loop.
 
 ## Why this is not a token
 
@@ -97,11 +171,33 @@ matter more than a consumer interface.
 
 ## What we have not solved
 
-**Collecting the fee privately is solved; spending it is not.** Revenue
-accumulates as stealth notes, and turning that into an operating account is a
-withdrawal like any other — which means the operator's own income becomes
-linkable at the moment it is cashed out. Fixing that properly needs the same
-association-set work as everything else in the roadmap.
+**Rent makes small Solana payments unprofitable.** See the corrected cost
+section above: ~1–2 USD of permanent rent per payment against a 0.1 USDC floor.
+Three ways out are listed there; none is chosen.
+
+**Collecting the fee privately is solved; spending it is half-solved.** Revenue
+accumulates as stealth notes. Spending it on the system's own gas is automatic
+on Arc (gas is USDC) and on Solana (swapped through Jupiter under a threshold).
+Spending it as *income* — moving it to an account a human uses — is still a
+withdrawal like any other, so the operator's own money becomes linkable at the
+moment it is cashed out. Fixing that properly needs the same association-set
+work as everything else in the roadmap.
+
+**On the other EVM chains the fee does not reach the gas.** Fee in USDC, gas in
+ETH or HYPE, no conversion — those relayers are funded by hand. The design for
+closing it (one fund, per-chain swaps, no human) is agreed; the code is not
+written.
+
+**One signature, not three.** A hidden-pool payment on EVM is currently an
+approval, a deposit and a second deposit for the fee — three wallet prompts for
+one payment. The sender sees the right total before any of them, and a failed
+fee deposit cannot fail the payment, but it is three prompts. Doing it in one
+transaction means a pool contract that takes both notes in a single call, which
+means new contracts on every EVM chain: the existing ones are immutable by
+design. That is the next contract-level piece of work, and it carries a
+trade-off worth naming — two notes in one transaction are provably linked, so
+the fee's value would become a hint about the payment's value unless the fee is
+salted.
 
 **The pool operator sees the send side.** Wrapping into confidential Token-2022
 requires the mint authority, so the operator knows which wallet paid how much.
