@@ -352,7 +352,9 @@ pub fn send_payment(
         "over_cap" => anyhow::bail!(
             "the amount is above what the service accepts on mainnet right now —              nothing was sent. Try a smaller one."
         ),
-        other => anyhow::bail!("the service did not allow this deposit ({other}) — nothing was sent"),
+        other => {
+            anyhow::bail!("the service did not allow this deposit ({other}) — nothing was sent")
+        }
     }
 
     // Пул может быть регулируемым: его аудиторы добавляются к тем, кого назвал

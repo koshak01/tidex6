@@ -17,7 +17,9 @@ use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 use tidex6_circuits::poseidon_gadget::{poseidon_hash_n_var, poseidon_hash_pair_var};
 
-use super::elgamal::{amount_bits_le, generator_g, generator_h, scalar_bits_le, AMOUNT_BITS, SCALAR_BITS};
+use super::elgamal::{
+    AMOUNT_BITS, SCALAR_BITS, amount_bits_le, generator_g, generator_h, scalar_bits_le,
+};
 
 fn missing() -> SynthesisError {
     SynthesisError::AssignmentMissing
@@ -25,25 +27,44 @@ fn missing() -> SynthesisError {
 
 /// Точка как публичный вход: две координаты, `x` затем `y`, плюс проверка,
 /// что пара лежит на кривой.
-pub fn point_input(cs: ConstraintSystemRef<Fr>, point: Option<EdwardsAffine>) -> Result<EdwardsVar, SynthesisError> {
-    EdwardsVar::new_input(cs, || point.map(EdwardsProjective::from).ok_or_else(missing))
+pub fn point_input(
+    cs: ConstraintSystemRef<Fr>,
+    point: Option<EdwardsAffine>,
+) -> Result<EdwardsVar, SynthesisError> {
+    EdwardsVar::new_input(cs, || {
+        point.map(EdwardsProjective::from).ok_or_else(missing)
+    })
 }
 
 /// Скаляр Baby Jubjub как [`SCALAR_BITS`] свидетельских бит, младший первым.
-pub fn scalar_witness(cs: ConstraintSystemRef<Fr>, scalar: Option<BjjFr>) -> Result<Vec<Boolean<Fr>>, SynthesisError> {
+pub fn scalar_witness(
+    cs: ConstraintSystemRef<Fr>,
+    scalar: Option<BjjFr>,
+) -> Result<Vec<Boolean<Fr>>, SynthesisError> {
     let bits = scalar.map(|s| scalar_bits_le(&s));
     (0..SCALAR_BITS)
-        .map(|i| Boolean::new_witness(cs.clone(), || bits.as_ref().map(|b| b[i]).ok_or_else(missing)))
+        .map(|i| {
+            Boolean::new_witness(cs.clone(), || {
+                bits.as_ref().map(|b| b[i]).ok_or_else(missing)
+            })
+        })
         .collect()
 }
 
 /// Сумма как [`AMOUNT_BITS`] свидетельских бит и как элемент поля, равный
 /// их сумме — одновременно диапазон `0 ≤ amount < 2^64` и число для
 /// линейных проверок.
-pub fn amount_witness(cs: ConstraintSystemRef<Fr>, amount: Option<u64>) -> Result<(FpVar<Fr>, Vec<Boolean<Fr>>), SynthesisError> {
+pub fn amount_witness(
+    cs: ConstraintSystemRef<Fr>,
+    amount: Option<u64>,
+) -> Result<(FpVar<Fr>, Vec<Boolean<Fr>>), SynthesisError> {
     let bits = amount.map(amount_bits_le);
     let bit_vars: Vec<Boolean<Fr>> = (0..AMOUNT_BITS)
-        .map(|i| Boolean::new_witness(cs.clone(), || bits.as_ref().map(|b| b[i]).ok_or_else(missing)))
+        .map(|i| {
+            Boolean::new_witness(cs.clone(), || {
+                bits.as_ref().map(|b| b[i]).ok_or_else(missing)
+            })
+        })
         .collect::<Result<_, _>>()?;
     let value = Boolean::le_bits_to_fp(&bit_vars)?;
     Ok((value, bit_vars))
@@ -65,7 +86,10 @@ pub fn mul(point: &EdwardsVar, bits: &[Boolean<Fr>]) -> Result<EdwardsVar, Synth
 }
 
 /// Ключ корректен: `s·P == H`, то есть `P = s⁻¹·H` и лежит в подгруппе.
-pub fn enforce_public_key(secret_bits: &[Boolean<Fr>], public_key: &EdwardsVar) -> Result<(), SynthesisError> {
+pub fn enforce_public_key(
+    secret_bits: &[Boolean<Fr>],
+    public_key: &EdwardsVar,
+) -> Result<(), SynthesisError> {
     mul(public_key, secret_bits)?.enforce_equal(&constant_h())
 }
 
@@ -82,7 +106,10 @@ pub fn enforce_balance(
 }
 
 /// Коммитмент `m·G + r·H`.
-pub fn commitment(amount_bits: &[Boolean<Fr>], opening_bits: &[Boolean<Fr>]) -> Result<EdwardsVar, SynthesisError> {
+pub fn commitment(
+    amount_bits: &[Boolean<Fr>],
+    opening_bits: &[Boolean<Fr>],
+) -> Result<EdwardsVar, SynthesisError> {
     Ok(mul(&constant_g(), amount_bits)? + mul(&constant_h(), opening_bits)?)
 }
 
@@ -96,10 +123,16 @@ pub fn merkle_witness<const DEPTH: usize>(
     indices: Option<[bool; DEPTH]>,
 ) -> Result<MerklePathVars, SynthesisError> {
     let sibling_vars = (0..DEPTH)
-        .map(|level| FpVar::new_witness(cs.clone(), || siblings.map(|s| s[level]).ok_or_else(missing)))
+        .map(|level| {
+            FpVar::new_witness(cs.clone(), || {
+                siblings.map(|s| s[level]).ok_or_else(missing)
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let index_vars = (0..DEPTH)
-        .map(|level| Boolean::new_witness(cs.clone(), || indices.map(|b| b[level]).ok_or_else(missing)))
+        .map(|level| {
+            Boolean::new_witness(cs.clone(), || indices.map(|b| b[level]).ok_or_else(missing))
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok((sibling_vars, index_vars))
 }
@@ -136,6 +169,9 @@ pub fn note_commitment(
 }
 
 /// `Poseidon(nullifier)` внутри схемы.
-pub fn nullifier_hash(cs: ConstraintSystemRef<Fr>, nullifier: &FpVar<Fr>) -> Result<FpVar<Fr>, SynthesisError> {
+pub fn nullifier_hash(
+    cs: ConstraintSystemRef<Fr>,
+    nullifier: &FpVar<Fr>,
+) -> Result<FpVar<Fr>, SynthesisError> {
     poseidon_hash_n_var(cs, std::slice::from_ref(nullifier))
 }

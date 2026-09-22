@@ -9,8 +9,8 @@ use ark_ec::twisted_edwards::TECurveConfig;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed_on_bn254::{EdwardsAffine, EdwardsConfig, EdwardsProjective, Fq, Fr as BjjFr};
 use ark_ff::{BigInteger, Field, PrimeField, Zero};
-use ark_std::rand::{CryptoRng, RngCore};
 use ark_std::UniformRand;
+use ark_std::rand::{CryptoRng, RngCore};
 use thiserror::Error;
 
 /// Метка домена для вывода второго генератора `H`. Первый вход Poseidon.
@@ -113,7 +113,10 @@ impl PublicKey {
     /// Точка принимается только из подгруппы простого порядка: точка с
     /// компонентой малого порядка сливала бы младшие биты чужого ключа.
     pub fn from_affine(point: EdwardsAffine) -> Result<Self, ElGamalError> {
-        if point.is_zero() || !point.is_on_curve() || !point.is_in_correct_subgroup_assuming_on_curve() {
+        if point.is_zero()
+            || !point.is_on_curve()
+            || !point.is_in_correct_subgroup_assuming_on_curve()
+        {
             return Err(ElGamalError::NotInSubgroup);
         }
         Ok(Self(point))
@@ -232,4 +235,3 @@ pub fn amount_bits_le(amount: u64) -> [bool; AMOUNT_BITS] {
 pub fn point_inputs(point: &EdwardsAffine) -> [Fq; 2] {
     [point.x, point.y]
 }
-

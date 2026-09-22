@@ -14,10 +14,10 @@ use anchor_client::Signer;
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use anyhow::{Context, Result, bail};
-use solana_instruction::Instruction;
-use solana_transaction::Transaction;
 use serde::Deserialize;
+use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
+use solana_transaction::Transaction;
 use tidex6_client::confidential::{LocalIdentity, load_keypair};
 
 /// За один раз в транзакцию влезает столько байт адреса читателя.
@@ -151,7 +151,10 @@ fn main() -> Result<()> {
     // Проверяем не по своему следу, а тем же способом, что и служба: читается
     // ли ключ читателя целиком. Сказать «включено», не спросив об этом, значит
     // повторить ту же ошибку — на этот раз в отчёте.
-    match tidex6_client::registry::lookup(&rpc, &wallet).ok().flatten() {
+    match tidex6_client::registry::lookup(&rpc, &wallet)
+        .ok()
+        .flatten()
+    {
         Some(_) => println!("done — private payments are enabled for {wallet}"),
         None => bail!(
             "chunks are written but the reader still does not read back — \

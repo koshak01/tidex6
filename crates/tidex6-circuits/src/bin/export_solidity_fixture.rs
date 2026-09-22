@@ -115,8 +115,7 @@ fn main() {
 
     println!("running the DEVELOPMENT setup (seed 0x{DEV_SETUP_SEED:016x})…");
     let mut setup_rng = StdRng::seed_from_u64(DEV_SETUP_SEED);
-    let (pk, vk) =
-        setup_withdraw_circuit::<WITHDRAW_TREE_DEPTH, _>(&mut setup_rng).expect("setup");
+    let (pk, vk) = setup_withdraw_circuit::<WITHDRAW_TREE_DEPTH, _>(&mut setup_rng).expect("setup");
 
     let sibling_bytes: Vec<[u8; 32]> = merkle_proof
         .siblings
@@ -149,7 +148,10 @@ fn main() {
     // Offchain gate: never emit a fixture the arkworks verifier rejects.
     let prepared = prepare_verifying_key(&vk);
     let accepted = verify_withdraw_proof(&prepared, &proof, &public_inputs).expect("verify");
-    assert!(accepted, "arkworks rejected our own proof — refusing to emit");
+    assert!(
+        accepted,
+        "arkworks rejected our own proof — refusing to emit"
+    );
     println!("arkworks verifier accepts the proof");
 
     let Proof { a, b, c } = proof;

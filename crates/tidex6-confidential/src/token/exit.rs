@@ -18,7 +18,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 
-use super::elgamal::{self, point_inputs, Ciphertext, PublicKey};
+use super::elgamal::{self, Ciphertext, PublicKey, point_inputs};
 use super::gadget;
 use crate::withdraw::POOL_TREE_DEPTH;
 
@@ -45,15 +45,18 @@ impl ConstraintSynthesizer<Fr> for WithdrawToTokenCircuit {
     fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
         let missing = || SynthesisError::AssignmentMissing;
         let merkle_root = FpVar::new_input(cs.clone(), || self.merkle_root.ok_or_else(missing))?;
-        let nullifier_hash = FpVar::new_input(cs.clone(), || self.nullifier_hash.ok_or_else(missing))?;
+        let nullifier_hash =
+            FpVar::new_input(cs.clone(), || self.nullifier_hash.ok_or_else(missing))?;
         let recipient_key = gadget::point_input(cs.clone(), self.recipient_key)?;
         let amount_commitment = gadget::point_input(cs.clone(), self.amount_commitment)?;
         let recipient_handle = gadget::point_input(cs.clone(), self.recipient_handle)?;
 
         let note_secret = FpVar::new_witness(cs.clone(), || self.note_secret.ok_or_else(missing))?;
-        let note_nullifier = FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
+        let note_nullifier =
+            FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
         let (amount, amount_bits) = gadget::amount_witness(cs.clone(), self.amount)?;
-        let (siblings, index_bits) = gadget::merkle_witness(cs.clone(), self.path_siblings, self.path_indices)?;
+        let (siblings, index_bits) =
+            gadget::merkle_witness(cs.clone(), self.path_siblings, self.path_indices)?;
         let opening_bits = gadget::scalar_witness(cs.clone(), self.opening)?;
 
         let leaf = gadget::note_commitment(cs.clone(), &note_secret, &note_nullifier, &amount)?;
@@ -64,7 +67,9 @@ impl ConstraintSynthesizer<Fr> for WithdrawToTokenCircuit {
     }
 }
 
-pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
+pub fn setup<R: RngCore + CryptoRng>(
+    rng: &mut R,
+) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
     Groth16::<Bn254>::circuit_specific_setup(WithdrawToTokenCircuit::default(), rng)
 }
 
@@ -92,7 +97,16 @@ impl WithdrawToTokenPublic {
         let [px, py] = point_inputs(&self.recipient_key);
         let [cx, cy] = point_inputs(&self.credited.commitment);
         let [dx, dy] = point_inputs(&self.credited.handle);
-        [self.merkle_root, self.nullifier_hash, px, py, cx, cy, dx, dy]
+        [
+            self.merkle_root,
+            self.nullifier_hash,
+            px,
+            py,
+            cx,
+            cy,
+            dx,
+            dy,
+        ]
     }
 }
 

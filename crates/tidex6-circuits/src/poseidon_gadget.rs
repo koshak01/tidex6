@@ -271,7 +271,6 @@ fn poseidon_hash_n_var_tagged(
         }
     }
 
-
     // Light Poseidon returns state[0] as the digest.
     Ok(state[0].clone())
 }

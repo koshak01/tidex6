@@ -373,18 +373,6 @@ pub fn render_stylus_vk(vk: &VerifyingKey<Bn254>, header: &str) -> String {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decimal_conversion_matches_known_values() {
-        assert_eq!(fq_to_decimal(&Fq::from(0u64)), "0");
-        assert_eq!(fq_to_decimal(&Fq::from(1u64)), "1");
-        assert_eq!(fq_to_decimal(&Fq::from(1234567890u64)), "1234567890");
-    }
-}
-
 /// Байты доказательства в том виде, в каком их принимает контракт на Solidity.
 ///
 /// Отдельно от `solana_bytes`, и это не дублирование. Там точки проходят через
@@ -430,4 +418,16 @@ pub fn groth16_proof_to_evm_bytes(proof: &ark_groth16::Proof<Bn254>) -> [u8; 256
     out[192..224].copy_from_slice(&fq_be(&proof.c.x));
     out[224..256].copy_from_slice(&fq_be(&proof.c.y));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decimal_conversion_matches_known_values() {
+        assert_eq!(fq_to_decimal(&Fq::from(0u64)), "0");
+        assert_eq!(fq_to_decimal(&Fq::from(1u64)), "1");
+        assert_eq!(fq_to_decimal(&Fq::from(1234567890u64)), "1234567890");
+    }
 }

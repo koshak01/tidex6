@@ -63,7 +63,6 @@ pub fn render_poseidon_t3() -> String {
     let full_rounds = params.full_rounds;
     let partial_rounds = params.partial_rounds;
 
-
     // Round constants, flattened as light-poseidon stores them: round-major,
     // `width` entries per round.
     let ark: Vec<String> = params.ark.iter().map(fr_decimal).collect();
@@ -231,7 +230,10 @@ pub fn render_stylus_poseidon_consts() -> String {
         .mds
         .iter()
         .map(|row| {
-            let cells: String = row.iter().map(|c| format!("        [{}],\n", limbs(c))).collect();
+            let cells: String = row
+                .iter()
+                .map(|c| format!("        [{}],\n", limbs(c)))
+                .collect();
             format!("    [\n{cells}    ],\n")
         })
         .collect();

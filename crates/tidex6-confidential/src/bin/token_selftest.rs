@@ -12,8 +12,8 @@ use std::time::Instant;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisMode};
-use ark_std::rand::rngs::StdRng;
 use ark_std::rand::SeedableRng;
+use ark_std::rand::rngs::StdRng;
 use tidex6_confidential::bytes::{fr_from_u64, fr_to_be_bytes};
 use tidex6_confidential::token::deposit::{self, DepositFromTokenCircuit, DepositFromTokenWitness};
 use tidex6_confidential::token::elgamal::{self, PublicKey, SecretKey};
@@ -21,7 +21,7 @@ use tidex6_confidential::token::exit::{self, WithdrawToTokenCircuit, WithdrawToT
 use tidex6_confidential::token::pubkey::{self, PubkeyValidityCircuit};
 use tidex6_confidential::token::transfer::{self, TokenTransferCircuit, TokenTransferWitness};
 use tidex6_confidential::token::unwrap::{self, TokenUnwrapCircuit, TokenUnwrapWitness};
-use tidex6_confidential::withdraw::{note_commitment, POOL_TREE_DEPTH};
+use tidex6_confidential::withdraw::{POOL_TREE_DEPTH, note_commitment};
 use tidex6_core::merkle::MerkleTree;
 use tidex6_core::types::Commitment;
 
@@ -39,7 +39,9 @@ fn count_constraints<C: ConstraintSynthesizer<Fr>>(circuit: C) -> (usize, usize)
     let cs = ConstraintSystem::<Fr>::new_ref();
     // Setup mode: the shape is counted without assignments, like setup does.
     cs.set_mode(SynthesisMode::Setup);
-    circuit.generate_constraints(cs.clone()).expect("synthesize");
+    circuit
+        .generate_constraints(cs.clone())
+        .expect("synthesize");
     (cs.num_constraints(), cs.num_instance_variables() - 1)
 }
 
@@ -65,8 +67,14 @@ fn main() {
     let decoded = elgamal::decode_amount(&alice.decrypt_point(&remaining), 32).expect("decode");
     println!("native: wrap 1_000_000, pay 250_000, remaining decodes to {decoded}");
     assert_eq!(decoded, 750_000);
-    let bob_view = elgamal::Ciphertext { commitment: payment.commitment, handle: bob_pk.handle(r) };
-    assert_eq!(elgamal::decode_amount(&bob.decrypt_point(&bob_view), 32).expect("decode"), 250_000);
+    let bob_view = elgamal::Ciphertext {
+        commitment: payment.commitment,
+        handle: bob_pk.handle(r),
+    };
+    assert_eq!(
+        elgamal::decode_amount(&bob.decrypt_point(&bob_view), 32).expect("decode"),
+        250_000
+    );
     assert!(elgamal::opens_to(&payment.commitment, 250_000, r));
     assert!(!elgamal::opens_to(&payment.commitment, 250_001, r));
 
@@ -112,7 +120,10 @@ fn main() {
     println!("  verify (tampered): {bad}");
     assert!(!bad);
     // Overspending must not even synthesize a witness.
-    let overspend = TokenTransferWitness { amount: 1_000_001, ..witness };
+    let overspend = TokenTransferWitness {
+        amount: 1_000_001,
+        ..witness
+    };
     assert!(transfer::prove(&pk_tr, &overspend, &mut rng).is_err());
     println!("  overspend rejected");
 
@@ -125,7 +136,12 @@ fn main() {
     let t = Instant::now();
     let (proof, public) = unwrap::prove(
         &pk_un,
-        &TokenUnwrapWitness { secret: alice.clone(), balance: 1_000_000, available: wrap, amount: 400_000 },
+        &TokenUnwrapWitness {
+            secret: alice.clone(),
+            balance: 1_000_000,
+            available: wrap,
+            amount: 400_000,
+        },
         &mut rng,
     )
     .expect("prove");
@@ -158,7 +174,8 @@ fn main() {
     )
     .expect("prove");
     println!("  prove {:?}", t.elapsed());
-    let ok = deposit::verify(&deposit::prepare_vk(&vk_dep), &proof, &public.inputs()).expect("verify");
+    let ok =
+        deposit::verify(&deposit::prepare_vk(&vk_dep), &proof, &public.inputs()).expect("verify");
     println!("  verify: {ok}");
     assert!(ok);
 
@@ -171,7 +188,8 @@ fn main() {
     // The note deposited above sits at leaf 0 of an otherwise empty tree.
     let leaf = note_commitment(note_secret, note_nullifier, fr_from_u64(300_000));
     let mut tree = MerkleTree::new(POOL_TREE_DEPTH).expect("tree");
-    tree.insert(Commitment::from_bytes(fr_to_be_bytes(leaf))).expect("insert");
+    tree.insert(Commitment::from_bytes(fr_to_be_bytes(leaf)))
+        .expect("insert");
     let merkle_proof = tree.proof(0).expect("proof");
     let mut siblings = [Fr::from(0u64); POOL_TREE_DEPTH];
     for (slot, sibling) in siblings.iter_mut().zip(merkle_proof.siblings.iter()) {
@@ -202,7 +220,8 @@ fn main() {
     println!("  verify: {ok}");
     assert!(ok);
     // Bob reads what landed on his pending balance.
-    let credited = elgamal::decode_amount(&bob.decrypt_point(&public.credited), 32).expect("decode");
+    let credited =
+        elgamal::decode_amount(&bob.decrypt_point(&public.credited), 32).expect("decode");
     println!("  recipient decodes pending credit: {credited}");
     assert_eq!(credited, 300_000);
     println!("Done.");

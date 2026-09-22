@@ -31,7 +31,11 @@ fn main() {
     fs::create_dir_all(&stylus_dir).expect("create stylus/common/src");
     let stylus_path = stylus_dir.join("poseidon_consts.rs");
     fs::write(&stylus_path, stylus_source.as_bytes()).expect("write poseidon_consts.rs");
-    println!("wrote {} ({} bytes)", stylus_path.display(), stylus_source.len());
+    println!(
+        "wrote {} ({} bytes)",
+        stylus_path.display(),
+        stylus_source.len()
+    );
 
     // Reference vector: the Solidity library must reproduce this exactly.
     let left = [0u8; 32];

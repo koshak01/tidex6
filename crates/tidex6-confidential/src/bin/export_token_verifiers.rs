@@ -136,7 +136,11 @@ fn emit(root: &Path, pk: &ProvingKey<Bn254>, vk: &VerifyingKey<Bn254>, meta: &Em
     pk.serialize_uncompressed(&mut bytes)
         .expect("serialize proving key");
     fs::write(&pk_path, &bytes).expect("write proving key");
-    println!("  proving key: {} ({} bytes)", pk_path.display(), bytes.len());
+    println!(
+        "  proving key: {} ({} bytes)",
+        pk_path.display(),
+        bytes.len()
+    );
 }
 
 /// Decimal string of a field element, as Solidity constants want it.

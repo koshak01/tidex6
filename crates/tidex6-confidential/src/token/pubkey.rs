@@ -15,7 +15,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 
-use super::elgamal::{point_inputs, PublicKey, SecretKey};
+use super::elgamal::{PublicKey, SecretKey, point_inputs};
 use super::gadget;
 
 pub const PUBKEY_NR_PUBLIC_INPUTS: usize = 2;
@@ -34,7 +34,9 @@ impl ConstraintSynthesizer<Fr> for PubkeyValidityCircuit {
     }
 }
 
-pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
+pub fn setup<R: RngCore + CryptoRng>(
+    rng: &mut R,
+) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
     Groth16::<Bn254>::circuit_specific_setup(PubkeyValidityCircuit::default(), rng)
 }
 

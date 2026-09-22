@@ -114,5 +114,9 @@ fn main() {
     fs::create_dir_all(&stylus_dir).expect("create stylus/verifier/src");
     let stylus_path = stylus_dir.join("vk.rs");
     fs::write(&stylus_path, stylus_source.as_bytes()).expect("write vk.rs");
-    println!("wrote {} ({} bytes)", stylus_path.display(), stylus_source.len());
+    println!(
+        "wrote {} ({} bytes)",
+        stylus_path.display(),
+        stylus_source.len()
+    );
 }

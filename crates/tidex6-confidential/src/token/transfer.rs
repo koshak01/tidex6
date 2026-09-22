@@ -24,7 +24,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 
-use super::elgamal::{self, point_inputs, Ciphertext, PublicKey, SecretKey};
+use super::elgamal::{self, Ciphertext, PublicKey, SecretKey, point_inputs};
 use super::gadget;
 
 pub const TRANSFER_NR_PUBLIC_INPUTS: usize = 18;
@@ -75,7 +75,12 @@ impl ConstraintSynthesizer<Fr> for TokenTransferCircuit {
         // 1. Ключ от счёта.
         gadget::enforce_public_key(&secret_bits, &sender_key)?;
         // 2. Баланс расшифровывается в `b`.
-        gadget::enforce_balance(&secret_bits, &balance_commitment, &balance_handle, &balance_bits)?;
+        gadget::enforce_balance(
+            &secret_bits,
+            &balance_commitment,
+            &balance_handle,
+            &balance_bits,
+        )?;
         // 3. `b == (b − m) + m`; оба слагаемых уже ограничены 64 битами.
         balance.enforce_equal(&(remaining + amount))?;
         // 4. Коммитмент суммы.
@@ -87,7 +92,9 @@ impl ConstraintSynthesizer<Fr> for TokenTransferCircuit {
     }
 }
 
-pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
+pub fn setup<R: RngCore + CryptoRng>(
+    rng: &mut R,
+) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
     Groth16::<Bn254>::circuit_specific_setup(TokenTransferCircuit::default(), rng)
 }
 

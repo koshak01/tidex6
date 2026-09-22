@@ -142,7 +142,8 @@ fn write_proving_key(root: &std::path::Path, pk: &ProvingKey<Bn254>, name: &str)
     fs::create_dir_all(&dir).expect("create artifacts dir");
     let path = dir.join(format!("{name}_pk.bin"));
     let mut bytes = Vec::new();
-    pk.serialize_uncompressed(&mut bytes).expect("serialize proving key");
+    pk.serialize_uncompressed(&mut bytes)
+        .expect("serialize proving key");
     fs::write(&path, &bytes).expect("write proving key");
     println!("wrote {} ({} bytes)", path.display(), bytes.len());
 }
@@ -180,7 +181,10 @@ fn main() {
         WithdrawSource::Development => {
             println!("no ceremony state found — using the DEVELOPMENT setup");
             let mut rng = StdRng::seed_from_u64(WITHDRAW_SEED);
-            (withdraw::setup(&mut rng).expect("withdraw dev setup"), DEV_HEADER)
+            (
+                withdraw::setup(&mut rng).expect("withdraw dev setup"),
+                DEV_HEADER,
+            )
         }
     };
     assert_eq!(

@@ -18,7 +18,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 
-use super::elgamal::{self, point_inputs, Ciphertext, SecretKey};
+use super::elgamal::{self, Ciphertext, SecretKey, point_inputs};
 use super::gadget;
 use crate::bytes::fr_from_u64;
 
@@ -50,7 +50,8 @@ impl ConstraintSynthesizer<Fr> for DepositFromTokenCircuit {
         let balance_handle = gadget::point_input(cs.clone(), self.balance_handle)?;
         let amount_commitment = gadget::point_input(cs.clone(), self.amount_commitment)?;
         let sender_handle = gadget::point_input(cs.clone(), self.sender_handle)?;
-        let note_commitment = FpVar::new_input(cs.clone(), || self.note_commitment.ok_or_else(missing))?;
+        let note_commitment =
+            FpVar::new_input(cs.clone(), || self.note_commitment.ok_or_else(missing))?;
 
         let secret_bits = gadget::scalar_witness(cs.clone(), self.secret)?;
         let (balance, balance_bits) = gadget::amount_witness(cs.clone(), self.balance)?;
@@ -62,19 +63,28 @@ impl ConstraintSynthesizer<Fr> for DepositFromTokenCircuit {
         let (remaining, _) = gadget::amount_witness(cs.clone(), remaining_value)?;
         let opening_bits = gadget::scalar_witness(cs.clone(), self.opening)?;
         let note_secret = FpVar::new_witness(cs.clone(), || self.note_secret.ok_or_else(missing))?;
-        let note_nullifier = FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
+        let note_nullifier =
+            FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
 
         gadget::enforce_public_key(&secret_bits, &sender_key)?;
-        gadget::enforce_balance(&secret_bits, &balance_commitment, &balance_handle, &balance_bits)?;
+        gadget::enforce_balance(
+            &secret_bits,
+            &balance_commitment,
+            &balance_handle,
+            &balance_bits,
+        )?;
         balance.enforce_equal(&(remaining + &amount))?;
         gadget::commitment(&amount_bits, &opening_bits)?.enforce_equal(&amount_commitment)?;
         gadget::mul(&sender_key, &opening_bits)?.enforce_equal(&sender_handle)?;
         // Та же сумма — в ноте пула.
-        gadget::note_commitment(cs, &note_secret, &note_nullifier, &amount)?.enforce_equal(&note_commitment)
+        gadget::note_commitment(cs, &note_secret, &note_nullifier, &amount)?
+            .enforce_equal(&note_commitment)
     }
 }
 
-pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
+pub fn setup<R: RngCore + CryptoRng>(
+    rng: &mut R,
+) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
     Groth16::<Bn254>::circuit_specific_setup(DepositFromTokenCircuit::default(), rng)
 }
 
@@ -116,13 +126,19 @@ impl DepositFromTokenPublic {
     }
 }
 
-pub fn public_part(w: &DepositFromTokenWitness) -> Result<DepositFromTokenPublic, elgamal::ElGamalError> {
+pub fn public_part(
+    w: &DepositFromTokenWitness,
+) -> Result<DepositFromTokenPublic, elgamal::ElGamalError> {
     let sender = w.secret.public_key()?;
     Ok(DepositFromTokenPublic {
         sender_key: sender.0,
         available: w.available,
         spent: elgamal::encrypt(&sender, w.amount, w.opening),
-        note_commitment: crate::withdraw::note_commitment(w.note_secret, w.note_nullifier, fr_from_u64(w.amount)),
+        note_commitment: crate::withdraw::note_commitment(
+            w.note_secret,
+            w.note_nullifier,
+            fr_from_u64(w.amount),
+        ),
     })
 }
 

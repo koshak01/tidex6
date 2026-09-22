@@ -18,7 +18,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 
-use super::elgamal::{point_inputs, Ciphertext, SecretKey};
+use super::elgamal::{Ciphertext, SecretKey, point_inputs};
 use super::gadget;
 
 pub const UNWRAP_NR_PUBLIC_INPUTS: usize = 7;
@@ -39,7 +39,9 @@ impl ConstraintSynthesizer<Fr> for TokenUnwrapCircuit {
         let balance_commitment = gadget::point_input(cs.clone(), self.balance_commitment)?;
         let balance_handle = gadget::point_input(cs.clone(), self.balance_handle)?;
         let amount = FpVar::new_input(cs.clone(), || {
-            self.amount.map(Fr::from).ok_or(SynthesisError::AssignmentMissing)
+            self.amount
+                .map(Fr::from)
+                .ok_or(SynthesisError::AssignmentMissing)
         })?;
 
         let secret_bits = gadget::scalar_witness(cs.clone(), self.secret)?;
@@ -51,12 +53,19 @@ impl ConstraintSynthesizer<Fr> for TokenUnwrapCircuit {
         let (remaining, _) = gadget::amount_witness(cs, remaining_value)?;
 
         gadget::enforce_public_key(&secret_bits, &sender_key)?;
-        gadget::enforce_balance(&secret_bits, &balance_commitment, &balance_handle, &balance_bits)?;
+        gadget::enforce_balance(
+            &secret_bits,
+            &balance_commitment,
+            &balance_handle,
+            &balance_bits,
+        )?;
         balance.enforce_equal(&(remaining + amount))
     }
 }
 
-pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
+pub fn setup<R: RngCore + CryptoRng>(
+    rng: &mut R,
+) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
     Groth16::<Bn254>::circuit_specific_setup(TokenUnwrapCircuit::default(), rng)
 }
 
@@ -68,7 +77,11 @@ pub struct TokenUnwrapWitness {
 }
 
 /// Публичные входы в порядке схемы.
-pub fn public_inputs(sender_key: &EdwardsAffine, available: &Ciphertext, amount: u64) -> [Fr; UNWRAP_NR_PUBLIC_INPUTS] {
+pub fn public_inputs(
+    sender_key: &EdwardsAffine,
+    available: &Ciphertext,
+    amount: u64,
+) -> [Fr; UNWRAP_NR_PUBLIC_INPUTS] {
     let [px, py] = point_inputs(sender_key);
     let [cx, cy] = point_inputs(&available.commitment);
     let [dx, dy] = point_inputs(&available.handle);
@@ -80,7 +93,11 @@ pub fn prove<R: RngCore + CryptoRng>(
     w: &TokenUnwrapWitness,
     rng: &mut R,
 ) -> Result<(Proof<Bn254>, [Fr; UNWRAP_NR_PUBLIC_INPUTS]), SynthesisError> {
-    let sender_key = w.secret.public_key().map_err(|_| SynthesisError::Unsatisfiable)?.0;
+    let sender_key = w
+        .secret
+        .public_key()
+        .map_err(|_| SynthesisError::Unsatisfiable)?
+        .0;
     let circuit = TokenUnwrapCircuit {
         secret: Some(w.secret.0),
         balance: Some(w.balance),
