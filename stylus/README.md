@@ -198,3 +198,23 @@ Until it is, no real value goes behind these contracts.
 Each network gets its own pool, its own tree and its own nullifier set.
 Deposit on a chain, withdraw on that chain. Nothing here proves anything about
 another chain's state, and nothing here should ever start to.
+
+## The open ruint advisory (RUSTSEC-2025-0137)
+
+`stylus-sdk` pins `ruint >=1.16, <1.17` — every published version from 0.10.3
+through 0.10.9 does — and the fix for RUSTSEC-2025-0137 exists only in ruint
+1.17.1 and later. There is no 1.16.x patch release, so nothing in this
+workspace can update past it while it is built with the SDK. `cargo update -p
+ruint` correctly changes nothing.
+
+The advisory names one function, `ruint::algorithms::div::reciprocal_mg10`: it
+is safe to call but checks its input with `debug_assert!`, which release builds
+drop. These contracts never call it. What they use from that dependency tree is
+`alloy-primitives::U256`, and the modular arithmetic they need is written by
+hand in `common/src/field.rs` rather than taken from ruint's generic paths.
+
+The path out is upstream: when `stylus-sdk` relaxes the pin, a plain `cargo
+update -p ruint` closes it. Forking ruint through `[patch.crates.io]` would
+close it sooner and cost more than it is worth — `cargo stylus verify` and
+Arbiscan verification both rebuild from crates.io sources, and a git patch
+would leave every deployment unverifiable.
