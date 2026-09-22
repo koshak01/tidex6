@@ -74,6 +74,29 @@ jobs:
       - name: cargo test -p tidex6-indexer
         run: cargo test -p tidex6-indexer --all-targets
 
+  contracts:
+    name: forge test (EVM contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      # forge-std is pinned and cloned rather than installed as a submodule:
+      # `contracts/lib/` is git-ignored, so there is no submodule to check out
+      # and nothing here may write to the repository.
+      - name: Install forge-std
+        run: |
+          git clone --depth 1 --branch v1.9.6 \
+            https://github.com/foundry-rs/forge-std.git contracts/lib/forge-std
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+      - name: forge test
+        working-directory: contracts
+        run: forge test -vv
+
   onchain-check:
     name: cargo check (onchain programs)
     runs-on: ubuntu-latest
