@@ -213,6 +213,11 @@ drop. These contracts never call it. What they use from that dependency tree is
 `alloy-primitives::U256`, and the modular arithmetic they need is written by
 hand in `common/src/field.rs` rather than taken from ruint's generic paths.
 
+The pin is deliberate on their side — ruint 1.17 added a const assertion in
+`to_le_bytes` that breaks the SDK's storage encoding — and reported upstream as
+[stylus-sdk-rs#455](https://github.com/OffchainLabs/stylus-sdk-rs/issues/455),
+with an offer to test these seven crates against a branch that lifts the bound.
+
 The path out is upstream: when `stylus-sdk` relaxes the pin, a plain `cargo
 update -p ruint` closes it. Forking ruint through `[patch.crates.io]` would
 close it sooner and cost more than it is worth — `cargo stylus verify` and
