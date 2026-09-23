@@ -281,10 +281,10 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
         "withdraw" => {
             let note = field_str(req, "note").context("missing note")?;
             let (sig, recipient, payout, amount) = flow::withdraw(rpc, payer, &note).await?;
-            let w = if tidex6_ct_lab::config::active_asset() == Asset::Wusdt {
-                "wUSDT"
-            } else {
-                "wUSDC"
+            let w = match tidex6_ct_lab::config::active_asset() {
+                Asset::Wusdt => "wUSDT",
+                Asset::Wusdg => "wUSDG",
+                _ => "wUSDC",
             };
             Ok(format!(
                 "withdraw ok ({} {w})\nrecipient (fresh): {recipient}\ntx: {sig}\nSolscan: https://solscan.io/tx/{sig}\npayout: {payout}",
@@ -416,8 +416,19 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
             } else {
                 "ok"
             };
+            // Отказ до оплаты: без пула на этой сети депозит упал бы уже после
+            // того, как человек заплатил (актив есть в реестре раньше пула).
+            if !pool::is_deployed() {
+                anyhow::bail!("this asset has no pool on this network yet — nothing was charged");
+            }
+            // Отказ до оплаты: с включённой комиссией за перевод обёртка всё
+            // равно откажет, но уже после того, как человек заплатил.
+            ct::ensure_no_transfer_fee(rpc).await?;
+            // Программа токенов исходного актива: у USDG это Token-2022, и
+            // браузер обязан строить перевод и адрес ATA под неё.
+            let underlying_token_2022 = ct::is_underlying_token_2022();
             Ok(format!(
-                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"amount\":{amount},\"fee\":{fee},\"total\":{total},\"gate\":\"{gate}\",\"pool_auditors\":[{auditors_json}]}}",
+                "{{\"operator\":\"{}\",\"underlying_mint\":\"{}\",\"underlying_token_2022\":{underlying_token_2022},\"amount\":{amount},\"fee\":{fee},\"total\":{total},\"gate\":\"{gate}\",\"pool_auditors\":[{auditors_json}]}}",
                 payer.pubkey(),
                 underlying
             ))
@@ -705,13 +716,17 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
         // JSON-массив финализированных memo (публичные байты) — расшифровка
         // слотов в браузере ключом ML-KEM. Сумма скрыта (внутри конверта).
         "memo_accounts" => {
-            // Скан ОБОИХ пулов (wUSDC + wUSDT): получатель/аудитор находит все
-            // свои платежи одним ключом, без выбора актива. Каждый конверт помечен
-            // своим активом — чтобы вывод пошёл в правильный пул.
+            // Скан ВСЕХ пулов сети: получатель/аудитор находит все свои платежи
+            // одним ключом, без выбора актива. Каждый конверт помечен своим
+            // активом — чтобы вывод пошёл в правильный пул. Актив без пула на
+            // этой сети пропускается, а не роняет скан остальных.
             let mut items = Vec::new();
-            for a in [Asset::Wusdc, Asset::Wusdt] {
+            for a in [Asset::Wusdc, Asset::Wusdt, Asset::Wusdg] {
                 tidex6_ct_lab::config::set_active_asset(a);
-                let sym = if a == Asset::Wusdt { "wusdt" } else { "wusdc" };
+                if !pool::is_deployed() {
+                    continue;
+                }
+                let sym = asset_slug(a);
                 let memos = pool::fetch_memo_accounts(rpc).await.context("memo scan")?;
                 for m in &memos {
                     if !m.is_finalized {
@@ -740,10 +755,13 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
                     Network::Devnet
                 };
                 tidex6_ct_lab::config::set_active_network(n);
-                for a in [Asset::Wusdc, Asset::Wusdt] {
+                for a in [Asset::Wusdc, Asset::Wusdt, Asset::Wusdg] {
                     tidex6_ct_lab::config::set_active_asset(a);
+                    if !pool::is_deployed() {
+                        continue;
+                    }
                     let count = pool::deposit_count(&be.rpc).await.unwrap_or(0);
-                    let sym = if a == Asset::Wusdt { "wusdt" } else { "wusdc" };
+                    let sym = asset_slug(a);
                     items.push(format!(
                         "{{\"network\":\"{net_name}\",\"asset\":\"{sym}\",\"count\":{count}}}"
                     ));
@@ -899,6 +917,15 @@ async fn handle(dev: &Backend, mainnet: &Backend, config: &Config, body: &str) -
             ct::faucet(rpc.clone(), payer, &wallet).await
         }
         other => anyhow::bail!("unknown operation: {other}"),
+    }
+}
+
+/// Имя актива в ответах браузеру (`wusdc` / `wusdt` / `wusdg`).
+fn asset_slug(asset: tidex6_core::network::Asset) -> &'static str {
+    match asset {
+        tidex6_core::network::Asset::Wusdt => "wusdt",
+        tidex6_core::network::Asset::Wusdg => "wusdg",
+        _ => "wusdc",
     }
 }
 

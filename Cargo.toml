@@ -67,7 +67,7 @@ members = [
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
-version = "2.18.0"
+version = "2.19.0"
 license = "MIT OR Apache-2.0"
 authors = ["tidex6 contributors"]
 repository = "https://github.com/koshak01/tidex6"

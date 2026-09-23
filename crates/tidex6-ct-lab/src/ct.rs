@@ -19,7 +19,8 @@ use solana_zk_sdk::encryption::{
 };
 use spl_token_2022::extension::{
     confidential_mint_burn::ConfidentialMintBurn,
-    confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions, ExtensionType,
+    confidential_transfer::ConfidentialTransferAccount, transfer_fee::TransferFeeConfig,
+    BaseStateWithExtensions, ExtensionType, StateWithExtensions,
 };
 use spl_token_client::client::{ProgramRpcClient, ProgramRpcClientSendTransaction};
 use spl_token_client::token::{ProofAccountWithCiphertext, Token, TokenError};
@@ -36,6 +37,7 @@ use spl_token_confidential_transfer_proof_generation::transfer::TransferProofDat
 fn symbols() -> (&'static str, &'static str) {
     match crate::config::active_asset() {
         tidex6_core::network::Asset::Wusdt => ("USDT", "wUSDT"),
+        tidex6_core::network::Asset::Wusdg => ("USDG", "wUSDG"),
         _ => ("USDC", "wUSDC"),
     }
 }
@@ -66,6 +68,58 @@ fn wusdc_mint() -> String {
 }
 const DECIMALS: u8 = 6;
 
+/// Исходный токен активного актива выпущен на Token-2022 (USDG), а не на
+/// классическом SPL Token (USDC/USDT).
+pub fn is_underlying_token_2022() -> bool {
+    let net = crate::config::active_network();
+    let asset = crate::config::active_asset();
+    net.asset(asset).is_some_and(|a| a.is_underlying_token_2022)
+}
+
+/// Программа токенов исходного актива. Перевод не той программой отвергается,
+/// а ATA у двух программ разные — поэтому решается здесь, в одном месте.
+fn underlying_program() -> Pubkey {
+    if is_underlying_token_2022() {
+        spl_token_2022::id()
+    } else {
+        spl_token::id()
+    }
+}
+
+/// Отказ, если у исходного Token-2022 токена включена комиссия за перевод.
+///
+/// Обёртка выпускает wrapped 1:1 к **отправленной** сумме. С комиссией за
+/// перевод в хранилище пришло бы меньше, чем выпущено, — обеспечение тихо
+/// поплыло бы вниз. У USDG комиссия сейчас 0, но эмитент может её включить;
+/// тогда лучше громкий отказ на входе, чем недостача при выводе.
+///
+/// # Параметры
+/// * `rpc` — узел активной сети
+///
+/// # Возвращает
+/// * `Result<()>` — ошибка с текущей ставкой, если комиссия не нулевая
+pub async fn ensure_no_transfer_fee(rpc: &RpcClient) -> Result<()> {
+    if !is_underlying_token_2022() {
+        return Ok(());
+    }
+    let mint: Pubkey = usdc_mint().parse()?;
+    let account = rpc.get_account(&mint).await.context("underlying mint account")?;
+    let state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
+        .map_err(|e| anyhow!("underlying mint: {e}"))?;
+    if let Ok(config) = state.get_extension::<TransferFeeConfig>() {
+        let older = u16::from(config.older_transfer_fee.transfer_fee_basis_points);
+        let newer = u16::from(config.newer_transfer_fee.transfer_fee_basis_points);
+        if older != 0 || newer != 0 {
+            bail!(
+                "the issuer enabled a transfer fee on {} ({older}/{newer} bps): wrapping is \
+                 stopped until the wrapper accounts for it",
+                mint
+            );
+        }
+    }
+    Ok(())
+}
+
 type TokenClient = Token<ProgramRpcClientSendTransaction>;
 
 fn program_client(rpc: Arc<RpcClient>) -> Arc<ProgramRpcClient<ProgramRpcClientSendTransaction>> {
@@ -94,6 +148,7 @@ fn dir() -> Result<String> {
 
 // ── wrap: USDC → wUSDC (перевод в vault + конфид-минт) ─────────────────
 pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<String> {
+    ensure_no_transfer_fee(&rpc).await?;
     let mut out = String::new();
     let (u, w) = symbols();
     let usdc_mint: Pubkey = usdc_mint().parse()?;
@@ -114,7 +169,7 @@ pub async fn wrap(rpc: Arc<RpcClient>, payer: &Keypair, amount: u64) -> Result<S
         v
     };
 
-    let usdc = token(pc.clone(), &spl_token::id(), &usdc_mint, payer);
+    let usdc = token(pc.clone(), &underlying_program(), &usdc_mint, payer);
     let payer_usdc = usdc.get_associated_token_address(&payer.pubkey());
     let vault_usdc = usdc.get_associated_token_address(&vault.pubkey());
     // Создать vault-ATA если её нет + ДОЖДАТЬСЯ видимости на RPC. Helius
@@ -527,7 +582,7 @@ pub async fn cashout(rpc: Arc<RpcClient>, payer: &Keypair, recipient_path: &str)
 
     let vault = read_keypair_file(format!("{}/vault-keypair.json", dir()?))
         .map_err(|e| anyhow!("vault keypair: {e}"))?;
-    let usdc = token(pc.clone(), &spl_token::id(), &usdc_mint, payer);
+    let usdc = token(pc.clone(), &underlying_program(), &usdc_mint, payer);
     let vault_usdc = usdc.get_associated_token_address(&vault.pubkey());
     let payer_usdc = usdc.get_associated_token_address(&payer.pubkey());
     let vault_bal = usdc
@@ -664,7 +719,7 @@ pub async fn cashout_to_address(
 
     let vault = read_keypair_file(format!("{}/vault-keypair.json", dir()?))
         .map_err(|e| anyhow!("vault keypair: {e}"))?;
-    let usdc = token(pc.clone(), &spl_token::id(), &usdc_mint, payer);
+    let usdc = token(pc.clone(), &underlying_program(), &usdc_mint, payer);
     let vault_usdc = usdc.get_associated_token_address(&vault.pubkey());
     let vault_bal = usdc
         .get_account_info(&vault_usdc)
@@ -970,6 +1025,10 @@ pub async fn faucet(rpc: Arc<RpcClient>, payer: &Keypair, wallet: &str) -> Resul
     let (u, _) = symbols();
     let mint: Pubkey = usdc_mint().parse()?;
     let pc = program_client(rpc);
+    // USDG на devnet выпускает только Paxos — кран у него, не у нас.
+    if is_underlying_token_2022() {
+        bail!("faucet: test-{u} is not ours to mint — use faucet.paxos.com");
+    }
     let test_token = token(pc, &spl_token::id(), &mint, payer);
     let ata = test_token.get_associated_token_address(&owner);
     if test_token.get_account_info(&ata).await.is_err() {

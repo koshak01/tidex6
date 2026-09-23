@@ -105,18 +105,29 @@ fn parse_memo_account(data: &[u8], disc: &[u8; 8]) -> Option<MemoRecord> {
 /// Пул-программа — из единого реестра по активным сети+активу
 /// (config.network/asset). wUSDT-пул — другой program-id, PDA изолированы.
 fn program_id() -> Pubkey {
-    let net = crate::config::active_network();
-    let asset = crate::config::active_asset();
-    // Config-оверрайд пула per-окружение, иначе дефолт реестра.
-    crate::config::mint_pool(net, asset)
-        .or_else(|| {
-            net.asset(asset)
-                .and_then(|a| a.pool_program)
-                .map(str::to_string)
-        })
+    configured_program()
         .expect("pool program (config override or registry)")
         .parse()
         .expect("pool program id")
+}
+
+/// Пул активного актива: config-оверрайд per-окружение, иначе дефолт реестра;
+/// `None` — на этой сети пул актива ещё не задеплоен.
+fn configured_program() -> Option<String> {
+    let net = crate::config::active_network();
+    let asset = crate::config::active_asset();
+    crate::config::mint_pool(net, asset).or_else(|| {
+        net.asset(asset)
+            .and_then(|a| a.pool_program)
+            .map(str::to_string)
+    })
+}
+
+/// Есть ли у активного актива пул на активной сети. Сканы по всем активам
+/// обязаны спросить это первым: `program_id` на незадеплоенном пуле паникует,
+/// и один новый актив ронял бы скан всех остальных.
+pub fn is_deployed() -> bool {
+    configured_program().is_some()
 }
 
 fn system_program() -> Pubkey {

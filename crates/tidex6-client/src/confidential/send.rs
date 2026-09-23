@@ -410,6 +410,7 @@ fn asset_slug(asset: Asset) -> &'static str {
     match asset {
         Asset::Wusdc => "wusdc",
         Asset::Wusdt => "wusdt",
+        Asset::Wusdg => "wusdg",
         Asset::Sol => "sol",
     }
 }

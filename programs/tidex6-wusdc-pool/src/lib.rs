@@ -21,12 +21,17 @@ pub use pool::{
 };
 pub use withdraw_vk::{WITHDRAW_NR_PUBLIC_INPUTS, WITHDRAW_VERIFYING_KEY};
 
-// Тот же код пула, два program-id: wUSDC (дефолт) и wUSDT (feature "wusdt").
-// PDA program-scoped → отдельная программа = полностью изолированный пул.
-#[cfg(not(feature = "wusdt"))]
+// Тот же код пула, три program-id: wUSDC (дефолт), wUSDT (feature "wusdt") и
+// wUSDG (feature "wusdg"). PDA program-scoped → отдельная программа =
+// полностью изолированный пул. Фичи взаимоисключающие: обе сразу дают два
+// `declare_id` и не собираются.
+#[cfg(not(any(feature = "wusdt", feature = "wusdg")))]
 declare_id!("AYTRKmF8VBdqRWGZr9c6Mx582SRm2tbUEwMesFMhcPcU");
 #[cfg(feature = "wusdt")]
 declare_id!("QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2");
+// Ключ программы сгенерирован Кратосом 23.09.2026 в песочнице t6evm.
+#[cfg(feature = "wusdg")]
+declare_id!("GwZ55BcsK39KBmT3oh6jcWQpVm7EpC7p8rFNVWFUvN5U");
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {

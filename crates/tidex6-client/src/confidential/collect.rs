@@ -142,7 +142,7 @@ pub fn collect_waiting(
     let mut waiting_found = 0usize;
     let mut stopped_by: Option<String> = None;
 
-    'assets: for asset in [Asset::Wusdc, Asset::Wusdt] {
+    'assets: for asset in [Asset::Wusdc, Asset::Wusdt, Asset::Wusdg] {
         let Some(info) = network.asset(asset) else {
             continue;
         };

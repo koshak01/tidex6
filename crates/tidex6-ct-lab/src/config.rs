@@ -121,6 +121,7 @@ pub fn mint_key(net: Network, asset: Asset) -> String {
     let sym = match asset {
         Asset::Wusdt => "wusdt",
         Asset::Wusdc => "wusdc",
+        Asset::Wusdg => "wusdg",
         Asset::Sol => "sol",
     };
     format!("{}_{sym}", net.info().moniker)

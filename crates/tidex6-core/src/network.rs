@@ -23,6 +23,9 @@ pub enum Asset {
     Sol,
     Wusdc,
     Wusdt,
+    /// Paxos Global Dollar, обёрнутый в наш Token-2022 CT. Исходный USDG сам
+    /// выпущен на Token-2022, в отличие от USDC/USDT.
+    Wusdg,
 }
 
 /// Сетевые параметры (RPC + asset-agnostic верификатор).
@@ -43,8 +46,12 @@ pub struct AssetInfo {
     pub asset: Asset,
     pub symbol: &'static str,
     pub decimals: u8,
-    /// Базовый минт (реальный USDC/USDT); `None` для SOL.
+    /// Базовый минт (реальный USDC/USDT/USDG); `None` для SOL.
     pub underlying_mint: Option<&'static str>,
+    /// Базовый минт живёт в программе Token-2022, а не в классическом SPL
+    /// Token. От этого зависят программа перевода и адрес ATA — у двух
+    /// программ они разные, и перевод не той программой просто отвергается.
+    pub is_underlying_token_2022: bool,
     /// Обёрнутый Token-2022 CT минт (скрывает сумму); `None` для SOL / не создан.
     pub wrapped_mint: Option<&'static str>,
     /// Пул этого актива (Groth16-связь); `None` — не задеплоен.
@@ -96,6 +103,7 @@ impl Network {
                 symbol: "SOL",
                 decimals: 9,
                 underlying_mint: None,
+                is_underlying_token_2022: false,
                 wrapped_mint: None,
                 pool_program: None,
             }),
@@ -104,6 +112,7 @@ impl Network {
                 symbol: "wUSDC",
                 decimals: 6,
                 underlying_mint: Some("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+                is_underlying_token_2022: false,
                 // Реальная Token-2022 CT-обёртка wUSDC на mainnet (совпадает
                 // с оператор-конфигом `mainnet-beta_wusdc.wrapped`).
                 wrapped_mint: Some("A1weSN5XnmTqjTR5YzdiriucEhFSnC7LgRq7VCnnBjLA"),
@@ -115,6 +124,7 @@ impl Network {
                 decimals: 6,
                 // Реальный USDT (Tether) на Solana mainnet.
                 underlying_mint: Some("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"),
+                is_underlying_token_2022: false,
                 // Token-2022 CT-обёртка wUSDT на mainnet (создана при сетапе #103,
                 // совпадает с оператор-конфигом `mainnet-beta_wusdt.wrapped`).
                 wrapped_mint: Some("9s3nhzm6PooPA86jgPgHvFNHgXxvmBDjw64wwdzG6EZ2"),
@@ -127,6 +137,7 @@ impl Network {
                 symbol: "SOL",
                 decimals: 9,
                 underlying_mint: None,
+                is_underlying_token_2022: false,
                 wrapped_mint: None,
                 pool_program: None,
             }),
@@ -139,6 +150,7 @@ impl Network {
                 // под оператора wARvfUk1…; прежние минты F9smufbn…/396nGJn8…
                 // остались за выброшенным ключом ED1HHGK6…).
                 underlying_mint: Some("8FHTQTvfBXhUyTHdH93njdd8MM4W1YC7JVkLQj1FhHD8"),
+                is_underlying_token_2022: false,
                 // wUSDC Token-2022 CT-обёртка (config `wrapped`).
                 wrapped_mint: Some("E61QuV37pdJdrkUJ7tqskR5pwhN9kEv8wE948fVzoV4m"),
                 // Пул задеплоен на devnet по тому же адресу (2026-07-06,
@@ -153,10 +165,28 @@ impl Network {
                 // (источник истины: `[mints.devnet_wusdt]`, выпущено 2026-09-15
                 // под оператора wARvfUk1…; прежние 95LWdVc5…/ELq1Hytw… мертвы).
                 underlying_mint: Some("DgTydsx2TpyXCkZ6JmSvjrwRCvXXS76z4mZao6RWwov4"),
+                is_underlying_token_2022: false,
                 // wUSDT Token-2022 CT-обёртка (config `wrapped`).
                 wrapped_mint: Some("7AZiD9KbkmM7zxnrjbW8cc8GHHsGsqi5AvYmYsJMuv6Q"),
                 // Тот же program-id QGPY на devnet (деплой того же .so).
                 pool_program: Some("QGPYpwyMnWhJUPGieXyJU5jhAkKsKuU7iGN53VCWPz2"),
+            }),
+            // ── wUSDG ────────────────────────────────────────────────
+            // Mainnet — после проверки на devnet.
+            (Network::Mainnet, Asset::Wusdg) => None,
+            (Network::Devnet, Asset::Wusdg) => Some(AssetInfo {
+                asset: Asset::Wusdg,
+                symbol: "wUSDG",
+                decimals: 6,
+                // USDG на Solana devnet (Paxos, Token-2022; кран faucet.paxos.com).
+                // Проверено по цепи 22.09.2026: владелец минта TokenzQd…, 6 знаков.
+                underlying_mint: Some("4F6PM96JJxngmHnZLBh9n58RH4aTVNWvDs2nuwrT5BP7"),
+                is_underlying_token_2022: true,
+                // Создаётся оператором (create_wusdc) — заносится в config
+                // `[mints.devnet_wusdg]`, затем сюда.
+                wrapped_mint: None,
+                // Третий экземпляр пула (feature "wusdg") — после деплоя.
+                pool_program: None,
             }),
         }
     }
@@ -168,6 +198,7 @@ impl Asset {
             "SOL" => Some(Asset::Sol),
             "WUSDC" | "USDC" => Some(Asset::Wusdc),
             "WUSDT" | "USDT" => Some(Asset::Wusdt),
+            "WUSDG" | "USDG" => Some(Asset::Wusdg),
             _ => None,
         }
     }

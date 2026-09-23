@@ -17,6 +17,8 @@ default = []
 # Собирает ВТОРОЙ инстанс пула под другим program-id (для wUSDT и др.
 # активов): изоляция pool/nullifier/memo PDA — они program-scoped.
 wusdt = []
+# Третий инстанс — wUSDG (Paxos Global Dollar). Взаимоисключающая с wusdt.
+wusdg = []
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
