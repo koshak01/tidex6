@@ -93,6 +93,65 @@ not compress — which is why the hash is a separate contract the pool calls.
 
 ---
 
+## What works, what does not yet, and what we chose not to do
+
+Judges and integrators ask these three questions anyway; the answers are
+better written down by us than discovered.
+
+**Works — and can be run by anyone:**
+
+- Private stablecoin payments on **Solana mainnet** in wUSDC and wUSDT: the
+  Groth16 pool hides who paid whom, Token-2022 Confidential Transfers hide the
+  amount. The verifier is immutable (upgrade authority renounced).
+- The hidden-amount pool on **Arbitrum Sepolia, Robinhood Chain, Base Sepolia,
+  HyperEVM testnet, Arc testnet and Arc mainnet**: send, receive and audit from
+  the browser at [tidex6.com](https://tidex6.com); the relayer pays the gas, so
+  the recipient's wallet never appears as the one that asked for the money.
+- **USDG on Robinhood Chain**: a full payment and withdrawal run live on
+  23 September 2026, fee note included.
+- **The treasury**: every payment's 1% fee is a separate note sealed to the
+  treasury; a robot on our server collects those notes, another tops up the
+  relayer's gas from the treasury. Live balances and every robot transaction
+  are public at [tidex6.com/treasury](https://tidex6.com/treasury/).
+- 51 contract tests (Foundry) run in CI on every push.
+
+**Does not work yet:**
+
+- **Deposit amounts on the EVM pools are public.** Amounts inside the pool
+  (join-split) are hidden; hiding them on the way in is the confidential token
+  that comes next.
+- **The verifying key is still a development key** until the public ceremony
+  at [ceremony.tidex6.com](https://ceremony.tidex6.com) closes. The pools are
+  for review and testing.
+- **USDG on Arbitrum Sepolia is deployed but not run end to end**: the Paxos
+  testnet faucet stopped paying out on that chain on 22 September 2026, so
+  there is no test USDG to pay with.
+- **No swap of fees into gas on the EVM testnets**: there is no liquidity to
+  swap against. On Arc none is needed — gas is USDC, the same money the fees
+  arrive in.
+- **On Solana the wrapper is custodial**: the underlying USDC/USDT sits in a
+  vault under the operator's key, and the operator sees the send side. A
+  wrapper program with PDA authority is the next step.
+
+**Chosen not to do, and why:**
+
+- **No wallet screening yet.** Nothing checks a wallet against sanctions lists
+  or known-hack databases before it enables payments. The check belongs at
+  Enable, where a wallet first registers; the method — an on-chain oracle
+  where the chain has one, outside databases elsewhere — is not decided. It is
+  not in the pool contracts, because deployed pools cannot be changed, and a
+  check in the browser alone can be walked around.
+- **The Solana verifier cannot be upgraded — by us either.** New rules mean a
+  new program at a new address that people choose to move to; nobody can
+  change the rules under money already deposited.
+- **Poseidon is a separate contract on Stylus.** Its 195 round constants do
+  not compress under the 24 KB brotli limit.
+- **The Stylus pools have no `token()` getter.** The relayer keeps each
+  pool's token address in its own table, checked against storage slot 0;
+  adding the getter would mean redeploying pools that already hold funds.
+
+---
+
 ## What builds from a clean clone
 
 Everything in this repository builds with `cargo build --release` after a plain
