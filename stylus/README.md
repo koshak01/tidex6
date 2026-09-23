@@ -82,8 +82,9 @@ Deployed 2 September 2026 from `0xe84041bd169532f5c74666fff6a527257048f3a7`.
 | TSLA (Stock Token, testnet) | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` | 18 decimals, from the network faucet |
 
 `cargo stylus deploy` creates contracts that have a constructor through the
-`StylusDeployer` factory. Robinhood Chain testnet does not ship one at the
-canonical address, so a copy was deployed at
+`StylusDeployer` factory. Robinhood Chain testnet did not ship one at the
+canonical address in early September 2026 — it does now, and deployments since
+22 September go straight through it — so at the time a copy was deployed at
 `0xC821B4BF26CF181253b60C1116Bb1Fa6D7dCB0D4` from
 [OffchainLabs/nitro-contracts](https://github.com/OffchainLabs/nitro-contracts)
 tag `v3.2.0` (commit `2695e7b3e3f460531e2b77fed48a60561c54d90e`,
@@ -138,7 +139,39 @@ constructor. Constructor `(token, withdrawVerifier, transferVerifier, poseidon)`
 The pool is 24.6 KB after brotli in the reproducible build and deploys as two
 fragments; the empty-tree root matches the fixed pools (`0x2134e76a…1f3e`).
 
-## Why the Robinhood pool cannot show a green `cargo stylus verify`
+#### USDG pools (both networks, 22 September 2026)
+
+Paxos's USDG is on both of these chains, so each now holds two tokens. Same
+crate, unchanged; only the constructor's first argument differs. The verifiers
+and Poseidon above are reused: a proof is about the tree and the nullifier and
+carries no signal about which token the pool holds, so a second pool needs no
+second verifier — and two verifying keys on one chain would only invite
+confusion about which is which.
+
+| Contract | Arbitrum Sepolia | Robinhood testnet |
+|---|---|---|
+| USDG (Paxos testnet faucet) | `0xFFC95faa3d63Cde504a05B567C600B78C0b41892` | `0x7E955252E15c84f5768B83c41a71F9eba181802F` |
+| `hidden-pool` (USDG) | `0x27ee24bea73088095b2898b3098e2b6040515275`, block 311623616 | `0x73f68e1e4d02557e6cefd0292ffac13da5d18490`, block 122853494 |
+
+`cargo stylus verify` is green on both, with the same project metadata hash as
+the 14 September deployment — the crate really is untouched. USDG is six
+decimals, like the USDC beside it, so the fee floor and the circuits' 64-bit
+range hold unchanged.
+
+Before either address was written down, the empty-subtree hashes and the first
+root of each new pool were compared bit for bit against the pool already live
+on the same chain. A mismatch there means a different Poseidon, and a pool
+whose notes can be deposited and never withdrawn — with no error at deposit
+time to say so.
+
+There is no fixed-denomination pool for USDG and there will not be: that
+design came first, and everything since is sealed-amount.
+
+## Why some Robinhood contracts cannot show a green `cargo stylus verify`
+
+**This section described a chain-wide limitation until 22 September 2026, when
+it stopped being one. It is kept because it still explains the older
+contracts, not because it still describes the chain.**
 
 `cargo stylus verify` on a contract with a constructor rebuilds the WASM,
 decodes the factory call from the deployment transaction, compares the
@@ -146,18 +179,36 @@ bytecode — and then requires the factory to be the canonical `StylusDeployer`
 at `0xcEcba2F1DC234f70Dd89F2041029807F8D03A990`
 (`stylus-tools/src/core/verification.rs`, `InvalidDeployerAddress`; the
 address is a constant, there is no flag or setting for another one, in 0.10.9
-and in the current sources alike). Robinhood Chain testnet has no factory at
-that address, so every contract with a constructor there goes through the
-byte-identical copy at `0xC821…B0D4`, and verify stops one step before
-`VERIFIED` with `Invalid deployer address`. Everything before that step
-passes: the rebuilt bytecode is the deployed bytecode. The pool `0xe897…2c44`
-is therefore reproducible but not green; poseidon, verifier and registry have
-no constructor and verify green. The fix is upstream as
+and in the current sources alike).
+
+In September 2026 Robinhood Chain testnet had no factory at that address, so
+contracts with a constructor went through the byte-identical copy at
+`0xC821…B0D4` and verify stopped one step before `VERIFIED` with `Invalid
+deployer address`. Everything before that step passed: the rebuilt bytecode
+was the deployed bytecode.
+
+**The canonical factory is on Robinhood Chain now** — `eth_getCode` returns
+the same 2269 bytes there as on Arbitrum Sepolia. The USDG pool deployed on
+22 September went through it and verifies end to end. So the limitation was
+the chain's, it is gone, and `cargo stylus verify` is green on both networks
+for anything deployed since.
+
+What remains is per-contract and permanent: a deployment transaction cannot be
+re-made. The pools and registry deployed through the copy in September keep
+failing that one step forever, because verify reads the factory out of the
+transaction that created them. `0xe897…2c44` is reproducible but not green for
+that reason alone; poseidon, verifier and registry have no constructor and
+were always green.
+
+The upstream fix for the general case is
 [OffchainLabs/stylus-sdk-rs#452](https://github.com/OffchainLabs/stylus-sdk-rs/pull/452):
-`cargo stylus verify --deployer-address`, mirroring the flag `deploy` already has. On Arbitrum Sepolia the canonical factory
-exists and the current pool there verifies end to end. An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083`
-was deployed the same day from a tree without `default-members` and is
-superseded; it holds no deposits.
+`cargo stylus verify --deployer-address`, mirroring the flag `deploy` already
+has. It would let the older contracts verify too, and it still matters for any
+Orbit chain without the canonical factory.
+
+An interim pool `0x600ea01dc6da63f37d6a88b24369f46124426083` was deployed on
+14 September from a tree without `default-members` and is superseded; it holds
+no deposits.
 
 ## Why the hash is a separate contract
 

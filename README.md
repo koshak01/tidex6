@@ -59,9 +59,37 @@ it is the next piece of work.
 How the fee works and what it costs, including the parts that do not work yet,
 is written out in [docs/release/BUSINESS.md](docs/release/BUSINESS.md).
 
-> The EVM and Arc deployments carry the same caveat as Solana, and one more:
-> the verifying key comes from the ceremony still in progress, so these pools
-> are for review and testing, not for real money.
+**Arbitrum** — where the contracts are Rust rather than Solidity. The same pool
+is compiled to WASM and runs on Stylus (`stylus/`), on two chains: Arbitrum
+Sepolia and Robinhood Chain, an Orbit chain whose token is a tokenized stock.
+Every contract is a reproducible Docker build and `cargo stylus verify` passes
+on both networks, constructor included.
+
+| contract | Arbitrum Sepolia | Robinhood Chain |
+|---|---|---|
+| `hidden-pool` (USDC / TSLA) | `0xe4c1f2bc121800b8e56ff11dced9a62d6ce3b383` | `0xf4029451b6988d32ed1a9de847bf3250e83a87fe` |
+| `hidden-pool` (USDG) | `0x27ee24bea73088095b2898b3098e2b6040515275` | `0x73f68e1e4d02557e6cefd0292ffac13da5d18490` |
+| `hidden-withdraw-verifier` | `0xe00eca003e40bb3f2df30c5b7111c73cff9d0b00` | `0x6f6c5b8e4b2f637aa7c7c47eb90c73bc18c5008d` |
+| `hidden-transfer-verifier` | `0x5024f1348dccb7f612cf0f5dc08de81b99c3fbb8` | `0xeb8cfac5351089d9436fc9fc3a40c93f1aa282f4` |
+| `poseidon` | `0x3454f4bb9b3bb20344bbb3cb43d6fb743a1c1d68` | `0xe9182c3b0cdf5bfb8871ac162fa28a501a3cfa82` |
+
+Three tokens move through these pools, and the point is that the pool does not
+care which: **USDC**, **TSLA** — a tokenized stock, so a salary or an invoice
+can be paid in equity without publishing what anyone is paid — and **USDG**,
+Paxos's dollar, added 22 September 2026 on both chains. A second token is a
+second pool sharing the first one's verifiers: the proof is about the tree and
+the nullifier and carries no signal about which token is inside.
+
+Poseidon is what makes this worth doing in Rust: a depth-20 tree walk hashes
+twenty times per deposit, and in Solidity one hash costs around 63 000 gas
+(measured on our own deployment). On Stylus the constraint moves elsewhere —
+a contract must fit 24 KB after brotli, and Poseidon's 195 round constants do
+not compress — which is why the hash is a separate contract the pool calls.
+`stylus/README.md` has the sizes, the deployment gas and the reasoning.
+
+> The EVM, Arbitrum and Arc deployments carry the same caveat as Solana, and
+> one more: the verifying key comes from the ceremony still in progress, so
+> these pools are for review and testing, not for real money.
 
 ---
 
