@@ -8,7 +8,13 @@
 //!
 //! ```text
 //! enable <mainnet|devnet>
+//! enable <mainnet|devnet> --keypair <wallet.json> --rpc <url> --identity <keygen.json>
 //! ```
+//!
+//! The second form registers a wallet under a reader key that was NOT derived
+//! from it — the treasury's, made by `tidex6 keygen`. The treasury has a
+//! reader key and a Solana wallet to collect with, and the pool service only
+//! pays out to a registered wallet.
 
 use anchor_client::Signer;
 use anchor_lang::prelude::Pubkey;
@@ -34,28 +40,65 @@ struct Config {
     rpc_devnet: String,
 }
 
+/// Value of `--name <value>` among the arguments.
+fn flag(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+}
+
+/// The public reader address from a `tidex6 keygen` identity file.
+fn reader_from_identity(path: &str) -> Result<tidex6_core::envelope::ReaderAddress> {
+    #[derive(Deserialize)]
+    struct IdentityFile {
+        mlkem_public: String,
+    }
+    let raw = std::fs::read_to_string(path).with_context(|| format!("read {path}"))?;
+    let file: IdentityFile = serde_json::from_str(&raw).with_context(|| format!("parse {path}"))?;
+    let bytes = hex::decode(file.mlkem_public.trim()).context("mlkem_public is not hex")?;
+    tidex6_core::envelope::ReaderAddress::from_bytes(&bytes)
+        .map_err(|e| anyhow::anyhow!("mlkem_public: {e}"))
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
         eprintln!("enable — turn on private payments for the local wallet");
         eprintln!("Usage:\n  enable <mainnet|devnet>");
+        eprintln!("  enable <mainnet|devnet> --keypair <wallet.json> --rpc <url> --identity <keygen.json>");
         std::process::exit(2);
     }
 
-    let home = std::env::var("HOME").context("HOME")?;
-    let raw = std::fs::read_to_string(format!("{home}/.tidex6-local/config.toml"))
-        .context("~/.tidex6-local/config.toml")?;
-    let cfg: Config = toml::from_str(&raw).context("parse config")?;
-
-    let url = match args[0].as_str() {
-        "mainnet" => cfg.rpc_mainnet.clone(),
-        "devnet" => cfg.rpc_devnet.clone(),
-        other => bail!("unknown network: {other}"),
+    // With --keypair and --rpc the local config is not needed at all: the
+    // treasury runs as the service user, which has no ~/.tidex6-local.
+    let (keypair_path, url) = match (flag(&args, "--keypair"), flag(&args, "--rpc")) {
+        (Some(k), Some(u)) => (k, u),
+        _ => {
+            let home = std::env::var("HOME").context("HOME")?;
+            let raw = std::fs::read_to_string(format!("{home}/.tidex6-local/config.toml"))
+                .context("~/.tidex6-local/config.toml")?;
+            let cfg: Config = toml::from_str(&raw).context("parse config")?;
+            let url = match args[0].as_str() {
+                "mainnet" => cfg.rpc_mainnet.clone(),
+                "devnet" => cfg.rpc_devnet.clone(),
+                other => bail!("unknown network: {other}"),
+            };
+            (flag(&args, "--keypair").unwrap_or(cfg.keypair_path), url)
+        }
     };
+    if !matches!(args[0].as_str(), "mainnet" | "devnet") {
+        bail!("unknown network: {}", args[0]);
+    }
 
-    let keypair = load_keypair(&cfg.keypair_path)?;
-    let identity = LocalIdentity::from_keypair(&keypair)?;
+    let keypair = load_keypair(&keypair_path)?;
     let wallet = keypair.pubkey();
+    // The reader: from --identity when given (a key not derived from this
+    // wallet), otherwise derived from the wallet's signature as the browser does.
+    let reader = match flag(&args, "--identity") {
+        Some(path) => reader_from_identity(&path)?,
+        None => LocalIdentity::from_keypair(&keypair)?.reader,
+    };
 
     println!("wallet:  {wallet}");
     println!("network: {}", args[0]);
@@ -87,7 +130,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let public = identity.reader.to_bytes();
+    let public = reader.to_bytes();
     println!("reader:  {} bytes", public.len());
 
     // 1. Создать запись — если её ещё нет. Незавершённую регистрацию

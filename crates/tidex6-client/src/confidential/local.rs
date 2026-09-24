@@ -65,15 +65,19 @@ impl LocalIdentity {
         })
     }
 
-    /// Личность из готового ключа чтения, без кошелька.
+    /// Личность из готового ключа чтения, не выведенного из кошелька.
     ///
-    /// Для служебного читателя вроде казны: у неё есть ключ чтения
-    /// (`tidex6 keygen`), но нет кошелька Solana, из подписи которого он был бы
-    /// выведен. Адрес кошелька здесь пустой — сканеру он не нужен, ему нужен
-    /// только секрет, открывающий слоты.
-    pub fn from_reader_secret(reader: ReaderAddress, mlkem_secret: PqcSecretKey) -> Self {
+    /// Для служебного читателя вроде казны: ключ чтения сделан `tidex6 keygen`,
+    /// а кошелёк — отдельный, зарегистрированный в реестре под этим ключом.
+    /// Сканеру кошелёк не нужен (ему хватает секрета), а служба пула
+    /// выплачивает только зарегистрированному кошельку — его и передаём.
+    pub fn from_reader_secret(
+        wallet: anchor_client::anchor_lang::prelude::Pubkey,
+        reader: ReaderAddress,
+        mlkem_secret: PqcSecretKey,
+    ) -> Self {
         Self {
-            wallet: anchor_client::anchor_lang::prelude::Pubkey::default(),
+            wallet,
             reader,
             mlkem_secret,
         }
