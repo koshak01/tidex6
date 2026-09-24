@@ -109,10 +109,14 @@ better written down by us than discovered.
   the recipient's wallet never appears as the one that asked for the money.
 - **USDG on Robinhood Chain**: a full payment and withdrawal run live on
   23 September 2026, fee note included.
+- **USDG on Solana devnet** through our confidential wrapper (wUSDG, pool
+  `GwZ55BcsK39KBmT3oh6jcWQpVm7EpC7p8rFNVWFUvN5U`): a full send and receive
+  run on 24 September 2026, and its fee note collected by the treasury robot.
 - **The treasury**: every payment's 1% fee is a separate note sealed to the
-  treasury; a robot on our server collects those notes, another tops up the
-  relayer's gas from the treasury. Live balances and every robot transaction
-  are public at [tidex6.com/treasury](https://tidex6.com/treasury/).
+  treasury; robots on our server collect those notes on the EVM chains and on
+  Solana, and top up the relayer's gas from the treasury. Which fees reached
+  it, balances and every robot transaction are public at
+  [tidex6.com/treasury](https://tidex6.com/treasury/).
 - 51 contract tests (Foundry) run in CI on every push.
 
 **Does not work yet:**
