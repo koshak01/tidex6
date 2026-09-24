@@ -182,11 +182,12 @@ impl Network {
                 // Проверено по цепи 22.09.2026: владелец минта TokenzQd…, 6 знаков.
                 underlying_mint: Some("4F6PM96JJxngmHnZLBh9n58RH4aTVNWvDs2nuwrT5BP7"),
                 is_underlying_token_2022: true,
-                // Создаётся оператором (create_wusdc) — заносится в config
-                // `[mints.devnet_wusdg]`, затем сюда.
-                wrapped_mint: None,
-                // Третий экземпляр пула (feature "wusdg") — после деплоя.
-                pool_program: None,
+                // Token-2022 CT-обёртка wUSDG (create_wusdc wusdg, 23.09.2026,
+                // оператор wARvfUk1…; совпадает с `[mints.devnet_wusdg].wrapped`).
+                wrapped_mint: Some("5MLfX37vQNnhkmYuxTkoPkTw5zZBKhd59f96BCvzakT9"),
+                // Третий экземпляр пула (feature "wusdg"), живой круг пройден
+                // 24.09.2026 (депозит + вывод).
+                pool_program: Some("GwZ55BcsK39KBmT3oh6jcWQpVm7EpC7p8rFNVWFUvN5U"),
             }),
         }
     }
