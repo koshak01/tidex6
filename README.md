@@ -129,6 +129,10 @@ better written down by us than discovered.
 - **No swap of fees into gas on the EVM testnets**: there is no liquidity to
   swap against. On Arc none is needed — gas is USDC, the same money the fees
   arrive in.
+- **USDG on Solana is on devnet only.** The wUSDG wrapper and its pool
+  (`GwZ55BcsK39KBmT3oh6jcWQpVm7EpC7p8rFNVWFUvN5U`) run on devnet since
+  23 September 2026; mainnet follows when there is demand for it — the
+  deployment is the same, only paid for.
 - **On Solana the wrapper is custodial**: the underlying USDC/USDT sits in a
   vault under the operator's key, and the operator sees the send side. A
   wrapper program with PDA authority is the next step.
