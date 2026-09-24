@@ -65,6 +65,20 @@ impl LocalIdentity {
         })
     }
 
+    /// Личность из готового ключа чтения, без кошелька.
+    ///
+    /// Для служебного читателя вроде казны: у неё есть ключ чтения
+    /// (`tidex6 keygen`), но нет кошелька Solana, из подписи которого он был бы
+    /// выведен. Адрес кошелька здесь пустой — сканеру он не нужен, ему нужен
+    /// только секрет, открывающий слоты.
+    pub fn from_reader_secret(reader: ReaderAddress, mlkem_secret: PqcSecretKey) -> Self {
+        Self {
+            wallet: anchor_client::anchor_lang::prelude::Pubkey::default(),
+            reader,
+            mlkem_secret,
+        }
+    }
+
     /// Открыть конверт как получатель.
     ///
     /// Возвращает `None`, когда конверт адресован не нам. Это **не ошибка**:
