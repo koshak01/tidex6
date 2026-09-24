@@ -61,6 +61,81 @@ fn reader_from_identity(path: &str) -> Result<tidex6_core::envelope::ReaderAddre
         .map_err(|e| anyhow::anyhow!("mlkem_public: {e}"))
 }
 
+/// Where the entry's `written_len` sits: discriminator 8 + owner 32 + version 1.
+const WRITTEN_LEN_OFFSET: usize = 41;
+/// Where the key bytes start: `written_len` 4 + bump 1 + is_finalized 1 +
+/// Vec length prefix 4 after it.
+const DATA_OFFSET: usize = WRITTEN_LEN_OFFSET + 4 + 1 + 1 + 4;
+
+/// How many key bytes the entry already holds, and those bytes. No entry or an
+/// entry the node does not show yet reads as nothing written.
+fn written_so_far(rpc: &RpcClient, entry: &Pubkey) -> Result<(usize, Vec<u8>)> {
+    let Ok(account) = rpc.get_account(entry) else {
+        return Ok((0, Vec::new()));
+    };
+    let data = account.data;
+    if data.len() < DATA_OFFSET {
+        return Ok((0, Vec::new()));
+    }
+    let mut len_bytes = [0u8; 4];
+    len_bytes.copy_from_slice(&data[WRITTEN_LEN_OFFSET..WRITTEN_LEN_OFFSET + 4]);
+    let written = u32::from_le_bytes(len_bytes) as usize;
+    let end = (DATA_OFFSET + written).min(data.len());
+    Ok((written, data[DATA_OFFSET..end].to_vec()))
+}
+
+/// Write one chunk, riding out the node's transient failures: a fresh entry
+/// the node does not see yet (`AccountNotInitialized`), an expired blockhash.
+/// Before each retry the entry is read again — a chunk whose confirmation was
+/// lost may have landed, and sending it twice would be refused.
+fn write_chunk(
+    rpc: &RpcClient,
+    keypair: &solana_keypair::Keypair,
+    program_id: Pubkey,
+    entry: Pubkey,
+    offset: usize,
+    chunk: &[u8],
+) -> Result<()> {
+    let wallet = keypair.pubkey();
+    let end = offset + chunk.len();
+    let mut last_error = None;
+    for attempt in 1..=6 {
+        if attempt > 1 {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if written_so_far(rpc, &entry)?.0 >= end {
+                println!("chunk {offset}..{end}: already landed");
+                return Ok(());
+            }
+        }
+        let ix = Instruction {
+            program_id,
+            accounts: tidex6_registry::accounts::WriteReaderChunk { wallet, entry }
+                .to_account_metas(None),
+            data: tidex6_registry::instruction::WriteReaderChunk {
+                offset: offset as u32,
+                chunk: chunk.to_vec(),
+            }
+            .data(),
+        };
+        let hash = rpc.get_latest_blockhash()?;
+        let tx = Transaction::new_signed_with_payer(&[ix], Some(&wallet), &[keypair], hash);
+        match rpc.send_and_confirm_transaction(&tx) {
+            Ok(sig) => {
+                println!("chunk {offset}..{end}: {sig}");
+                return Ok(());
+            }
+            Err(e) => {
+                println!("chunk {offset}..{end}: attempt {attempt} failed: {e}");
+                last_error = Some(e);
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "chunk {offset}..{end} failed 6 times: {:?} — run this again; it resumes where it stopped",
+        last_error
+    ))
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
@@ -170,24 +245,27 @@ fn main() -> Result<()> {
         }
     }
 
-    // 2. Записать адрес читателя кусками.
-    let mut offset = 0usize;
+    // 2. Записать адрес читателя кусками — с того места, где запись остановилась.
+    //
+    // Реестр принимает кусок только как продолжение уже записанного
+    // (`OffsetMismatch` иначе). Раньше здесь всегда начинали с нуля, и после
+    // любого сбоя посреди записи повторный запуск упирался в этот отказ
+    // навсегда: 24.09.2026 кошелёк казны на mainnet застрял на 900 байтах из
+    // 1216. Поэтому смещение берём из самой записи, а записанное начало
+    // сверяем с нашим ключом: чужое начало дописывать нельзя.
+    let (mut offset, written) = written_so_far(&rpc, &entry)?;
+    if public[..offset] != written[..] {
+        bail!(
+            "the entry already holds {offset} bytes of a DIFFERENT reader key — \
+             close it first (close_reader) and register again"
+        );
+    }
+    if offset > 0 {
+        println!("resuming at byte {offset} of {}", public.len());
+    }
     while offset < public.len() {
         let end = (offset + MAX_CHUNK).min(public.len());
-        let ix = Instruction {
-            program_id,
-            accounts: tidex6_registry::accounts::WriteReaderChunk { wallet, entry }
-                .to_account_metas(None),
-            data: tidex6_registry::instruction::WriteReaderChunk {
-                offset: offset as u32,
-                chunk: public[offset..end].to_vec(),
-            }
-            .data(),
-        };
-        let hash = rpc.get_latest_blockhash()?;
-        let tx = Transaction::new_signed_with_payer(&[ix], Some(&wallet), &[&keypair], hash);
-        let sig = rpc.send_and_confirm_transaction(&tx)?;
-        println!("chunk {offset}..{end}: {sig}");
+        write_chunk(&rpc, &keypair, program_id, entry, offset, &public[offset..end])?;
         offset = end;
     }
 
