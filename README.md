@@ -133,6 +133,11 @@ better written down by us than discovered.
   (`GwZ55BcsK39KBmT3oh6jcWQpVm7EpC7p8rFNVWFUvN5U`) run on devnet since
   23 September 2026; mainnet follows when there is demand for it — the
   deployment is the same, only paid for.
+- **Solana fee amounts on the treasury page are as sealed in the note.** On
+  the EVM pools the amount is checked against the note's commitment; the
+  Solana confidential pool's commitment does not carry the amount, so a note
+  sealed to the treasury key could claim more than it holds. It could never
+  be collected for more — only displayed.
 - **On Solana the wrapper is custodial**: the underlying USDC/USDT sits in a
   vault under the operator's key, and the operator sees the send side. A
   wrapper program with PDA authority is the next step.
