@@ -34,7 +34,7 @@ use tidex6_core::network::{Asset, Network};
 use tidex6_core::types::Nullifier;
 
 use crate::confidential::local::LocalIdentity;
-use crate::confidential::prover_runtime::init_prover_runtime;
+use crate::confidential::prover_runtime::{init_prover_runtime, without_tracing};
 use crate::confidential::scan::{ReadAs, SpendMaterial, scan};
 use crate::confidential::send::PoolService;
 
@@ -324,9 +324,12 @@ pub fn collect_with_progress(
     // Hang site under MCP: generate_constraints → merkle Poseidon (see
     // withdraw_gc: merkle_L* lines). HARD_TIMEOUT lives in MCP host.
     on_step("prove_withdraw_start");
-    let (proof, _public_inputs) =
+    // Without tracing: under a host's logger arkworks keeps a live span per
+    // constraint and the proof grows without bound (see `without_tracing`).
+    let (proof, _public_inputs) = without_tracing(|| {
         prove_withdraw::<WITHDRAW_TREE_DEPTH, _>(&pk, witness, &mut thread_rng())
-            .context("build the withdrawal proof")?;
+    })
+    .context("build the withdrawal proof")?;
     on_step("prove_withdraw_ok");
 
     let bytes: Groth16SolanaBytes =

@@ -51,6 +51,24 @@ pub fn init_prover_runtime() {
     });
 }
 
+/// Run `f` — a proof — with tracing switched off on this thread.
+///
+/// The real cause of the long-lived-host blow-up (found 24.09.2026, when the
+/// relayer's treasury collector grew to 50 GB in 11 minutes on one Solana
+/// withdrawal): `ark-relations` calls `ConstraintTrace::capture()` on every
+/// constraint and keeps a clone of the current span, and `ark-r1cs-std` opens
+/// an INFO-level span (`target = "r1cs"`) around every gadget. Under a host's
+/// logger with a global `info` filter those spans are live, none of them is
+/// closed until the proof ends, and each one holds formatted fields — hundreds
+/// of thousands of them. A CLI has no subscriber, so the same proof takes
+/// seconds and ~50 MB there.
+///
+/// With the no-op dispatcher `Span::current()` is empty, nothing is kept, and
+/// the host's logging elsewhere is unaffected.
+pub fn without_tracing<T>(f: impl FnOnce() -> T) -> T {
+    tracing::dispatcher::with_default(&tracing::Dispatch::none(), f)
+}
+
 /// Human-readable status for logs / MCP boot banners.
 pub fn prover_runtime_status() -> String {
     let env = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into());

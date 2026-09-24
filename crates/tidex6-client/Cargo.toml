@@ -53,6 +53,8 @@ base64 = { workspace = true }
 # ark-groth16 default features pull rayon; long-lived hosts must pin the pool
 # (see confidential::init_prover_runtime).
 rayon = "1"
+# Proofs run with tracing off (prover_runtime::without_tracing).
+tracing = "0.1"
 
 [lints]
 workspace = true

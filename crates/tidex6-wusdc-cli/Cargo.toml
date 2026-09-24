@@ -26,6 +26,8 @@ anyhow = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
+# prove_rss --logger: the host-like subscriber the blow-up needs.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 solana-keypair = "3"
 solana-pubkey = "3"
 solana-rpc-client = "3"

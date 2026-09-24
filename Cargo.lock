@@ -5195,6 +5195,7 @@ dependencies = [
  "tidex6-indexer",
  "tidex6-registry",
  "tidex6-verifier-v2",
+ "tracing",
 ]
 
 [[package]]
@@ -5446,6 +5447,7 @@ dependencies = [
  "tidex6-wusdc-pool",
  "tokio",
  "toml",
+ "tracing-subscriber 0.3.23",
 ]
 
 [[package]]
