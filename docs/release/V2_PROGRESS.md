@@ -34,6 +34,7 @@ full post-mortem follows the rollout.
 | 25.09 | Genesis keys for both v2 circuits (snarkjs setup, zero contributions; pot13 / pot15), self-tested; the self-test rejects the former key. Verifiers, Stylus, Solana program VKs and proving keys regenerated | `a7af563` |
 | 25.09 | Refund without local storage: a payment with a refund window carries a funder slot sealed to the sender's own reader key; the sender rebuilds refunds from the chain on any device. MCP `evm_refund` | `72f1c87` |
 | 25.09 | WASM prover 2.7.0: owner key, core, leaf, refund tag, nullifier, fee, v2 withdraw and 1 → 3 transfer provers, funder slot | `81993c6`, `72f1c87` |
+| 25.09 | Full v2 loop on the redeployed Arc testnet stand (genesis keys): owner key published, 2 USDC paid (pool filed payment 2.0 with a 24 h refund window and a funder slot, fee 0.1 with none), recipient proved the withdraw locally and the relayer sent it — 2.0 out, the fee note stays for the treasury | tx `0x0bd1fc14…5edd`, `0x70859daf…17a6` |
 
 ## Next
 
