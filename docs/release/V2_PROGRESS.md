@@ -41,6 +41,8 @@ full post-mortem follows the rollout.
 | 26.09 | Ceremony coordinator takes one contribution for both v2 circuits (withdraw and in-pool transfer); earlier chains kept in the transcript | web `v3.64.0` |
 | 26.09 | Solana pool v2 on devnet: program `6Pgc17…1sVe` (447 KB), USDC pool `48q2gJ8i…cyhz` with the same treasury key and fee floor as the EVM stand; genesis keys, devnet only | deploy `3dTAVA1L…oFRM`, init `3fQATUp4…v4LN` |
 | 26.09 | Public ceremony restarted on the two v2 circuits (withdraw, in-pool transfer); earlier chains archived in the transcript | ceremony.tidex6.com |
+| 26.09 | Found before the first Solana withdraw: a recipient withdrawing on their own is also the relayer, and Anchor 1.1 refuses the two identical token accounts — marked `dup` (upgrade on devnet) | `cceef32` |
+| 26.09 | Site on Solana devnet v2: send, receive, take back, owner key at registration; the relayer serves the leaf list (`/sol-v2-leaves/`) the RPC proxy cannot | web `v3.65.0`, relayer `v3.24.0` |
 
 ## Next
 
