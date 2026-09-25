@@ -143,7 +143,7 @@ impl ConstraintSynthesizer<Fr> for WithdrawCircuit {
 }
 
 /// Доказать `0 ≤ amount < 2^64` через битовое разложение.
-fn enforce_u64_range(
+pub(crate) fn enforce_u64_range(
     cs: ConstraintSystemRef<Fr>,
     amount_opt: Option<Fr>,
     amount_var: &FpVar<Fr>,

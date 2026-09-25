@@ -17,7 +17,10 @@
 
 pub mod bytes;
 pub mod ceremony;
+pub mod note_v2;
 pub mod onchain;
 pub mod token;
 pub mod transfer;
+pub mod transfer_v2;
 pub mod withdraw;
+pub mod withdraw_v2;
