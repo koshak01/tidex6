@@ -18,7 +18,7 @@ mod transfer_vk;
 mod withdraw_vk;
 
 pub use pool::{
-    DepositArgs, DepositEvent, FIELD_ELEMENT_BYTES, MemoAccount, NullifierRecord, PoolState,
+    DepositArgs, DepositEvent, FIELD_ELEMENT_BYTES, MemoAccount, NullifierRecord, OwnerKey, PoolState,
     ROOT_RING_SIZE, RefundEvent, TREE_DEPTH, TransferNoteEvent, WithdrawEvent,
 };
 pub use transfer_vk::{TRANSFER_V2_NR_PUBLIC_INPUTS, TRANSFER_V2_VERIFYING_KEY};
@@ -49,6 +49,12 @@ pub mod tidex6_pool_v2 {
     /// Upgrade authority only.
     pub fn init_pool(context: Context<InitPool>, treasury_owner_pk: Field, fee_floor: u64) -> Result<()> {
         pool::handle_init_pool(context, treasury_owner_pk, fee_floor)
+    }
+
+    /// Publish (or replace) the caller's owner key — what a sender binds a
+    /// v2 note to. One per wallet for the whole program, every mint.
+    pub fn publish_owner_key(context: Context<PublishOwnerKey>, owner_pk: Field) -> Result<()> {
+        pool::handle_publish_owner_key(context, owner_pk)
     }
 
     /// Pay into the pool: the payment note and its fee note.
@@ -156,6 +162,23 @@ pub struct InitPool<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct PublishOwnerKey<'info> {
+    #[account(
+        init_if_needed,
+        payer = wallet,
+        space = OwnerKey::ACCOUNT_SIZE,
+        seeds = [OwnerKey::SEED_PREFIX, wallet.key().as_ref()],
+        bump,
+    )]
+    pub owner_key: Account<'info, OwnerKey>,
+
+    #[account(mut)]
+    pub wallet: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -401,4 +424,6 @@ pub enum PoolError {
     RefundWindowOutOfRange,
     #[msg("Only the program's upgrade authority may initialise a pool.")]
     NotUpgradeAuthority,
+    #[msg("The owner key must be a non-zero field element.")]
+    InvalidOwnerKey,
 }

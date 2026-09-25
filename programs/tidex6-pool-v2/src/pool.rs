@@ -25,7 +25,9 @@ use solana_poseidon::{Endianness, Parameters, hashv};
 
 use crate::transfer_vk::{TRANSFER_V2_NR_PUBLIC_INPUTS, TRANSFER_V2_VERIFYING_KEY};
 use crate::withdraw_vk::{WITHDRAW_V2_NR_PUBLIC_INPUTS, WITHDRAW_V2_VERIFYING_KEY};
-use crate::{AppendMemo, Deposit, InitPool, PoolError, Refund, TransferNote, Withdraw};
+use crate::{
+    AppendMemo, Deposit, InitPool, PoolError, PublishOwnerKey, Refund, TransferNote, Withdraw,
+};
 
 pub const TREE_DEPTH: usize = 20;
 pub const ROOT_RING_SIZE: usize = 30;
@@ -146,6 +148,18 @@ impl MemoAccount {
     }
 }
 
+/// A wallet's owner key, PDA `[b"owner", wallet]` — what senders bind its
+/// v2 notes to.
+#[account]
+pub struct OwnerKey {
+    pub owner_pk: Field,
+}
+
+impl OwnerKey {
+    pub const SEED_PREFIX: &'static [u8] = b"owner";
+    pub const ACCOUNT_SIZE: usize = 8 + FIELD_ELEMENT_BYTES;
+}
+
 /// Per-nullifier PDA `[b"nullifier", nullifier]`; its existence is the
 /// double-spend guard for withdraw, refund and forward alike.
 #[account]
@@ -156,6 +170,18 @@ pub struct NullifierRecord {
 impl NullifierRecord {
     pub const SEED_PREFIX: &'static [u8] = b"nullifier";
     pub const ACCOUNT_SIZE: usize = 8 + FIELD_ELEMENT_BYTES;
+}
+
+// ── publish_owner_key ────────────────────────────────────────────────────
+
+/// Only the signer's own entry is written; a replaced key does not strand
+/// old notes, their spending key is unchanged.
+pub fn handle_publish_owner_key(ctx: Context<PublishOwnerKey>, owner_pk: Field) -> Result<()> {
+    require!(owner_pk != [0u8; FIELD_ELEMENT_BYTES], PoolError::InvalidOwnerKey);
+    // A value outside the field fails the syscall: hash it once to find out.
+    h(&owner_pk, &[0u8; FIELD_ELEMENT_BYTES]).map_err(|_| PoolError::InvalidOwnerKey)?;
+    ctx.accounts.owner_key.owner_pk = owner_pk;
+    Ok(())
 }
 
 // ── init_pool ────────────────────────────────────────────────────────────

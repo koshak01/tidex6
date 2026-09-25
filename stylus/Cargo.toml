@@ -16,6 +16,7 @@ members = [
     "hidden-transfer-verifier",
     "hidden-pool",
     "hidden-pool-v2",
+    "owner-keys",
 ]
 # No `default-members`: the reproducible build (`cargo stylus deploy` /
 # `verify`, stylus-tools 0.10.9) mounts the workspace root and runs a plain

@@ -1,0 +1,28 @@
+[package]
+name = "tidex6-stylus-owner-keys"
+description = "Owner keys of the v2 pools (ADR-022) on Arbitrum Stylus: a wallet publishes the key its v2 notes are bound to. Same ABI as contracts/src/Tidex6OwnerKeys.sol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# `cargo stylus verify` shells out to `cargo run`; with a lib and a bin in one
+# crate it needs to be told which binary. Part of the project hash sealed
+# into the deployment — change it only together with a redeploy.
+default-run = "tidex6-stylus-owner-keys"
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+stylus-sdk = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+tidex6-stylus-common = { workspace = true }
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]
