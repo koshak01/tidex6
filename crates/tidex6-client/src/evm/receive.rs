@@ -43,6 +43,12 @@ pub struct DepositRecord {
     pub tx_hash: String,
     #[serde(rename = "sentTs", default)]
     pub sent_ts: u64,
+    /// Пулы v2: кто внёс (`0x…`) и с какого момента можно вернуть; у нот
+    /// без возврата и у v1 — пусто и 0.
+    #[serde(default)]
+    pub depositor: String,
+    #[serde(rename = "refundAfter", default)]
+    pub refund_after: u64,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +185,80 @@ pub fn my_notes(
         });
     }
     Ok(out)
+}
+
+/// Свои ноты в пуле v2: открытые ключом чтения и сверенные с листом под
+/// своим ключом владельца.
+pub fn my_notes_v2(
+    pool: &EvmPool,
+    leaves: &[DepositRecord],
+    identity: &LocalIdentity,
+) -> Result<Vec<(super::v2::OpenNoteV2, bool, String, u64)>> {
+    let owner_pk = identity
+        .owner_pk_v2()
+        .context("this identity has no spending key; v2 notes need one")?;
+    let node = Node::new(pool.read_url)?;
+    let units = pool.base_units_per_micro();
+    let mut out = Vec::new();
+    for record in leaves {
+        let depositor = address_word(&record.depositor)
+            .map(|w| <[u8; 20]>::try_from(&w[12..]).unwrap_or([0u8; 20]))
+            .unwrap_or([0u8; 20]);
+        let leaf = super::v2::LeafRecord {
+            leaf_index: record.leaf_index,
+            commitment_hex: &record.commitment_hex,
+            envelope_hex: &record.envelope_hex,
+            depositor,
+            refund_after: record.refund_after,
+        };
+        let Some(note) = super::v2::open_note(&leaf, identity.reader_secret(), &owner_pk, units)
+        else {
+            continue;
+        };
+        let data = [&SEL_NULLIFIER_SPENT[..], &note.nullifier].concat();
+        let is_spent = node.eth_call(pool.hidden_pool, &data)?.last() == Some(&1);
+        out.push((note, is_spent, record.tx_hash.clone(), record.sent_ts));
+    }
+    Ok(out)
+}
+
+/// Забрать ноту v2 на `recipient` через релеер: доказательство ключом траты
+/// владельца, отправка — релеером.
+pub fn collect_note_v2(
+    pool: &EvmPool,
+    relayer: &Relayer,
+    proving_key: &ProvingKey<Bn254>,
+    leaves: &[DepositRecord],
+    note: &super::v2::OpenNoteV2,
+    identity: &LocalIdentity,
+    recipient: &str,
+) -> Result<String> {
+    let spending_key = identity
+        .spending_key()
+        .context("this identity has no spending key; v2 notes need one")?;
+    let ordered = leaves_in_order(
+        leaves
+            .iter()
+            .map(|r| (r.leaf_index, r.commitment_hex.as_str())),
+    )?;
+    let tree = build_tree(&ordered)?;
+    let recipient_word = address_word(recipient)?;
+    let parties = WithdrawParties {
+        recipient: recipient_word[12..].try_into()?,
+        relayer: relayer.address(pool)?,
+        relayer_fee: 0,
+    };
+    let proof = super::v2::prove_withdraw(proving_key, &tree, note, spending_key, &parties)?;
+    relayer.withdraw(json!({
+        "chain": pool.key,
+        "pool": "hidden",
+        "proof_hex": hex::encode(&proof.proof),
+        "merkle_root_hex": hex::encode(proof.root),
+        "nullifier_hash_hex": hex::encode(note.nullifier),
+        "recipient": recipient,
+        "fee": "0",
+        "amount": note.amount.to_string(),
+    }))
 }
 
 /// Забрать одну ноту на `recipient` через релеер.

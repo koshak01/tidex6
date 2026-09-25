@@ -29,6 +29,9 @@ pub struct LocalIdentity {
     /// Секрет чтения. Им открываются адресованные нам слоты — и ничего больше:
     /// потратить он не позволяет.
     mlkem_secret: PqcSecretKey,
+    /// Ключ траты нот v2 (ADR-022), из той же подписи. `None` у служебного
+    /// читателя, собранного только из секрета чтения.
+    spending_key: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for LocalIdentity {
@@ -40,6 +43,7 @@ impl std::fmt::Debug for LocalIdentity {
             .field("wallet", &self.wallet)
             .field("reader", &"<reader address>")
             .field("mlkem_secret", &"<redacted>")
+            .field("spending_key", &"<redacted>")
             .finish()
     }
 }
@@ -62,6 +66,7 @@ impl LocalIdentity {
             wallet: keypair.pubkey(),
             reader,
             mlkem_secret: derived.mlkem_secret,
+            spending_key: Some(derived.spending_key.to_bytes()),
         })
     }
 
@@ -80,7 +85,28 @@ impl LocalIdentity {
             wallet,
             reader,
             mlkem_secret,
+            spending_key: None,
         }
+    }
+
+    /// Добавить ключ траты служебному читателю — казне, чья личность лежит
+    /// файлом `tidex6 keygen` вместе с `spending_key`.
+    pub fn with_spending_key(mut self, spending_key: [u8; 32]) -> Self {
+        self.spending_key = Some(spending_key);
+        self
+    }
+
+    /// Ключ владельца нот v2 — публичное значение, которое кошелёк
+    /// публикует, чтобы ему можно было платить. `None` без ключа траты.
+    pub fn owner_pk_v2(&self) -> Option<[u8; 32]> {
+        self.spending_key
+            .as_ref()
+            .map(crate::evm::note::owner_pk_v2)
+    }
+
+    /// Ключ траты — для доказательства вывода v2. Наружу крейта не выходит.
+    pub(crate) fn spending_key(&self) -> Option<&[u8; 32]> {
+        self.spending_key.as_ref()
     }
 
     /// Секрет чтения — для открытия нот на EVM (`crate::evm::receive`).

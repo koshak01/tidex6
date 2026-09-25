@@ -34,11 +34,19 @@ pub struct EvmPool {
     pub has_deposit_with_fee: bool,
     /// Прежняя версия пула: только вывод.
     pub is_withdraw_only: bool,
+    /// Реестр ключей владельца этой цепи (`Tidex6OwnerKeys`) — у пулов формата
+    /// v2 (ADR-022); пусто у v1.
+    pub owner_keys: &'static str,
     /// Деньги настоящие — действуют потолки трат, как на Solana mainnet.
     pub is_mainnet: bool,
 }
 
 impl EvmPool {
+    /// Пул формата v2: лист считает пул, тратит только владелец.
+    pub fn is_v2(&self) -> bool {
+        !self.owner_keys.is_empty()
+    }
+
     /// Сколько базовых единиц токена в одной микро-единице конверта.
     ///
     /// Конверт везде несёт микро-единицы (шесть знаков), commitment и вывод —
@@ -127,6 +135,7 @@ const fn row(
         has_deposit_with_fee: flags.0,
         is_withdraw_only: flags.1,
         is_mainnet: flags.2,
+        owner_keys: "",
     }
 }
 

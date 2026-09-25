@@ -10,3 +10,4 @@ pub mod pools;
 pub mod receive;
 pub mod rpc;
 pub mod send;
+pub mod v2;
