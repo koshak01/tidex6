@@ -165,6 +165,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-r1cs-std",
  "ark-std 0.5.0",
 ]
 
@@ -1339,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.18.0"
+version = "2.20.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -1363,9 +1364,11 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential"
-version = "2.18.0"
+version = "2.20.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bn254",
  "ark-ff 0.5.0",
  "ark-groth16",
  "ark-r1cs-std",
@@ -1381,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.18.0"
+version = "2.20.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",

@@ -27,10 +27,10 @@ use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use js_sys::Uint8Array;
 use tidex6_circuits::evm_solidity::groth16_proof_to_evm_bytes;
-use tidex6_circuits::solana_bytes::{groth16_to_solana_bytes, Groth16SolanaBytes};
-use tidex6_circuits::withdraw::{prove_withdraw as prove_withdraw_inner, WithdrawWitness};
+use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
+use tidex6_circuits::withdraw::{WithdrawWitness, prove_withdraw as prove_withdraw_inner};
 use tidex6_confidential::bytes::fr_to_be_bytes;
-use tidex6_confidential::{transfer, withdraw as hidden};
+use tidex6_confidential::{note_v2, transfer, transfer_v2, withdraw as hidden, withdraw_v2};
 use tidex6_core::envelope;
 use tidex6_core::note::DepositNote;
 use tidex6_core::poseidon;
@@ -500,8 +500,7 @@ pub fn merkle_path_from_leaves(
         )));
     }
 
-    let mut tree = MerkleTree::new(DEPTH)
-        .map_err(|e| JsError::new(&format!("tree: {e}")))?;
+    let mut tree = MerkleTree::new(DEPTH).map_err(|e| JsError::new(&format!("tree: {e}")))?;
     for i in 0..count {
         let mut bytes = [0u8; FIELD_BYTES];
         bytes.copy_from_slice(&raw[i * FIELD_BYTES..(i + 1) * FIELD_BYTES]);
@@ -519,9 +518,7 @@ pub fn merkle_path_from_leaves(
     }
     // Bit `i` of the leaf index says which side sibling `i` sits on, LSB first
     // — the same convention `prove_withdraw` expects.
-    let indices = (0..DEPTH)
-        .map(|i| ((leaf_index >> i) & 1) as u8)
-        .collect();
+    let indices = (0..DEPTH).map(|i| ((leaf_index >> i) & 1) as u8).collect();
 
     Ok(MerklePath {
         root: tree.root().to_hex(),
@@ -730,7 +727,7 @@ fn prove_withdraw_impl(
 /// только результат. Выход — новый `CeremonyState` для загрузки.
 #[wasm_bindgen]
 pub fn ceremony_contribute(state_bytes: &Uint8Array, name: &str) -> Result<Uint8Array, JsError> {
-    use tidex6_circuits::mpc::{contribute_state, CeremonyState};
+    use tidex6_circuits::mpc::{CeremonyState, contribute_state};
 
     let bytes = uint8array_to_vec(state_bytes);
     let mut state = CeremonyState::from_bytes(&bytes)
@@ -845,7 +842,8 @@ pub fn prove_hidden_withdraw_evm(
     relayer_fee: u64,
     proving_key: &Uint8Array,
 ) -> Result<Uint8Array, JsError> {
-    let (path_siblings, path_indices) = hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let (path_siblings, path_indices) =
+        hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
     let witness = hidden::WithdrawWitness {
         amount,
         secret: fr_from_be(&to_field_bytes(secret, "secret")?),
@@ -889,10 +887,15 @@ pub fn prove_hidden_transfer_evm(
     amount_out2: u64,
     proving_key: &Uint8Array,
 ) -> Result<Uint8Array, JsError> {
-    if amount_in != amount_out1.saturating_add(amount_out2) || amount_out1.checked_add(amount_out2).is_none() {
-        return Err(JsError::new("join-split must conserve the amount: in == out1 + out2"));
+    if amount_in != amount_out1.saturating_add(amount_out2)
+        || amount_out1.checked_add(amount_out2).is_none()
+    {
+        return Err(JsError::new(
+            "join-split must conserve the amount: in == out1 + out2",
+        ));
     }
-    let (path_siblings, path_indices) = hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let (path_siblings, path_indices) =
+        hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
     let witness = transfer::TransferWitness {
         amount_in,
         secret_in: fr_from_be(&to_field_bytes(secret_in, "secret_in")?),
@@ -912,6 +915,238 @@ pub fn prove_hidden_transfer_evm(
     let (proof, _public_inputs) = transfer::prove(&pk, &witness, &mut rng)
         .map_err(|e| JsError::new(&format!("prove_hidden_transfer failed: {e}")))?;
     Ok(Uint8Array::from(&groth16_proof_to_evm_bytes(&proof)[..]))
+}
+
+// ─── Note format v2 (ADR-022) ───────────────────────────────────────────────
+//
+// The note belongs to an owner key, the pool files its leaf from the amount it
+// received, the nullifier depends on the leaf position. Field elements cross
+// the boundary as 32 big-endian bytes, amounts as `BigInt` base units. Keys are
+// ceremony keys (snarkjs layout), so both provers use `prove_ceremony`.
+
+fn field(bytes: &Uint8Array, name: &str) -> Result<Fr, JsError> {
+    Ok(fr_from_be(&to_field_bytes(bytes, name)?))
+}
+
+fn field_out(value: Fr) -> Uint8Array {
+    Uint8Array::from(&fr_to_be_bytes(value)[..])
+}
+
+/// Owner key published in the registry: `H(D_OWNER, spending_key)`.
+#[wasm_bindgen(js_name = ownerPkV2)]
+pub fn owner_pk_v2(spending_key: &Uint8Array) -> Result<Uint8Array, JsError> {
+    Ok(field_out(note_v2::owner_pk(field(
+        spending_key,
+        "spending_key",
+    )?)))
+}
+
+/// Note core the sender passes to the pool with the money.
+#[wasm_bindgen(js_name = coreV2)]
+pub fn core_v2(
+    owner_pk: &Uint8Array,
+    rho: &Uint8Array,
+    aux: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    Ok(field_out(note_v2::core(
+        field(owner_pk, "owner_pk")?,
+        field(rho, "rho")?,
+        field(aux, "aux")?,
+    )))
+}
+
+/// Leaf of a note: `H(H(core, amount), refund)`; `refund` is zero bytes for a
+/// note without refund, else [`refund_tag_evm`].
+#[wasm_bindgen(js_name = leafV2)]
+pub fn leaf_v2(core: &Uint8Array, amount: u64, refund: &Uint8Array) -> Result<Uint8Array, JsError> {
+    Ok(field_out(note_v2::leaf(
+        note_v2::body(field(core, "core")?, amount),
+        field(refund, "refund")?,
+    )))
+}
+
+/// Refund tag of an EVM deposit: the funder's 20-byte address and the moment
+/// the refund opens (the `refundAfter` of the Deposit event).
+#[wasm_bindgen(js_name = refundTagEvm)]
+pub fn refund_tag_evm(funder: &Uint8Array, refund_after: u64) -> Result<Uint8Array, JsError> {
+    let bytes = uint8array_to_vec(funder);
+    let address: [u8; 20] = bytes
+        .try_into()
+        .map_err(|_| JsError::new("funder must be a 20-byte address"))?;
+    Ok(field_out(note_v2::refund_tag(
+        note_v2::refund_addr_evm(address),
+        refund_after,
+    )))
+}
+
+/// Nullifier of the note at `position`, shared by withdraw and refund.
+#[wasm_bindgen(js_name = nullifierV2)]
+pub fn nullifier_v2(rho: &Uint8Array, position: u64) -> Result<Uint8Array, JsError> {
+    Ok(field_out(note_v2::nullifier(field(rho, "rho")?, position)))
+}
+
+/// Fee of a payment: 1% rounded up, at least `floor` — the pool's formula.
+#[wasm_bindgen(js_name = feeForV2)]
+pub fn fee_for_v2(amount: u64, floor: u64) -> u64 {
+    transfer_v2::fee_for(amount, floor)
+}
+
+/// Fresh note randomness (`rho`) from the browser CSPRNG.
+#[wasm_bindgen(js_name = randomFieldV2)]
+pub fn random_field_v2() -> Result<Uint8Array, JsError> {
+    let secret = tidex6_core::types::Secret::random()
+        .map_err(|e| JsError::new(&format!("randomness: {e}")))?;
+    Ok(Uint8Array::from(&secret.as_bytes()[..]))
+}
+
+/// Withdraw proof for a v2 note in the EVM layout. Recipient and relayer are
+/// 32-byte words (address left-padded with zeros); amounts are base units.
+#[wasm_bindgen(js_name = proveWithdrawV2Evm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_withdraw_v2_evm(
+    spending_key: &Uint8Array,
+    rho: &Uint8Array,
+    aux: &Uint8Array,
+    amount: u64,
+    refund: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: u64,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    if relayer_fee > amount {
+        return Err(JsError::new("relayer fee exceeds the note amount"));
+    }
+    let (path_siblings, path_indices) =
+        hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let witness = withdraw_v2::WithdrawV2Witness {
+        sk_spend: field(spending_key, "spending_key")?,
+        rho: field(rho, "rho")?,
+        aux: field(aux, "aux")?,
+        amount,
+        refund: field(refund, "refund")?,
+        path_siblings,
+        path_indices,
+        merkle_root: field(merkle_root, "merkle_root")?,
+        recipient: to_field_bytes(recipient, "recipient")?,
+        relayer: to_field_bytes(relayer_address, "relayer_address")?,
+        relayer_fee,
+    };
+    let pk = proving_key_from(proving_key)?;
+    let mut rng = rand::thread_rng();
+    let (proof, _public_inputs) = withdraw_v2::prove_ceremony(&pk, &witness, &mut rng)
+        .map_err(|e| JsError::new(&format!("prove_withdraw_v2 failed: {e}")))?;
+    Ok(Uint8Array::from(&groth16_proof_to_evm_bytes(&proof)[..]))
+}
+
+/// An in-pool v2 transfer: the proof and the public values the pool takes.
+#[wasm_bindgen]
+pub struct TransferV2Proof {
+    proof: Vec<u8>,
+    nullifier: Fr,
+    commitment_pay: Fr,
+    commitment_change: Fr,
+    commitment_fee: Fr,
+}
+
+#[wasm_bindgen]
+impl TransferV2Proof {
+    #[wasm_bindgen(getter)]
+    pub fn proof(&self) -> Uint8Array {
+        Uint8Array::from(self.proof.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn nullifier(&self) -> Uint8Array {
+        field_out(self.nullifier)
+    }
+    #[wasm_bindgen(getter, js_name = commitmentPay)]
+    pub fn commitment_pay(&self) -> Uint8Array {
+        field_out(self.commitment_pay)
+    }
+    #[wasm_bindgen(getter, js_name = commitmentChange)]
+    pub fn commitment_change(&self) -> Uint8Array {
+        field_out(self.commitment_change)
+    }
+    #[wasm_bindgen(getter, js_name = commitmentFee)]
+    pub fn commitment_fee(&self) -> Uint8Array {
+        field_out(self.commitment_fee)
+    }
+}
+
+/// In-pool forward 1 → 3: the payment to `core_pay`, change back to the
+/// spender, the fee to the treasury. Checked here before proving, since a
+/// Groth16 prover does not refuse an unsatisfied witness — it returns a proof
+/// the pool rejects after the user has paid gas.
+#[wasm_bindgen(js_name = proveTransferV2Evm)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_transfer_v2_evm(
+    spending_key: &Uint8Array,
+    rho_in: &Uint8Array,
+    aux_in: &Uint8Array,
+    amount_in: u64,
+    refund_in: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    core_pay: &Uint8Array,
+    amount_pay: u64,
+    rho_change: &Uint8Array,
+    amount_change: u64,
+    rho_fee: &Uint8Array,
+    amount_fee: u64,
+    treasury_pk: &Uint8Array,
+    fee_floor: u64,
+    proving_key: &Uint8Array,
+) -> Result<TransferV2Proof, JsError> {
+    let total = amount_pay
+        .checked_add(amount_change)
+        .and_then(|sum| sum.checked_add(amount_fee));
+    if total != Some(amount_in) {
+        return Err(JsError::new(
+            "transfer must conserve the amount: in == pay + change + fee",
+        ));
+    }
+    if amount_fee < transfer_v2::fee_for(amount_pay, fee_floor) {
+        return Err(JsError::new(
+            "fee below 1% of the payment or the pool floor",
+        ));
+    }
+    let (path_siblings, path_indices) =
+        hidden_merkle_path(path_siblings_concat, path_indices_packed)?;
+    let witness = transfer_v2::TransferV2Witness {
+        sk_spend: field(spending_key, "spending_key")?,
+        rho_in: field(rho_in, "rho_in")?,
+        aux_in: field(aux_in, "aux_in")?,
+        amount_in,
+        refund_in: field(refund_in, "refund_in")?,
+        path_siblings,
+        path_indices,
+        core_pay: field(core_pay, "core_pay")?,
+        amount_pay,
+        rho_change: field(rho_change, "rho_change")?,
+        aux_change: Fr::from(0u64),
+        amount_change,
+        rho_fee: field(rho_fee, "rho_fee")?,
+        amount_fee,
+        merkle_root: field(merkle_root, "merkle_root")?,
+        treasury_pk: field(treasury_pk, "treasury_pk")?,
+        fee_floor,
+    };
+    let pk = proving_key_from(proving_key)?;
+    let mut rng = rand::thread_rng();
+    let (proof, public) = transfer_v2::prove_ceremony(&pk, &witness, &mut rng)
+        .map_err(|e| JsError::new(&format!("prove_transfer_v2 failed: {e}")))?;
+    // Public inputs: [root, nf, cm_pay, cm_change, cm_fee, treasury_pk, fee_floor].
+    Ok(TransferV2Proof {
+        proof: groth16_proof_to_evm_bytes(&proof).to_vec(),
+        nullifier: public[1],
+        commitment_pay: public[2],
+        commitment_change: public[3],
+        commitment_fee: public[4],
+    })
 }
 
 fn to_field_bytes(input: &Uint8Array, name: &str) -> Result<[u8; FIELD_BYTES], JsError> {

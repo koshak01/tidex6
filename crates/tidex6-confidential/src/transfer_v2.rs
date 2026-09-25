@@ -23,7 +23,7 @@
 
 use ark_bn254::{Bn254, Fr};
 use ark_ff::{BigInteger, PrimeField};
-use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
+use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::eq::EqGadget;
@@ -204,23 +204,6 @@ pub struct TransferV2Witness {
     pub merkle_root: Fr,
     pub treasury_pk: Fr,
     pub fee_floor: u64,
-}
-
-/// Локальный dev trusted setup (прод — церемония).
-pub fn setup<R: RngCore + CryptoRng>(
-    rng: &mut R,
-) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
-    Groth16::<Bn254>::circuit_specific_setup(TransferV2Circuit::default(), rng)
-}
-
-/// Доказательство ключом из `setup`.
-pub fn prove<R: RngCore + CryptoRng>(
-    pk: &ProvingKey<Bn254>,
-    w: &TransferV2Witness,
-    rng: &mut R,
-) -> Result<(Proof<Bn254>, [Fr; TRANSFER_V2_NR_PUBLIC_INPUTS]), SynthesisError> {
-    let (circuit, public_inputs) = circuit_and_inputs(w);
-    Ok((Groth16::<Bn254>::prove(pk, circuit, rng)?, public_inputs))
 }
 
 /// Доказательство ключом церемонии.

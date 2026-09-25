@@ -16,19 +16,34 @@
 //! then Header / Constraints / Wire2Label — byte-for-byte the same as the
 //! older exporter, so snarkjs reads both identically.
 //!
-//! Run:    cargo run -p tidex6-confidential --bin export_r1cs
-//! Output: crates/tidex6-confidential/artifacts/withdraw.r1cs
+//! The v2 circuits (ADR-022) get their geneses the same way, so the dev keys
+//! and the ceremony keys share one layout and one prover.
+//!
+//! Run:    cargo run -p tidex6-confidential --bin export_r1cs [-- withdraw_v2|transfer_v2]
+//! Output: crates/tidex6-confidential/artifacts/<circuit>.r1cs
 
 use std::io::Write;
 
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisMode};
+use tidex6_confidential::transfer_v2::TransferV2Circuit;
 use tidex6_confidential::withdraw::WithdrawCircuit;
+use tidex6_confidential::withdraw_v2::WithdrawV2Circuit;
 
 fn main() {
-    // Shape-only circuit (every input None) in Setup mode → matrices without a witness.
-    let circuit = WithdrawCircuit {
+    let name = std::env::args().nth(1).unwrap_or_else(|| "withdraw".into());
+    match name.as_str() {
+        "withdraw" => export(withdraw_shape(), &name),
+        "withdraw_v2" => export(WithdrawV2Circuit::default(), &name),
+        "transfer_v2" => export(TransferV2Circuit::default(), &name),
+        other => panic!("unknown circuit {other}: withdraw | withdraw_v2 | transfer_v2"),
+    }
+}
+
+/// Shape-only circuit (every input None) → matrices without a witness.
+fn withdraw_shape() -> WithdrawCircuit {
+    WithdrawCircuit {
         amount: None,
         secret: None,
         nullifier: None,
@@ -42,7 +57,11 @@ fn main() {
         relayer_lo: None,
         relayer_fee: None,
         amount_public: None,
-    };
+    }
+}
+
+/// Write the circuit's R1CS to `artifacts/<name>.r1cs`.
+fn export<C: ConstraintSynthesizer<Fr>>(circuit: C, name: &str) {
     let cs = ConstraintSystem::<Fr>::new_ref();
     cs.set_mode(SynthesisMode::Setup);
     circuit
@@ -106,8 +125,8 @@ fn main() {
     // Path relative to the crate manifest, not to $HOME: the older exporter
     // wrote to `~/work/rust/tidex6/...` and silently failed on any machine
     // where the tree lives elsewhere.
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/artifacts/withdraw.r1cs");
-    let mut f = std::fs::File::create(path).expect("create r1cs");
+    let path = format!("{}/artifacts/{name}.r1cs", env!("CARGO_MANIFEST_DIR"));
+    let mut f = std::fs::File::create(&path).expect("create r1cs");
     f.write_all(&out).expect("write r1cs");
     println!("wrote {} ({} bytes)", path, out.len());
 }

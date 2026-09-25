@@ -17,6 +17,7 @@
 
 pub mod bytes;
 pub mod ceremony;
+pub mod ceremony_v2;
 pub mod note_v2;
 pub mod onchain;
 pub mod token;

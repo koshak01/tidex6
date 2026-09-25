@@ -16,7 +16,7 @@
 //!    relayer_hi, relayer_lo, relayer_fee, amount_public]
 
 use ark_bn254::{Bn254, Fr};
-use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
+use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::eq::EqGadget;
@@ -175,23 +175,6 @@ impl WithdrawV2Witness {
             .enumerate()
             .fold(0u64, |acc, (i, bit)| acc | (u64::from(*bit) << i))
     }
-}
-
-/// Локальный dev trusted setup (прод — церемония).
-pub fn setup<R: RngCore + CryptoRng>(
-    rng: &mut R,
-) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), SynthesisError> {
-    Groth16::<Bn254>::circuit_specific_setup(WithdrawV2Circuit::default(), rng)
-}
-
-/// Доказательство ключом из `setup`.
-pub fn prove<R: RngCore + CryptoRng>(
-    pk: &ProvingKey<Bn254>,
-    w: &WithdrawV2Witness,
-    rng: &mut R,
-) -> Result<(Proof<Bn254>, [Fr; WITHDRAW_NR_PUBLIC_INPUTS]), SynthesisError> {
-    let (circuit, public_inputs) = circuit_and_inputs(w);
-    Ok((Groth16::<Bn254>::prove(pk, circuit, rng)?, public_inputs))
 }
 
 /// Доказательство ключом церемонии (раскладка snarkjs, см. `withdraw::prove_ceremony`).
