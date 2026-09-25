@@ -27,6 +27,8 @@ full post-mortem follows the rollout.
 | 25.09 | Solana pool v2: the program holds the tokens (no operator custody), files both leaves from what it charged, mandatory fee, refund after the funder's window, init reserved to the upgrade authority; dev keys until the ceremony | `02a3028` |
 | 25.09 | Owner keys: `Tidex6OwnerKeys` (Solidity + Stylus, same ABI, 3 tests) and a Solana PDA in pool v2 — reader keys published so far stay valid, a recipient adds one short transaction per chain | `58f2c02` |
 | 25.09 | Local MCP pays, finds and collects on EVM (evm_send / evm_payments / evm_collect / evm_enable), full loop on Arc testnet | `4ac15fe` |
+| 25.09 | Clients on v2: the Rust client, CLI (`print-owner-pk`), local MCP and relayer (index, withdraw, treasury collector) speak the v2 note | `0ce958a`, relayer `72ba217` |
+| 25.09 | First v2 stand on Arc testnet (dev keys): pool, owner-key registry, both verifiers; a recipient published an owner key, then a 2 USDC payment went in and the pool filed two leaves itself — payment 2.0 and fee 0.1 — from what it received | tx `0x25e0660a…b28f` |
 
 
 ## Next
