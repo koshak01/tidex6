@@ -57,11 +57,15 @@ ownership needs only a preimage, which costs one Poseidon in the circuit.
 ### 2. Note
 
 ```
-core   = Poseidon(D_CORE, owner_pk, rho, aux)
-body   = Poseidon(core, amount)
-refund = Poseidon(refund_addr, refund_after)      or 0 for "no refund"
-cm     = Poseidon(body, refund)                   the leaf
+core   = H(H(D_CORE, owner_pk), H(rho, aux))
+body   = H(core, amount)
+refund = H(refund_addr, refund_after)      or 0 for "no refund"
+cm     = H(body, refund)                   the leaf
+nf     = H(H(D_NF, rho), pos)
 ```
+
+`H` is two-input Poseidon throughout: it is the only Poseidon the EVM pool
+has (`PoseidonT3`), and the refund path rebuilds a leaf on chain.
 
 - `rho` — fresh randomness, chosen by the sender, sealed to the recipient.
 - `aux` — reserved, `0` in v2. The slot extensions bind to (hash-locks for
@@ -111,11 +115,19 @@ does not depend on a key because both paths must produce the same one.
 Accepted leakage: the sender knows `rho`, so can tell *when* the recipient
 spent. Nobody else can.
 
-### 6. Join-split (1 → 2)
+### 6. The fee cannot be skipped (Petr, 25.09.2026)
 
-Inputs spent by the owner path; outputs are `cm_i = Poseidon(Poseidon(core_i,
-amount_i), 0)` — no refund on notes created inside the pool — with conservation
-and range proved as today.
+The pool is deployed with the treasury's `owner_pk` and a fee floor. There is
+one way in: `deposit` charges `amount + fee`, `fee = max(ceil(amount / 100),
+floor)`, and files the fee note itself — its core built from the treasury key,
+no refund. A deposit without the fee does not exist.
+
+Forwarding inside the pool is 1 → 3: payment, change, fee. The circuit builds
+the change from the spender's own `owner_pk` (a payment cannot pose as change)
+and the fee core from `treasury_pk`, and proves `fee·100 ≥ payment` and
+`fee ≥ floor`. The pool supplies `treasury_pk` and `floor` as public inputs,
+so a proof for another treasury or a lower floor does not verify. Public
+inputs: `root, nf, cm_pay, cm_change, cm_fee, treasury_pk, fee_floor`.
 
 ### 7. Solana
 
