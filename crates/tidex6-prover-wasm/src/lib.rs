@@ -999,6 +999,73 @@ pub fn random_field_v2() -> Result<Uint8Array, JsError> {
     Ok(Uint8Array::from(&secret.as_bytes()[..]))
 }
 
+/// Append the funder's own copy of a v2 note to an envelope from
+/// `buildEnvelope`, sealed to the sender's reader address. Lets the sender
+/// rebuild a refund from the chain alone, on any device.
+#[wasm_bindgen(js_name = addFunderSlotV2)]
+pub fn add_funder_slot_v2(
+    envelope_bytes: &Uint8Array,
+    funder_address: &Uint8Array,
+    owner_pk: &Uint8Array,
+    rho: &Uint8Array,
+    aux: &Uint8Array,
+    amount: u64,
+) -> Result<Uint8Array, JsError> {
+    let funder = envelope::ReaderAddress::from_bytes(&uint8array_to_vec(funder_address))
+        .map_err(|e| JsError::new(&format!("invalid funder address: {e}")))?;
+    let view = envelope::FunderView {
+        owner_pk: to_field_bytes(owner_pk, "owner_pk")?,
+        rho: to_field_bytes(rho, "rho")?,
+        aux: to_field_bytes(aux, "aux")?,
+        amount,
+    };
+    let mut out = uint8array_to_vec(envelope_bytes);
+    envelope::add_funder_slot(&mut out, &funder, &view)
+        .map_err(|e| JsError::new(&format!("funder slot: {e}")))?;
+    Ok(Uint8Array::from(out.as_slice()))
+}
+
+/// The funder's copy of a v2 note: what `refund` on the pool takes.
+#[wasm_bindgen]
+pub struct FunderSlot {
+    view: envelope::FunderView,
+}
+
+#[wasm_bindgen]
+impl FunderSlot {
+    #[wasm_bindgen(getter, js_name = ownerPk)]
+    pub fn owner_pk(&self) -> Uint8Array {
+        Uint8Array::from(&self.view.owner_pk[..])
+    }
+    #[wasm_bindgen(getter)]
+    pub fn rho(&self) -> Uint8Array {
+        Uint8Array::from(&self.view.rho[..])
+    }
+    #[wasm_bindgen(getter)]
+    pub fn aux(&self) -> Uint8Array {
+        Uint8Array::from(&self.view.aux[..])
+    }
+    /// Base units.
+    #[wasm_bindgen(getter)]
+    pub fn amount(&self) -> u64 {
+        self.view.amount
+    }
+}
+
+/// Open the funder's slot with the sender's reader secret; `undefined` when
+/// the envelope carries no copy for this sender.
+#[wasm_bindgen(js_name = openFunderSlotV2)]
+pub fn open_funder_slot_v2(
+    envelope_bytes: &Uint8Array,
+    secret: &Uint8Array,
+) -> Result<Option<FunderSlot>, JsError> {
+    let sk = PqcSecretKey::from_bytes(&uint8array_to_vec(secret))
+        .map_err(|e| JsError::new(&format!("invalid ML-KEM secret: {e}")))?;
+    envelope::open_as_funder(&uint8array_to_vec(envelope_bytes), &sk)
+        .map(|view| view.map(|view| FunderSlot { view }))
+        .map_err(|e| JsError::new(&format!("decrypt failed: {e}")))
+}
+
 /// Withdraw proof for a v2 note in the EVM layout. Recipient and relayer are
 /// 32-byte words (address left-padded with zeros); amounts are base units.
 #[wasm_bindgen(js_name = proveWithdrawV2Evm)]

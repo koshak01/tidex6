@@ -41,6 +41,8 @@ const SEL_FEE_FOR: [u8; 4] = [0xad, 0x6f, 0x49, 0xa3];
 const SEL_OWNER_KEY_OF: [u8; 4] = [0xae, 0xbc, 0x7e, 0x98];
 /// `publishOwnerKey(uint256)`.
 const SEL_PUBLISH_OWNER_KEY: [u8; 4] = [0x5d, 0x1a, 0xe8, 0xb1];
+/// `refund(uint256,uint256,uint256,uint256,uint256)`.
+const SEL_REFUND: [u8; 4] = [0x03, 0x03, 0xf2, 0xe0];
 const SEL_APPROVE: [u8; 4] = [0x09, 0x5e, 0xa7, 0xb3];
 const SEL_ALLOWANCE: [u8; 4] = [0xdd, 0x62, 0xed, 0x3e];
 const SEL_BALANCE_OF: [u8; 4] = [0x70, 0xa0, 0x82, 0x31];
@@ -68,18 +70,32 @@ impl std::fmt::Debug for SealedCore {
 /// * `owner_pk` — ключ владельца получателя из реестра: к нему привязана нота
 /// * `auditors` — кому раскрыть сумму и назначение
 /// * `amount` — сумма для конверта, базовые единицы токена
+/// * `funder` — свой адрес чтения, если платёж можно вернуть: в конверт ляжет
+///   копия ноты для отправителя, и возврат соберётся по цепи с любого
+///   устройства, без хранения чего-либо у себя
 pub fn seal_payment(
     reader: &ReaderAddress,
     owner_pk: &[u8; 32],
     auditors: &[ReaderAddress],
     amount: u64,
     memo: &str,
+    funder: Option<&ReaderAddress>,
 ) -> Result<SealedCore> {
     let rho = random_field()?;
     let aux = [0u8; 32];
     let core = note_v2::core(fr(owner_pk), fr(&rho), fr(&aux));
-    let envelope = envelope::build(reader, &rho, &aux, amount, memo.as_bytes(), auditors)
+    let mut envelope = envelope::build(reader, &rho, &aux, amount, memo.as_bytes(), auditors)
         .context("seal the envelope")?;
+    if let Some(funder) = funder {
+        let copy = envelope::FunderView {
+            owner_pk: *owner_pk,
+            rho,
+            aux,
+            amount,
+        };
+        envelope::add_funder_slot(&mut envelope, funder, &copy)
+            .context("seal the funder's copy")?;
+    }
     Ok(SealedCore {
         core: fr_to_word(core),
         envelope,
@@ -170,6 +186,89 @@ pub fn open_note(
         refund,
         nullifier: fr_to_word(note_v2::nullifier(rho, record.leaf_index)),
     })
+}
+
+/// Свой платёж v2, который можно вернуть: всё, что просит `refund` пула.
+pub struct RefundableV2 {
+    pub leaf_index: u64,
+    pub owner_pk: [u8; 32],
+    pub rho: [u8; 32],
+    pub aux: [u8; 32],
+    pub amount: u64,
+    /// С какого момента (unix-секунды) пул отдаст ноту назад.
+    pub refund_after: u64,
+    pub nullifier: [u8; 32],
+}
+
+impl std::fmt::Debug for RefundableV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefundableV2")
+            .field("leaf_index", &self.leaf_index)
+            .field("amount", &self.amount)
+            .field("refund_after", &self.refund_after)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Открыть свою копию платежа из слота отправителя и сверить её с листом,
+/// который записал пул. `None` — лист не наш, без возврата или не сходится.
+pub fn open_refund(record: &LeafRecord, reader_secret: &PqcSecretKey) -> Option<RefundableV2> {
+    if record.refund_after == 0 {
+        return None;
+    }
+    let bytes = hex::decode(record.envelope_hex.trim_start_matches("0x")).ok()?;
+    let copy = envelope::open_as_funder(&bytes, reader_secret).ok()??;
+    let refund = note_v2::refund_tag(
+        note_v2::refund_addr_evm(record.depositor),
+        record.refund_after,
+    );
+    let core = note_v2::core(fr(&copy.owner_pk), fr(&copy.rho), fr(&copy.aux));
+    let leaf = note_v2::leaf(note_v2::body(core, copy.amount), refund);
+    let claimed = record
+        .commitment_hex
+        .trim_start_matches("0x")
+        .to_lowercase();
+    if hex::encode(fr_to_word(leaf)) != claimed {
+        return None;
+    }
+    Some(RefundableV2 {
+        leaf_index: record.leaf_index,
+        owner_pk: copy.owner_pk,
+        rho: copy.rho,
+        aux: copy.aux,
+        amount: copy.amount,
+        refund_after: record.refund_after,
+        nullifier: fr_to_word(note_v2::nullifier(fr(&copy.rho), record.leaf_index)),
+    })
+}
+
+/// Вернуть свой платёж после окна: `refund(ownerPk, rho, aux, amount,
+/// refundAfter)`. Доказательства не нужно — пул узнаёт отправителя по
+/// `msg.sender`, поэтому подписывать должен тот же кошелёк, что платил.
+pub fn refund(pool: &EvmPool, signer: &PrivateKeySigner, note: &RefundableV2) -> Result<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    if now < note.refund_after {
+        bail!(
+            "the refund opens in {} s; until then only the recipient can take this payment",
+            note.refund_after - now
+        );
+    }
+    let data = [
+        &SEL_REFUND[..],
+        &note.owner_pk,
+        &note.rho,
+        &note.aux,
+        &word(u128::from(note.amount)),
+        &word(u128::from(note.refund_after)),
+    ]
+    .concat();
+    let call = Call {
+        to: pool.hidden_pool,
+        data,
+    };
+    send_call(&Node::new(pool.send_url)?, signer, pool.chain_id, &call)
 }
 
 /// Доказать вывод ноты v2 ключом траты владельца.

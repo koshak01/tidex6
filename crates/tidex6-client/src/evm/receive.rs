@@ -222,6 +222,39 @@ pub fn my_notes_v2(
     Ok(out)
 }
 
+/// Свои платежи v2, которые можно вернуть: внесены с кошелька `me` и
+/// открываются слотом отправителя. Второе поле — потрачена ли нота (самим
+/// получателем или прошлым возвратом).
+pub fn my_refunds_v2(
+    pool: &EvmPool,
+    leaves: &[DepositRecord],
+    identity: &LocalIdentity,
+    me: &str,
+) -> Result<Vec<(super::v2::RefundableV2, bool)>> {
+    let me = address_word(me)?;
+    let node = Node::new(pool.read_url)?;
+    let mut out = Vec::new();
+    for record in leaves {
+        if record.refund_after == 0 || address_word(&record.depositor).ok() != Some(me) {
+            continue;
+        }
+        let leaf = super::v2::LeafRecord {
+            leaf_index: record.leaf_index,
+            commitment_hex: &record.commitment_hex,
+            envelope_hex: &record.envelope_hex,
+            depositor: me[12..].try_into()?,
+            refund_after: record.refund_after,
+        };
+        let Some(note) = super::v2::open_refund(&leaf, identity.reader_secret()) else {
+            continue;
+        };
+        let data = [&SEL_NULLIFIER_SPENT[..], &note.nullifier].concat();
+        let is_spent = node.eth_call(pool.hidden_pool, &data)?.last() == Some(&1);
+        out.push((note, is_spent));
+    }
+    Ok(out)
+}
+
 /// Забрать ноту v2 на `recipient` через релеер: доказательство ключом траты
 /// владельца, отправка — релеером.
 pub fn collect_note_v2(

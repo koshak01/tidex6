@@ -6584,7 +6584,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-caller"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "tidex6-verifier",
@@ -6592,7 +6592,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-circuits"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -6617,7 +6617,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-cli"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6634,7 +6634,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-client"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "alloy",
  "anchor-client",
@@ -6672,7 +6672,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -6693,7 +6693,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amount-demo"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6713,7 +6713,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-amounts"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "solana-bn254",
@@ -6721,7 +6721,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-confidential-pool"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -6733,7 +6733,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-core"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "aes-gcm",
  "ark-bn254 0.5.0",
@@ -6756,7 +6756,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-day1"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6780,7 +6780,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-example-private-payroll"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6797,7 +6797,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-indexer"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "base64 0.22.1",
@@ -6812,7 +6812,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-mcp-local"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anyhow",
  "rayon",
@@ -6835,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-notifier-client"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anyhow",
  "bitcode",
@@ -6845,7 +6845,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-pool-v2"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -6857,7 +6857,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-registry"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "solana-security-txt",
@@ -6865,7 +6865,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-tip-jar"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "solana-security-txt",
@@ -6874,14 +6874,14 @@ dependencies = [
 
 [[package]]
 name = "tidex6-ui-shared"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "include_dir",
 ]
 
 [[package]]
 name = "tidex6-verifier"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",
@@ -6892,7 +6892,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-verifier-v2"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",
@@ -6903,7 +6903,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-wusdc-cli"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6936,7 +6936,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-wusdc-pool"
-version = "2.20.0"
+version = "2.21.0"
 dependencies = [
  "anchor-lang",
  "bytemuck",

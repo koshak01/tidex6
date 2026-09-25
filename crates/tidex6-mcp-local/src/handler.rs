@@ -790,6 +790,7 @@ impl LocalTools {
             .map(str::to_string);
         let memo = req.memo.clone();
         let refund_window = u64::try_from(self.config.revoke_window_secs).unwrap_or(0);
+        let own_reader = self.identity.reader.clone();
         let paid = run_on_os_thread("evm_send", move || {
             let recipient =
                 evm::send::lookup_reader(pool, &recipient_wallet)?.ok_or_else(|| {
@@ -829,7 +830,10 @@ impl LocalTools {
                 .checked_mul(units)
                 .ok_or_else(|| anyhow::anyhow!("amount too large for a note"))?;
             let fee = evm::v2::fee_for(pool, amount)?;
-            let payment = evm::v2::seal_payment(&recipient, &owner, &auditors, amount, &memo)?;
+            // Копия ноты отправителю — только когда возврат вообще возможен.
+            let funder = (refund_window > 0).then_some(&own_reader);
+            let payment =
+                evm::v2::seal_payment(&recipient, &owner, &auditors, amount, &memo, funder)?;
             let (fee_rho, fee_envelope) = evm::v2::seal_fee(&evm::send::treasury()?, fee)?;
             let paid = evm::v2::pay(
                 pool,
@@ -1030,6 +1034,60 @@ impl LocalTools {
             body.to_string(),
         )]))
     }
+
+    /// Вернуть свои платежи v2, которые получатель не забрал за окно.
+    #[tool(
+        description = "EVM refund: take back this wallet's own v2 payments the recipient has not collected once their refund window passed (all pools of the chain). No proof; the pool pays the funder back. Pays gas itself. Final JSON; lists payments still inside the window."
+    )]
+    async fn evm_refund(
+        &self,
+        Parameters(req): Parameters<EvmPoolReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let chain = evm_pool(&req.pool)?.chain_id;
+        let signer = self.evm_signer()?;
+        let me = format!("{:#x}", signer.address());
+        let identity = Arc::clone(&self.identity);
+        let relayer_url = self.config.relayer.clone();
+        let (refunded, pending) = run_on_os_thread("evm_refund", move || {
+            let relayer = evm::receive::Relayer::new(&relayer_url)?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs();
+            let (mut refunded, mut pending) = (Vec::new(), Vec::new());
+            for pool in evm::pools::on_chain(chain).filter(|p| p.is_v2()) {
+                let leaves = relayer.deposits(pool)?;
+                for (note, spent) in evm::receive::my_refunds_v2(pool, &leaves, &identity, &me)? {
+                    if spent {
+                        continue;
+                    }
+                    let amount = micro_to_decimal(note.amount / pool.base_units_per_micro().max(1));
+                    if now < note.refund_after {
+                        pending.push(serde_json::json!({
+                            "pool": pool.key, "symbol": pool.token_symbol, "amount": amount,
+                            "refund_opens": format_unix_utc(note.refund_after as i64),
+                        }));
+                        continue;
+                    }
+                    let tx = evm::v2::refund(pool, &signer, &note)?;
+                    refunded.push(serde_json::json!({
+                        "pool": pool.key, "symbol": pool.token_symbol, "amount": amount,
+                        "transaction": format!("{}/tx/{tx}", pool.explorer),
+                    }));
+                }
+            }
+            Ok((refunded, pending))
+        })
+        .await?;
+        let body = serde_json::json!({
+            "ok": !refunded.is_empty(), "done": true,
+            "funds_moved": !refunded.is_empty(),
+            "status": if refunded.is_empty() { "nothing" } else { "done" },
+            "refunded": refunded, "inside_window": pending,
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -1040,7 +1098,7 @@ impl ServerHandler for LocalTools {
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info.instructions = Some(
             "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami, \
-             EVM: evm_send|evm_payments|evm_collect|evm_enable with pool=<key>. \
+             EVM: evm_send|evm_payments|evm_collect|evm_enable|evm_refund with pool=<key>. \
              about = version + custody T2. ceremony = CONTRIBUTE_URL with ?s= first (public setup). \
              payments = recipient list (read-only). collect only after user says yes. \
              audit = auditor view. Heavy send/collect on OS thread; RAYON=1."

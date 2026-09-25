@@ -1405,7 +1405,7 @@ dependencies = [
 
 [[package]]
 name = "tidex6-prover-wasm"
-version = "2.6.0"
+version = "2.7.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",

@@ -106,6 +106,15 @@ the same `nf`, marks it spent and returns `amount`. Only the funder can do it,
 only after the window, and the recipient can no longer spend it afterwards —
 one note, one nullifier, whichever path is taken first.
 
+**Where the funder finds the parts (added 25.09.2026).** `refund` needs
+`owner_pk, rho, aux, amount`, and the recipient's slot is sealed to the
+recipient. A payment with a refund window therefore carries one more envelope
+slot, kind `2`, sealed to the sender's own reader key:
+`owner_pk ‖ rho ‖ aux ‖ amount`. The sender rebuilds every refund from the
+chain alone — the same wallet-derived identity on any device, nothing stored
+locally. Readers written before the slot existed skip it (slots are selected
+by kind). A payment without a window gets no such slot.
+
 ### 5. Nullifier — D2's Faerie Gold closed
 
 `nf = Poseidon(D_NF, rho, pos)`. The position is assigned by the pool, so two

@@ -17,7 +17,8 @@
 //!   ‖ [ kind(1) ‖ x25519_eph(32) ‖ view_tag(1) ‖ len(2 BE) ‖ pqc_envelope(len) ]*
 //! ```
 //!
-//! `kind` is `0` for the recipient slot, `1` for an auditor slot. Multiple
+//! `kind` is `0` for the recipient slot, `1` for an auditor slot, `2` for the
+//! funder's own copy of a v2 note (refund material, ADR-022). Multiple
 //! auditor slots are allowed (multi-auditor / regulator).
 //!
 //! # Scanning — X25519 view-tag
@@ -47,6 +48,13 @@ pub const SLOT_KIND_RECIPIENT: u8 = 0;
 
 /// Slot kind: an auditor's view-only slot.
 pub const SLOT_KIND_AUDITOR: u8 = 1;
+
+/// Slot kind: the funder's own copy of a v2 note (ADR-022), sealed to the
+/// sender's reader key so a refund can be rebuilt from the chain alone.
+pub const SLOT_KIND_FUNDER: u8 = 2;
+
+/// Funder payload: `owner_pk(32) ‖ rho(32) ‖ aux(32) ‖ amount(8)`.
+const FUNDER_PAYLOAD_LEN: usize = FIELD_LEN * 3 + 8;
 
 /// Length of the note `secret` / `nullifier` field, bytes.
 const FIELD_LEN: usize = 32;
@@ -133,6 +141,10 @@ pub enum EnvelopeError {
     #[error("auditor payload too short: {got} bytes, need at least {AUDITOR_PREFIX_LEN}")]
     AuditorPayloadTooShort { got: usize },
 
+    /// Recovered funder payload of the wrong length.
+    #[error("funder payload must be {FUNDER_PAYLOAD_LEN} bytes, got {got}")]
+    FunderPayloadLength { got: usize },
+
     /// OS randomness for the ephemeral view-tag key failed.
     #[error("view-tag rng failed: {0}")]
     Rng(String),
@@ -155,6 +167,25 @@ pub struct RecipientView {
 pub struct AuditorView {
     pub denomination: u64,
     pub memo: Vec<u8>,
+}
+
+/// What a funder recovers from their own slot: everything the pool's
+/// `refund(owner_pk, rho, aux, amount, refund_after)` needs except the
+/// moment, which the deposit event carries.
+#[derive(Clone)]
+pub struct FunderView {
+    pub owner_pk: [u8; FIELD_LEN],
+    pub rho: [u8; FIELD_LEN],
+    pub aux: [u8; FIELD_LEN],
+    pub amount: u64,
+}
+
+impl std::fmt::Debug for FunderView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FunderView")
+            .field("amount", &self.amount)
+            .finish_non_exhaustive()
+    }
 }
 
 impl std::fmt::Debug for RecipientView {
@@ -217,6 +248,74 @@ pub fn build(
         write_slot(&mut out, SLOT_KIND_AUDITOR, auditor, &auditor_payload)?;
     }
     Ok(out)
+}
+
+/// Append the funder's slot to an envelope from [`build`].
+///
+/// Readers written before this slot existed skip it: they select slots by
+/// kind, and the slot count grows by one.
+pub fn add_funder_slot(
+    envelope: &mut Vec<u8>,
+    funder: &ReaderAddress,
+    view: &FunderView,
+) -> Result<(), EnvelopeError> {
+    if envelope.len() < 2 {
+        return Err(EnvelopeError::Truncated);
+    }
+    if envelope[1] == u8::MAX {
+        return Err(EnvelopeError::TooManyReaders {
+            got: usize::from(u8::MAX),
+            max: usize::from(u8::MAX) - 1,
+        });
+    }
+    let mut payload = Vec::with_capacity(FUNDER_PAYLOAD_LEN);
+    payload.extend_from_slice(&view.owner_pk);
+    payload.extend_from_slice(&view.rho);
+    payload.extend_from_slice(&view.aux);
+    payload.extend_from_slice(&view.amount.to_be_bytes());
+    write_slot(envelope, SLOT_KIND_FUNDER, funder, &payload)?;
+    envelope[1] += 1;
+    Ok(())
+}
+
+/// Try to recover the funder's slot under the sender's own reader secret.
+/// Same view-tag + AEAD filter semantics as [`open_as_recipient`].
+pub fn open_as_funder(
+    envelope: &[u8],
+    funder_secret: &PqcSecretKey,
+) -> Result<Option<FunderView>, EnvelopeError> {
+    let x25519_sk = viewtag::derive_x25519_secret(funder_secret.as_bytes());
+    for (kind, eph, tag, slot) in parse_slots(envelope)? {
+        if kind != SLOT_KIND_FUNDER || viewtag::open_tag(&x25519_sk, &eph) != tag {
+            continue;
+        }
+        match pqc::open(funder_secret, slot) {
+            Ok(payload) => {
+                if payload.len() != FUNDER_PAYLOAD_LEN {
+                    return Err(EnvelopeError::FunderPayloadLength { got: payload.len() });
+                }
+                let field = |i: usize| -> [u8; FIELD_LEN] {
+                    payload[i * FIELD_LEN..(i + 1) * FIELD_LEN]
+                        .try_into()
+                        .expect("slice is 32 bytes")
+                };
+                let amount = u64::from_be_bytes(
+                    payload[FIELD_LEN * 3..]
+                        .try_into()
+                        .expect("slice is 8 bytes"),
+                );
+                return Ok(Some(FunderView {
+                    owner_pk: field(0),
+                    rho: field(1),
+                    aux: field(2),
+                    amount,
+                }));
+            }
+            Err(PqcError::Decrypt) => continue,
+            Err(other) => return Err(other.into()),
+        }
+    }
+    Ok(None)
 }
 
 /// Seal one slot for `reader` and append
