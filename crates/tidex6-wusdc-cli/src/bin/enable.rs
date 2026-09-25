@@ -141,7 +141,9 @@ fn main() -> Result<()> {
     if args.is_empty() {
         eprintln!("enable — turn on private payments for the local wallet");
         eprintln!("Usage:\n  enable <mainnet|devnet>");
-        eprintln!("  enable <mainnet|devnet> --keypair <wallet.json> --rpc <url> --identity <keygen.json>");
+        eprintln!(
+            "  enable <mainnet|devnet> --keypair <wallet.json> --rpc <url> --identity <keygen.json>"
+        );
         std::process::exit(2);
     }
 
@@ -265,7 +267,14 @@ fn main() -> Result<()> {
     }
     while offset < public.len() {
         let end = (offset + MAX_CHUNK).min(public.len());
-        write_chunk(&rpc, &keypair, program_id, entry, offset, &public[offset..end])?;
+        write_chunk(
+            &rpc,
+            &keypair,
+            program_id,
+            entry,
+            offset,
+            &public[offset..end],
+        )?;
         offset = end;
     }
 
