@@ -42,6 +42,22 @@ pub struct Config {
     #[serde(default)]
     pub proving_key_path: Option<String>,
 
+    /// Ключ EVM-кошелька (`0x…` в файле, права `0600`) — для инструментов
+    /// `evm_*`. Отдельный файл, а не вывод из ключа Solana: один утёкший файл
+    /// не должен отдавать деньги в обеих сетях. Нет поля — EVM выключен.
+    #[serde(default)]
+    pub evm_key_path: Option<String>,
+
+    /// Ключ доказательства вывода из пула со скрытой суммой — тот же файл,
+    /// что у браузера (`hidden_withdraw_pk.bin`). Молчание означает
+    /// `~/.tidex6-local/hidden_withdraw_pk.bin`.
+    #[serde(default)]
+    pub evm_proving_key_path: Option<String>,
+
+    /// Релеер: индекс депозитов и отправка вывода без газа у получателя.
+    #[serde(default = "default_relayer")]
+    pub relayer: String,
+
     /// Потолки. Отсутствие секции означает умолчания из библиотеки, а они
     /// намеренно тесные.
     #[serde(default)]
@@ -84,6 +100,9 @@ impl Default for LimitsToml {
 
 fn default_pool_service() -> String {
     "https://tidex6.com".to_string()
+}
+fn default_relayer() -> String {
+    tidex6_client::evm::receive::DEFAULT_RELAYER.to_string()
 }
 fn default_revoke_window() -> i64 {
     24 * 3600
@@ -129,19 +148,33 @@ impl Config {
     /// который уже могли скопировать, и запускаться так, будто ничего не
     /// произошло, значит делать вид.
     fn check_key_permissions(&self) -> Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-        let meta = std::fs::metadata(&self.keypair_path)
-            .with_context(|| format!("no key at {}", self.keypair_path))?;
-        let mode = meta.permissions().mode() & 0o777;
-        if mode & 0o077 != 0 {
-            anyhow::bail!(
-                "{} is readable by more than its owner (mode {:o}). Fix it: chmod 600 {}",
-                self.keypair_path,
-                mode,
-                self.keypair_path
-            );
+        owner_only(&self.keypair_path)?;
+        if let Some(evm) = &self.evm_key_path {
+            owner_only(evm)?;
         }
         Ok(())
+    }
+
+    /// Где лежит ключ доказательства для пулов со скрытой суммой на EVM.
+    pub fn evm_proving_key(&self) -> Result<PathBuf> {
+        let path = match &self.evm_proving_key_path {
+            Some(explicit) => PathBuf::from(explicit),
+            None => {
+                let home = std::env::var("HOME").context("no $HOME")?;
+                Path::new(&home)
+                    .join(".tidex6-local")
+                    .join("hidden_withdraw_pk.bin")
+            }
+        };
+        if !path.exists() {
+            anyhow::bail!(
+                "no proving key at {}. Collecting on EVM needs the key the browser uses — \
+                 download https://tidex6.com/static/wasm/hidden_withdraw_pk.bin there, \
+                 or name another path in evm_proving_key_path",
+                path.display()
+            );
+        }
+        Ok(path)
     }
 
     /// Узел для сети, которую попросили в запросе.
@@ -192,4 +225,21 @@ impl Config {
             session_balance_cap: Some(micro(self.limits.session_balance_cap)),
         }
     }
+}
+
+/// Отказаться работать с ключом, который читают все.
+///
+/// Проверка, а не совет в документации: ключ с правами `0644` — это ключ,
+/// который уже могли скопировать, и запускаться так, будто ничего не
+/// произошло, значит делать вид.
+fn owner_only(path: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let meta = std::fs::metadata(path).with_context(|| format!("no key at {path}"))?;
+    let mode = meta.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        anyhow::bail!(
+            "{path} is readable by more than its owner (mode {mode:o}). Fix it: chmod 600 {path}"
+        );
+    }
+    Ok(())
 }

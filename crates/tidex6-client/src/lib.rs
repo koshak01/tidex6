@@ -70,6 +70,7 @@
 pub mod accountant;
 pub mod confidential;
 pub mod deposit;
+pub mod evm;
 pub mod pool;
 pub mod refund;
 pub mod registry;

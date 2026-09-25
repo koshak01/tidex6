@@ -15,6 +15,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use tidex6_client::confidential::{
     DailySpend, LocalIdentity, PoolService, ReadAs, collect_waiting, scan, send_payment,
 };
+use tidex6_client::evm;
 use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::network::{Asset, Network};
 use uuid::Uuid;
@@ -165,6 +166,27 @@ pub struct NetworkOnly {
     pub network: NetworkArg,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EvmSendReq {
+    /// Pool key: arc-mainnet, arc-testnet, base-sepolia, arbitrum-sepolia,
+    /// arbitrum-sepolia-usdg, robinhood-testnet, robinhood-usdg, hyperliquid-testnet.
+    pub pool: String,
+    /// Recipient EVM address 0x…; must have published a reader key on this chain.
+    pub recipient: String,
+    /// Amount the recipient gets, decimal (e.g. "2.5"); the 1% fee goes on top.
+    pub amount: String,
+    #[serde(default)]
+    pub auditor: Option<String>,
+    #[serde(default)]
+    pub memo: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EvmPoolReq {
+    /// Any pool key of the chain; every pool of that chain is used.
+    pub pool: String,
+}
+
 // ── server ─────────────────────────────────────────────────────────────────
 
 pub struct LocalTools {
@@ -173,6 +195,9 @@ pub struct LocalTools {
     identity: Arc<LocalIdentity>,
     service: Arc<PoolService>,
     spend: Arc<Mutex<DailySpend>>,
+    /// EVM-кошелёк; `None` — `evm_key_path` не задан, инструменты `evm_*`
+    /// отвечают, что дописать в конфиг.
+    evm_signer: Option<Arc<evm::rpc::PrivateKeySigner>>,
     tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
 }
 
@@ -185,6 +210,12 @@ impl LocalTools {
         let identity = LocalIdentity::from_keypair(&keypair)?;
         log("new", "pool_service");
         let service = PoolService::new(config.pool_service.clone())?;
+        let evm_signer = match &config.evm_key_path {
+            Some(path) => Some(Arc::new(evm::rpc::signer_from_file(std::path::Path::new(
+                path,
+            ))?)),
+            None => None,
+        };
         log("new", "ok");
         Ok(Self {
             config: Arc::new(config),
@@ -192,6 +223,7 @@ impl LocalTools {
             identity: Arc::new(identity),
             service: Arc::new(service),
             spend: Arc::new(Mutex::new(DailySpend::default())),
+            evm_signer,
             tool_router: Self::tool_router(),
         })
     }
@@ -204,9 +236,16 @@ impl LocalTools {
     async fn whoami(&self, Parameters(_): Parameters<Empty>) -> Result<CallToolResult, McpError> {
         log("whoami", "enter");
         let limits = self.config.limits();
+        let evm_wallet = self
+            .evm_signer
+            .as_ref()
+            .map_or("not configured".to_string(), |s| {
+                format!("{:#x}", s.address())
+            });
         let text = format!(
-            "wallet={}\nper_payment={} per_day={}\nnetworks: pass network=mainnet|devnet\ntools: about|ceremony|send|payments|collect|audit|whoami",
+            "wallet={}\nevm_wallet={}\nper_payment={} per_day={}\nnetworks: pass network=mainnet|devnet\nEVM: evm_send|evm_payments|evm_collect|evm_enable with pool=<key>\ntools: about|ceremony|send|payments|collect|audit|whoami",
             self.identity.wallet,
+            evm_wallet,
             micro_to_decimal(limits.per_payment),
             micro_to_decimal(limits.per_day),
         );
@@ -668,6 +707,245 @@ impl LocalTools {
         log("payments", "exit");
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
+
+    /// Публикация ключа читателя на EVM-цепи — после неё агенту можно платить.
+    #[tool(
+        description = "EVM: publish this wallet's reader key on the pool's chain so others can pay it by its 0x address. One transaction, skipped if already published. Needs gas on that chain."
+    )]
+    async fn evm_enable(
+        &self,
+        Parameters(req): Parameters<EvmPoolReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let pool = evm_pool(&req.pool)?;
+        let signer = self.evm_signer()?;
+        let reader = self.identity.reader.clone();
+        let published = run_on_os_thread("evm_enable", move || {
+            evm::send::publish_reader(pool, &signer, &reader)
+        })
+        .await?;
+        let body = match published {
+            None => serde_json::json!({
+                "ok": true, "done": true, "funds_moved": false, "status": "already_published",
+                "chain": pool.name, "wallet": format!("{:#x}", self.evm_address()?),
+            }),
+            Some(tx) => serde_json::json!({
+                "ok": true, "done": true, "funds_moved": false, "status": "published",
+                "chain": pool.name, "wallet": format!("{:#x}", self.evm_address()?),
+                "transaction": format!("{}/tx/{tx}", pool.explorer),
+            }),
+        };
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
+
+    /// Платёж в пул со скрытой суммой на EVM своим ключом.
+    #[tool(
+        description = "EVM private payment from the config EVM wallet. Params: pool (key), recipient 0x…, amount decimal, optional auditor 0x…/memo. Fee 1% (floor 0.1) on top, sealed as a note to the treasury. Pays gas itself. Blocks until mined. Final JSON ok/done."
+    )]
+    async fn evm_send(
+        &self,
+        Parameters(req): Parameters<EvmSendReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let pool = evm_pool(&req.pool)?;
+        if pool.is_withdraw_only {
+            return Err(McpError::invalid_params(
+                format!("{} is an earlier pool kept for withdrawals only", pool.key),
+                None,
+            ));
+        }
+        let signer = self.evm_signer()?;
+        let amount_micro =
+            decimal_to_micro(&req.amount).map_err(|e| McpError::invalid_params(e, None))?;
+        if pool.is_mainnet {
+            let mut spend = self
+                .spend
+                .lock()
+                .map_err(|_| McpError::internal_error("spend poisoned", None))?;
+            self.config
+                .limits()
+                .check(
+                    Asset::Wusdc,
+                    amount_micro,
+                    None,
+                    &mut spend,
+                    std::time::SystemTime::now(),
+                )
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        }
+        let recipient_wallet = req.recipient.trim().to_string();
+        let auditor_wallet = req
+            .auditor
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_string);
+        let memo = req.memo.clone();
+        let paid = run_on_os_thread("evm_send", move || {
+            let recipient =
+                evm::send::lookup_reader(pool, &recipient_wallet)?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "recipient {recipient_wallet} has not published a reader key on {}",
+                        pool.name
+                    )
+                })?;
+            let auditors = match &auditor_wallet {
+                Some(a) => vec![evm::send::lookup_reader(pool, a)?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "auditor {a} has not published a reader key on {}",
+                        pool.name
+                    )
+                })?],
+                None => Vec::new(),
+            };
+            evm::send::pay(pool, &signer, &recipient, &auditors, amount_micro, &memo)
+        })
+        .await?;
+        let deposit = paid.transactions.last().cloned().unwrap_or_default();
+        let body = serde_json::json!({
+            "ok": true,
+            "done": true,
+            "funds_moved": true,
+            "status": "done",
+            "chain": pool.name,
+            "pool": pool.key,
+            "from": format!("{:#x}", self.evm_address()?),
+            "to": req.recipient,
+            "auditor": req.auditor,
+            "amount": micro_to_decimal(paid.amount_micro),
+            "fee": micro_to_decimal(paid.fee_micro),
+            "symbol": pool.token_symbol,
+            "commitment": paid.commitment_hex,
+            "transactions": paid.transactions,
+            "transaction": format!("{}/tx/{deposit}", pool.explorer),
+            "message": "Payment on chain. Do not report delivered.",
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
+
+    /// Свои платежи на EVM-цепи (только чтение).
+    #[tool(
+        description = "EVM: my payments as recipient on the pool's chain, every pool and token, earlier pool versions included (read-only): amount, memo, received yes/no. Does NOT withdraw. Use evm_collect only after the user confirms."
+    )]
+    async fn evm_payments(
+        &self,
+        Parameters(req): Parameters<EvmPoolReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let chain = evm_pool(&req.pool)?.chain_id;
+        let identity = Arc::clone(&self.identity);
+        let relayer_url = self.config.relayer.clone();
+        let text = run_on_os_thread("evm_payments", move || {
+            let relayer = evm::receive::Relayer::new(&relayer_url)?;
+            let mut out = String::new();
+            let (mut waiting, mut received) = (0usize, 0usize);
+            for pool in evm::pools::on_chain(chain) {
+                let leaves = relayer.deposits(pool)?;
+                let mine = evm::receive::my_notes(pool, &leaves, &identity)?;
+                for note in mine {
+                    let status = if note.is_spent {
+                        received += 1;
+                        "received"
+                    } else {
+                        waiting += 1;
+                        "waiting"
+                    };
+                    let memo = if note.note.memo.is_empty() {
+                        "(no memo)"
+                    } else {
+                        note.note.memo.as_str()
+                    };
+                    out.push_str(&format!(
+                        "  {} · {} {} · {status} · {} — {memo}\n",
+                        format_unix_utc(note.sent_ts as i64),
+                        micro_to_decimal(note.note.amount_micro),
+                        pool.token_symbol,
+                        pool.name,
+                    ));
+                }
+            }
+            if waiting + received == 0 {
+                out.push_str("No payments for this wallet on this chain.\n");
+            } else {
+                out.push_str(&format!(
+                    "\ntotal {} · waiting {waiting} · received {received}\n",
+                    waiting + received
+                ));
+                if waiting > 0 {
+                    out.push_str(
+                        "To withdraw waiting notes: ask the user, then call evm_collect.\n",
+                    );
+                }
+            }
+            Ok(out)
+        })
+        .await?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+    }
+
+    /// Забрать свои ноты на EVM-цепи на свой EVM-кошелёк через релеер.
+    #[tool(
+        description = "EVM collect: withdraw every waiting note on the pool's chain (all pools and tokens) to the config EVM wallet. Proves locally, the relayer sends and pays gas; no fee is taken at withdraw. Blocks while proving. Final JSON."
+    )]
+    async fn evm_collect(
+        &self,
+        Parameters(req): Parameters<EvmPoolReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let chain = evm_pool(&req.pool)?.chain_id;
+        let to = format!("{:#x}", self.evm_address()?);
+        let proving_key_path = self
+            .config
+            .evm_proving_key()
+            .map_err(|e| McpError::invalid_params(format!("{e:#}"), None))?;
+        let identity = Arc::clone(&self.identity);
+        let relayer_url = self.config.relayer.clone();
+        let recipient = to.clone();
+        let collected = run_on_os_thread("evm_collect", move || {
+            let relayer = evm::receive::Relayer::new(&relayer_url)?;
+            let proving_key = evm::receive::load_proving_key(&proving_key_path)?;
+            let mut done = Vec::new();
+            for pool in evm::pools::on_chain(chain) {
+                let leaves = relayer.deposits(pool)?;
+                for mine in evm::receive::my_notes(pool, &leaves, &identity)? {
+                    if mine.is_spent {
+                        continue;
+                    }
+                    let tx = evm::receive::collect_note(
+                        pool,
+                        &relayer,
+                        &proving_key,
+                        &leaves,
+                        &mine.note,
+                        &recipient,
+                    )?;
+                    done.push(serde_json::json!({
+                        "pool": pool.key,
+                        "symbol": pool.token_symbol,
+                        "amount": micro_to_decimal(mine.note.amount_micro),
+                        "transaction": format!("{}/tx/{tx}", pool.explorer),
+                    }));
+                }
+            }
+            Ok(done)
+        })
+        .await?;
+        let body = if collected.is_empty() {
+            serde_json::json!({
+                "ok": false, "done": true, "funds_moved": false, "status": "failed",
+                "to": to, "error": "Nothing waiting.",
+            })
+        } else {
+            serde_json::json!({
+                "ok": true, "done": true, "funds_moved": true, "status": "done",
+                "to": to, "notes": collected,
+                "message": "Collected. Confirmed on chain.",
+            })
+        };
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -677,7 +955,8 @@ impl ServerHandler for LocalTools {
         info.server_info.name = "tidex6-mcp-local".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info.instructions = Some(
-            "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami. \
+            "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami, \
+             EVM: evm_send|evm_payments|evm_collect|evm_enable with pool=<key>. \
              about = version + custody T2. ceremony = CONTRIBUTE_URL with ?s= first (public setup). \
              payments = recipient list (read-only). collect only after user says yes. \
              audit = auditor view. Heavy send/collect on OS thread; RAYON=1."
@@ -689,6 +968,20 @@ impl ServerHandler for LocalTools {
 }
 
 impl LocalTools {
+    fn evm_signer(&self) -> Result<evm::rpc::PrivateKeySigner, McpError> {
+        self.evm_signer
+            .as_deref()
+            .cloned()
+            .ok_or_else(|| McpError::invalid_params(evm_not_configured(), None))
+    }
+
+    fn evm_address(&self) -> Result<evm::rpc::Address, McpError> {
+        self.evm_signer
+            .as_ref()
+            .map(|s| s.address())
+            .ok_or_else(|| McpError::invalid_params(evm_not_configured(), None))
+    }
+
     fn reader_address(
         &self,
         wallet: &str,
@@ -794,4 +1087,55 @@ fn parse_lifetime(s: &str) -> Result<i64, String> {
         return Err("lifetime 5m…30d".into());
     }
     Ok(secs)
+}
+
+fn evm_not_configured() -> String {
+    "EVM is not configured: add evm_key_path (a file with the 0x… private key, chmod 600) to the config"
+        .into()
+}
+
+/// Пул по ключу — внятный отказ со списком ключей, если такого нет.
+fn evm_pool(key: &str) -> Result<&'static evm::pools::EvmPool, McpError> {
+    evm::pools::pool(key.trim()).ok_or_else(|| {
+        let keys: Vec<&str> = evm::pools::payable().map(|p| p.key).collect();
+        McpError::invalid_params(
+            format!("unknown pool `{key}`; known: {}", keys.join(", ")),
+            None,
+        )
+    })
+}
+
+/// Десятичная сумма в микро-единицы: не больше шести знаков после точки,
+/// больше нуля. Лишний знак — отказ, а не округление: округлённая сумма —
+/// не та, что просили.
+fn decimal_to_micro(text: &str) -> Result<u64, String> {
+    let text = text.trim();
+    let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
+    if whole.is_empty() && frac.is_empty() || frac.len() > 6 {
+        return Err(format!(
+            "amount `{text}`: at most six digits after the point"
+        ));
+    }
+    let whole: u64 = if whole.is_empty() {
+        0
+    } else {
+        whole
+            .parse()
+            .map_err(|_| format!("amount `{text}` is not a number"))?
+    };
+    let frac: u64 = if frac.is_empty() {
+        0
+    } else {
+        format!("{frac:0<6}")
+            .parse()
+            .map_err(|_| format!("amount `{text}` is not a number"))?
+    };
+    let micro = whole
+        .checked_mul(1_000_000)
+        .and_then(|w| w.checked_add(frac))
+        .ok_or_else(|| format!("amount `{text}` is too large"))?;
+    if micro == 0 {
+        return Err("the amount must be greater than zero".into());
+    }
+    Ok(micro)
 }

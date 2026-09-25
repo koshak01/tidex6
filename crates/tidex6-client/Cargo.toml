@@ -15,6 +15,7 @@ tidex6-circuits = { version = "2.18.0", path = "../tidex6-circuits" }
 tidex6-indexer = { version = "2.18.0", path = "../tidex6-indexer" }
 tidex6-verifier-v2 = { version = "2.18.0", path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
 tidex6-registry = { version = "2.18.0", path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
+tidex6-confidential = { version = "2.18.0", path = "../tidex6-confidential" }
 
 anchor-client = { workspace = true }
 anyhow = { workspace = true }
@@ -25,6 +26,7 @@ thiserror = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true }
+ark-ff = { workspace = true }
 ark-std = "0.5"
 
 solana-keypair = "3"
@@ -55,6 +57,11 @@ base64 = { workspace = true }
 rayon = "1"
 # Proofs run with tracing off (prover_runtime::without_tracing).
 tracing = "0.1"
+# EVM: подпись и кодирование транзакции своим ключом (`evm::rpc`). Без
+# провайдера и async — узел спрашивается блокирующим reqwest, как везде здесь.
+alloy = { version = "2.4", default-features = false, features = ["std", "consensus", "eips", "signer-local"] }
+# Случайность доказательства вывода — ОС, как у релеера и браузера.
+rand = "0.8"
 
 [lints]
 workspace = true

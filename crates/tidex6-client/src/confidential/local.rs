@@ -83,6 +83,12 @@ impl LocalIdentity {
         }
     }
 
+    /// Секрет чтения — для открытия нот на EVM (`crate::evm::receive`).
+    /// Наружу крейта не выходит.
+    pub(crate) fn reader_secret(&self) -> &PqcSecretKey {
+        &self.mlkem_secret
+    }
+
     /// Открыть конверт как получатель.
     ///
     /// Возвращает `None`, когда конверт адресован не нам. Это **не ошибка**:
