@@ -51,6 +51,11 @@ pub fn usdc_mint(is_mainnet: bool) -> Option<Pubkey> {
     (!is_mainnet).then_some(DEVNET_USDC)
 }
 
+/// Shortest refund window the program accepts (`MIN_REFUND_WINDOW`).
+const MIN_REFUND_WINDOW: i64 = 5 * 60;
+/// Seconds added to a window so it is still in range when the program checks it.
+const REFUND_CLOCK_SLACK: i64 = 120;
+
 /// Envelope bytes per `append_memo` transaction: under the 1232-byte limit
 /// with the signature, three accounts and the Anchor framing.
 const MEMO_CHUNK_LEN: usize = 800;
@@ -277,8 +282,12 @@ pub fn pay(rpc: &RpcClient, signer: &Keypair, p: &PaymentV2) -> Result<PaidV2> {
     let refund_after = if p.refund_window == 0 {
         0i64
     } else {
+        // The program checks the window against its own clock when the
+        // transaction runs, which is later than the block time read here:
+        // leave room, or a window at the minimum is refused every time.
         let slot = rpc.get_slot().context("slot")?;
-        rpc.get_block_time(slot).context("cluster time")? + p.refund_window as i64
+        let window = (p.refund_window as i64).max(MIN_REFUND_WINDOW) + REFUND_CLOCK_SLACK;
+        rpc.get_block_time(slot).context("cluster time")? + window
     };
     let refund = if refund_after == 0 {
         Fr::from(0u64)

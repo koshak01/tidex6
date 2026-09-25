@@ -131,6 +131,46 @@ pub fn build_register_plan(
     address: &ReaderAddress,
     version: u8,
 ) -> Result<RegisterPlan> {
+    let transactions = register_instructions(wallet, address, version)?
+        .iter()
+        .map(|ix| vec![ix_to_recipe(ix)])
+        .collect();
+    Ok(RegisterPlan { transactions })
+}
+
+/// Publish `address` for the signer's wallet from a local key: the same
+/// transactions as [`build_register_plan`], signed and sent in order.
+pub fn register(
+    rpc: &RpcClient,
+    signer: &solana_keypair::Keypair,
+    address: &ReaderAddress,
+    version: u8,
+) -> Result<Vec<String>> {
+    use solana_keypair::Signer;
+    register_instructions(signer.pubkey(), address, version)?
+        .into_iter()
+        .map(|ix| {
+            let blockhash = rpc.get_latest_blockhash().context("fetch a blockhash")?;
+            let tx = solana_transaction::Transaction::new_signed_with_payer(
+                &[ix],
+                Some(&signer.pubkey()),
+                &[signer],
+                blockhash,
+            );
+            Ok(rpc
+                .send_and_confirm_transaction(&tx)
+                .context("registry transaction not confirmed")?
+                .to_string())
+        })
+        .collect()
+}
+
+/// The registry instructions for `wallet`, one per transaction, in order.
+fn register_instructions(
+    wallet: Pubkey,
+    address: &ReaderAddress,
+    version: u8,
+) -> Result<Vec<Instruction>> {
     let bytes = address.to_bytes();
     if bytes.len() != READER_ADDRESS_LEN {
         return Err(anyhow!(
@@ -155,7 +195,7 @@ pub fn build_register_plan(
     // One transaction per chunk: the account allocation and the first write
     // could share a transaction, but keeping them separate means a failed write
     // can be retried on its own without re-running the allocation.
-    let mut transactions = vec![vec![ix_to_recipe(&init)]];
+    let mut instructions = vec![init];
 
     for (index, chunk) in bytes.chunks(MAX_CHUNK_LEN).enumerate() {
         let offset = (index * MAX_CHUNK_LEN) as u32;
@@ -169,10 +209,10 @@ pub fn build_register_plan(
             }
             .data(),
         };
-        transactions.push(vec![ix_to_recipe(&write)]);
+        instructions.push(write);
     }
 
-    Ok(RegisterPlan { transactions })
+    Ok(instructions)
 }
 
 /// Build the instruction that closes a wallet's entry and refunds its rent.

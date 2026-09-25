@@ -1119,15 +1119,28 @@ impl LocalTools {
             .owner_pk_v2()
             .ok_or_else(|| McpError::invalid_params("identity has no spending key", None))?;
         let keypair = Arc::clone(&self.keypair);
-        let tx = run_on_os_thread("sol_v2_enable", move || {
+        let reader = self.identity.reader.clone();
+        let wallet = self.identity.wallet;
+        let (reader_txs, tx) = run_on_os_thread("sol_v2_enable", move || {
             let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
-            pool_v2::publish_owner_key(&rpc, &keypair, owner_pk)
+            // Both keys a sender needs: the reader key (the envelope) and
+            // the owner key (who spends).
+            let reader_txs = if tidex6_client::registry::lookup(&rpc, &wallet)?.is_none() {
+                tidex6_client::registry::register(&rpc, &keypair, &reader, 2)?
+            } else {
+                Vec::new()
+            };
+            Ok((
+                reader_txs,
+                pool_v2::publish_owner_key(&rpc, &keypair, owner_pk)?,
+            ))
         })
         .await?;
         let body = serde_json::json!({
             "ok": true, "done": true, "funds_moved": false,
-            "status": if tx.is_some() { "published" } else { "already published" },
+            "status": if tx.is_some() || !reader_txs.is_empty() { "published" } else { "already published" },
             "wallet": self.identity.wallet.to_string(),
+            "reader_transactions": reader_txs,
             "transaction": tx,
         });
         Ok(CallToolResult::success(vec![ContentBlock::text(
