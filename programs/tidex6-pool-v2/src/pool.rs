@@ -528,10 +528,16 @@ pub fn handle_transfer_note(
     proof_c: [u8; 64],
     merkle_root: Field,
     nullifier: Field,
-    leaf_pay: Field,
-    leaf_change: Field,
-    leaf_fee: Field,
+    leaves: [Field; 3],
+    memo_lens: [u32; 3],
 ) -> Result<()> {
+    for total in memo_lens {
+        require!(
+            (total as usize) <= MemoAccount::MAX_TOTAL_LEN,
+            PoolError::InvalidMemoTotalLen
+        );
+    }
+    let [leaf_pay, leaf_change, leaf_fee] = leaves;
     let (treasury_pk, fee_floor, first_leaf) = {
         let pool = ctx.accounts.pool.load()?;
         require!(
@@ -572,6 +578,34 @@ pub fn handle_transfer_note(
     append_leaf(&mut pool, first_leaf + 1, leaf_change)?;
     let new_root = append_leaf(&mut pool, first_leaf + 2, leaf_fee)?;
     drop(pool);
+
+    // The outputs' envelopes: no amount and no refund recorded — both stay
+    // inside the notes.
+    let payer = ctx.accounts.payer.key();
+    let bumps = [
+        ctx.bumps.memo_pay,
+        ctx.bumps.memo_change,
+        ctx.bumps.memo_fee,
+    ];
+    for (i, memo) in [
+        &mut ctx.accounts.memo_pay,
+        &mut ctx.accounts.memo_change,
+        &mut ctx.accounts.memo_fee,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        memo.leaf = leaves[i];
+        memo.depositor = payer;
+        memo.refund_after = 0;
+        memo.amount = 0;
+        memo.leaf_index = first_leaf + i as u64;
+        memo.total_len = memo_lens[i];
+        memo.written_len = 0;
+        memo.bump = bumps[i];
+        memo.is_finalized = memo_lens[i] == 0;
+        memo.data = vec![0u8; memo_lens[i] as usize];
+    }
     emit!(TransferNoteEvent {
         nullifier,
         leaf_pay,

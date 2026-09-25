@@ -114,7 +114,9 @@ pub mod tidex6_pool_v2 {
         )
     }
 
-    /// Forward a note inside the pool: payment, change, fee.
+    /// Forward a note inside the pool: payment, change, fee. Each output
+    /// gets its memo account (`memo_lens`: envelope lengths of pay, change,
+    /// fee), filled with `append_memo` afterwards by the same signer.
     #[allow(clippy::too_many_arguments)]
     pub fn transfer_note(
         context: Context<TransferNote>,
@@ -126,6 +128,7 @@ pub mod tidex6_pool_v2 {
         leaf_pay: Field,
         leaf_change: Field,
         leaf_fee: Field,
+        memo_lens: [u32; 3],
     ) -> Result<()> {
         pool::handle_transfer_note(
             context,
@@ -134,9 +137,8 @@ pub mod tidex6_pool_v2 {
             proof_c,
             merkle_root,
             nullifier,
-            leaf_pay,
-            leaf_change,
-            leaf_fee,
+            [leaf_pay, leaf_change, leaf_fee],
+            memo_lens,
         )
     }
 }
@@ -382,6 +384,10 @@ pub struct Withdraw<'info> {
     proof_c: [u8; 64],
     merkle_root: [u8; FIELD_ELEMENT_BYTES],
     nf: [u8; FIELD_ELEMENT_BYTES],
+    leaf_pay: [u8; FIELD_ELEMENT_BYTES],
+    leaf_change: [u8; FIELD_ELEMENT_BYTES],
+    leaf_fee: [u8; FIELD_ELEMENT_BYTES],
+    memo_lens: [u32; 3],
 )]
 pub struct TransferNote<'info> {
     #[account(
@@ -399,6 +405,36 @@ pub struct TransferNote<'info> {
         bump,
     )]
     pub nullifier: Account<'info, NullifierRecord>,
+
+    /// Envelope of the payment note — how its owner finds it.
+    #[account(
+        init,
+        payer = payer,
+        space = MemoAccount::space(memo_lens[0]),
+        seeds = [MemoAccount::SEED_PREFIX, &leaf_pay],
+        bump,
+    )]
+    pub memo_pay: Box<Account<'info, MemoAccount>>,
+
+    /// Envelope of the change note, sealed back to the spender.
+    #[account(
+        init,
+        payer = payer,
+        space = MemoAccount::space(memo_lens[1]),
+        seeds = [MemoAccount::SEED_PREFIX, &leaf_change],
+        bump,
+    )]
+    pub memo_change: Box<Account<'info, MemoAccount>>,
+
+    /// Envelope of the fee note, sealed to the treasury.
+    #[account(
+        init,
+        payer = payer,
+        space = MemoAccount::space(memo_lens[2]),
+        seeds = [MemoAccount::SEED_PREFIX, &leaf_fee],
+        bump,
+    )]
+    pub memo_fee: Box<Account<'info, MemoAccount>>,
 
     #[account(mut)]
     pub payer: Signer<'info>,
