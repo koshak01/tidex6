@@ -18,8 +18,8 @@ mod transfer_vk;
 mod withdraw_vk;
 
 pub use pool::{
-    DepositArgs, DepositEvent, FIELD_ELEMENT_BYTES, MemoAccount, NullifierRecord, OwnerKey, PoolState,
-    ROOT_RING_SIZE, RefundEvent, TREE_DEPTH, TransferNoteEvent, WithdrawEvent,
+    DepositArgs, DepositEvent, FIELD_ELEMENT_BYTES, MemoAccount, NullifierRecord, OwnerKey,
+    PoolState, ROOT_RING_SIZE, RefundEvent, TREE_DEPTH, TransferNoteEvent, WithdrawEvent,
 };
 pub use transfer_vk::{TRANSFER_V2_NR_PUBLIC_INPUTS, TRANSFER_V2_VERIFYING_KEY};
 pub use withdraw_vk::{WITHDRAW_V2_NR_PUBLIC_INPUTS, WITHDRAW_V2_VERIFYING_KEY};
@@ -47,7 +47,11 @@ pub mod tidex6_pool_v2 {
 
     /// Create the pool for a mint with its treasury key and fee floor.
     /// Upgrade authority only.
-    pub fn init_pool(context: Context<InitPool>, treasury_owner_pk: Field, fee_floor: u64) -> Result<()> {
+    pub fn init_pool(
+        context: Context<InitPool>,
+        treasury_owner_pk: Field,
+        fee_floor: u64,
+    ) -> Result<()> {
         pool::handle_init_pool(context, treasury_owner_pk, fee_floor)
     }
 
@@ -63,7 +67,12 @@ pub mod tidex6_pool_v2 {
     }
 
     /// Append the next chunk of a note's envelope.
-    pub fn append_memo(context: Context<AppendMemo>, leaf: Field, offset: u32, chunk: Vec<u8>) -> Result<()> {
+    pub fn append_memo(
+        context: Context<AppendMemo>,
+        leaf: Field,
+        offset: u32,
+        chunk: Vec<u8>,
+    ) -> Result<()> {
         let _ = leaf;
         pool::handle_append_memo(context, offset, chunk)
     }
@@ -93,7 +102,16 @@ pub mod tidex6_pool_v2 {
         amount: u64,
         relayer_fee: u64,
     ) -> Result<()> {
-        pool::handle_withdraw(context, proof_a, proof_b, proof_c, merkle_root, nullifier, amount, relayer_fee)
+        pool::handle_withdraw(
+            context,
+            proof_a,
+            proof_b,
+            proof_c,
+            merkle_root,
+            nullifier,
+            amount,
+            relayer_fee,
+        )
     }
 
     /// Forward a note inside the pool: payment, change, fee.

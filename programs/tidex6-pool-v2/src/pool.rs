@@ -177,7 +177,10 @@ impl NullifierRecord {
 /// Only the signer's own entry is written; a replaced key does not strand
 /// old notes, their spending key is unchanged.
 pub fn handle_publish_owner_key(ctx: Context<PublishOwnerKey>, owner_pk: Field) -> Result<()> {
-    require!(owner_pk != [0u8; FIELD_ELEMENT_BYTES], PoolError::InvalidOwnerKey);
+    require!(
+        owner_pk != [0u8; FIELD_ELEMENT_BYTES],
+        PoolError::InvalidOwnerKey
+    );
     // A value outside the field fails the syscall: hash it once to find out.
     h(&owner_pk, &[0u8; FIELD_ELEMENT_BYTES]).map_err(|_| PoolError::InvalidOwnerKey)?;
     ctx.accounts.owner_key.owner_pk = owner_pk;
@@ -190,7 +193,11 @@ pub fn handle_publish_owner_key(ctx: Context<PublishOwnerKey>, owner_pk: Field) 
 /// program's upgrade authority may do it: whoever initialises the pool names
 /// the treasury, and a pool initialised by a stranger would pay its fees to
 /// the stranger.
-pub fn handle_init_pool(ctx: Context<InitPool>, treasury_owner_pk: Field, fee_floor: u64) -> Result<()> {
+pub fn handle_init_pool(
+    ctx: Context<InitPool>,
+    treasury_owner_pk: Field,
+    fee_floor: u64,
+) -> Result<()> {
     let bump = ctx.bumps.pool;
     let mint_key = ctx.accounts.mint.key();
     let mut pool = ctx.accounts.pool.load_init()?;
@@ -255,7 +262,8 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     if args.refund_after != 0 {
         require!(
-            args.refund_after >= now + MIN_REFUND_WINDOW && args.refund_after <= now + MAX_REFUND_WINDOW,
+            args.refund_after >= now + MIN_REFUND_WINDOW
+                && args.refund_after <= now + MAX_REFUND_WINDOW,
             PoolError::RefundWindowOutOfRange
         );
     }
@@ -267,17 +275,28 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
             pool.next_leaf_index + 2 <= PoolState::capacity(),
             PoolError::PoolFull
         );
-        (pool.fee_for(args.amount), pool.treasury_owner_pk, pool.next_leaf_index)
+        (
+            pool.fee_for(args.amount),
+            pool.treasury_owner_pk,
+            pool.next_leaf_index,
+        )
     };
 
     // Leaves, from what the program actually charges.
-    let leaf = leaf_of(&args.core, args.amount, &refund_tag(&payer, args.refund_after)?)?;
+    let leaf = leaf_of(
+        &args.core,
+        args.amount,
+        &refund_tag(&payer, args.refund_after)?,
+    )?;
     require!(leaf == args.leaf, PoolError::LeafMismatch);
     let fee_core = core_of(&treasury_pk, &args.fee_rho, &[0u8; FIELD_ELEMENT_BYTES])?;
     let fee_leaf = leaf_of(&fee_core, fee, &[0u8; FIELD_ELEMENT_BYTES])?;
     require!(fee_leaf == args.fee_leaf, PoolError::LeafMismatch);
 
-    let total = args.amount.checked_add(fee).ok_or(PoolError::InvalidAmount)?;
+    let total = args
+        .amount
+        .checked_add(fee)
+        .ok_or(PoolError::InvalidAmount)?;
     transfer_checked(
         CpiContext::new(
             ctx.accounts.token_program.key(),
@@ -387,7 +406,11 @@ pub fn handle_refund(
 
     let depositor = ctx.accounts.depositor.key();
     let core = core_of(&owner_pk, &rho, &aux)?;
-    let leaf = leaf_of(&core, memo.amount, &refund_tag(&depositor, memo.refund_after)?)?;
+    let leaf = leaf_of(
+        &core,
+        memo.amount,
+        &refund_tag(&depositor, memo.refund_after)?,
+    )?;
     require!(leaf == memo.leaf, PoolError::LeafMismatch);
     let expected = h(&h(&fr_u64(D_NF), &rho)?, &fr_u64(memo.leaf_index))?;
     require!(expected == nullifier, PoolError::NullifierMismatch);
@@ -402,7 +425,11 @@ pub fn handle_refund(
         &ctx.accounts.token_program,
         amount,
     )?;
-    emit!(RefundEvent { nullifier, funder: depositor, amount });
+    emit!(RefundEvent {
+        nullifier,
+        funder: depositor,
+        amount
+    });
     Ok(())
 }
 
@@ -452,7 +479,9 @@ pub fn handle_withdraw(
         &WITHDRAW_V2_VERIFYING_KEY,
     )
     .map_err(|_| PoolError::Groth16VerifierConstructFailed)?;
-    verifier.verify().map_err(|_| PoolError::Groth16VerificationFailed)?;
+    verifier
+        .verify()
+        .map_err(|_| PoolError::Groth16VerificationFailed)?;
 
     let to_recipient = amount - relayer_fee;
     if to_recipient > 0 {
@@ -534,7 +563,9 @@ pub fn handle_transfer_note(
         &TRANSFER_V2_VERIFYING_KEY,
     )
     .map_err(|_| PoolError::Groth16VerifierConstructFailed)?;
-    verifier.verify().map_err(|_| PoolError::Groth16VerificationFailed)?;
+    verifier
+        .verify()
+        .map_err(|_| PoolError::Groth16VerificationFailed)?;
 
     let mut pool = ctx.accounts.pool.load_mut()?;
     append_leaf(&mut pool, first_leaf, leaf_pay)?;
@@ -556,9 +587,11 @@ pub fn handle_transfer_note(
 
 /// Two-input Poseidon; an input outside the field fails here.
 fn h(left: &Field, right: &Field) -> Result<Field> {
-    Ok(hashv(Parameters::Bn254X5, Endianness::BigEndian, &[left, right])
-        .map_err(|_| PoolError::PoseidonSyscallFailed)?
-        .to_bytes())
+    Ok(
+        hashv(Parameters::Bn254X5, Endianness::BigEndian, &[left, right])
+            .map_err(|_| PoolError::PoseidonSyscallFailed)?
+            .to_bytes(),
+    )
 }
 
 fn core_of(owner_pk: &Field, rho: &Field, aux: &Field) -> Result<Field> {
@@ -623,7 +656,10 @@ fn append_leaf(pool: &mut PoolState, leaf_index: u64, leaf: Field) -> Result<Fie
         current_hash = h(&left, &right)?;
         current_index >>= 1;
     }
-    pool.next_leaf_index = pool.next_leaf_index.checked_add(1).ok_or(PoolError::PoolFull)?;
+    pool.next_leaf_index = pool
+        .next_leaf_index
+        .checked_add(1)
+        .ok_or(PoolError::PoolFull)?;
     pool.root_ring_head = (pool.root_ring_head + 1) % ROOT_RING_SIZE as u32;
     let ring_index = pool.root_ring_head as usize;
     pool.root_history[ring_index] = current_hash;
