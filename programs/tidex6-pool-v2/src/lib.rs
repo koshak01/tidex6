@@ -24,9 +24,8 @@ pub use pool::{
 pub use transfer_vk::{TRANSFER_V2_NR_PUBLIC_INPUTS, TRANSFER_V2_VERIFYING_KEY};
 pub use withdraw_vk::{WITHDRAW_V2_NR_PUBLIC_INPUTS, WITHDRAW_V2_VERIFYING_KEY};
 
-// Placeholder: 32 bytes of "tidex6-pool-v2-placeholder". The real program key
-// is generated at deployment and replaces this line.
-declare_id!("8qRW8nE4PVBeZaMZC7Uei85cgjnpbddqVeHqeR5hudRF");
+// Program key generated in the deployment sandbox, 26.09.2026 (devnet first).
+declare_id!("6Pgc17kacebLurJxCmMtrjHcpxvdQR1PtQJf63hG1sVe");
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
