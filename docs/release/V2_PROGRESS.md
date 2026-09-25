@@ -24,20 +24,19 @@ full post-mortem follows the rollout.
 | 25.09 | Stylus pool v2 (Arbitrum, Robinhood): same ABI | `77dd169` |
 | 25.09 | The fee cannot be skipped: one way in charges 1% (rounded up, floor 0.1 token) and files the fee note for the treasury key; in-pool forwards are 1 → 3 (payment, change to self, fee) with the fee proved in the circuit | `4ddcd55`, `3c36f6a` |
 | 25.09 | 15 Foundry tests for pool v2, green in CI: amount binding, refund rules, shared nullifier, fee rules | CI |
+| 25.09 | Solana pool v2: the program holds the tokens (no operator custody), files both leaves from what it charged, mandatory fee, refund after the funder's window, init reserved to the upgrade authority; dev keys until the ceremony | `02a3028` |
 | 25.09 | Local MCP pays, finds and collects on EVM (evm_send / evm_payments / evm_collect / evm_enable), full loop on Arc testnet | `4ac15fe` |
 
 
 ## Next
 
-1. Solana pool v2 — a program that holds the tokens and files the leaf, the
-   same fee and refund rules; removes custody from the pool service.
-2. Reader registry v3 — publish the owner key next to the reader address;
+1. Reader registry v3 — publish the owner key next to the reader address;
    recipients re-enable once per chain.
-3. Clients — WASM prover, site, MCP, relayer and indexer on the v2 format.
-4. Public ceremony for the v2 circuits (restart).
-5. Rollout — EVM testnets → Solana devnet → Arc mainnet → Solana mainnet; v1
+2. Clients — WASM prover, site, MCP, relayer and indexer on the v2 format.
+3. Public ceremony for the v2 circuits (restart).
+4. Rollout — EVM testnets → Solana devnet → Arc mainnet → Solana mainnet; v1
    pools become withdraw-only and leave the site once empty.
-6. Post-mortem, crediting the paper that led to the review.
+5. Post-mortem, crediting the paper that led to the review.
 
 Later: confidential token on Baby Jubjub (hidden entry amount on every chain),
 regulated pools with lineage proofs, an honest anonymity-set metric.
