@@ -12,7 +12,10 @@
 //!
 //! Конверт v2 — тот же ML-KEM-конверт, в слоте получателя вместо
 //! `secret ‖ nullifier` лежат `rho ‖ aux`: владелец восстанавливает по ним
-//! ядро своей ноты.
+//! ядро своей ноты. Сумма в конверте — **в базовых единицах токена**, не в
+//! микро: комиссию считает пул (1% с округлением вверх), и у 18-значного
+//! токена она не обязана делиться на микро-единицу, а лист казна пересчитать
+//! обязана. 64 бита базовых единиц — тот же предел, что держит сам пул.
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result, bail};
@@ -64,18 +67,18 @@ impl std::fmt::Debug for SealedCore {
 /// * `reader` — адрес читателя получателя: ему уходит конверт
 /// * `owner_pk` — ключ владельца получателя из реестра: к нему привязана нота
 /// * `auditors` — кому раскрыть сумму и назначение
-/// * `amount_micro` — сумма для конверта (микро-единицы)
+/// * `amount` — сумма для конверта, базовые единицы токена
 pub fn seal_payment(
     reader: &ReaderAddress,
     owner_pk: &[u8; 32],
     auditors: &[ReaderAddress],
-    amount_micro: u64,
+    amount: u64,
     memo: &str,
 ) -> Result<SealedCore> {
     let rho = random_field()?;
     let aux = [0u8; 32];
     let core = note_v2::core(fr(owner_pk), fr(&rho), fr(&aux));
-    let envelope = envelope::build(reader, &rho, &aux, amount_micro, memo.as_bytes(), auditors)
+    let envelope = envelope::build(reader, &rho, &aux, amount, memo.as_bytes(), auditors)
         .context("seal the envelope")?;
     Ok(SealedCore {
         core: fr_to_word(core),
@@ -85,9 +88,10 @@ pub fn seal_payment(
 
 /// Случайность ноты комиссии и конверт казне. Ядро ноты комиссии пул
 /// строит сам из ключа казны — казна найдёт по конверту свою `rho`.
-pub fn seal_fee(treasury: &ReaderAddress, fee_micro: u64) -> Result<([u8; 32], Vec<u8>)> {
+/// `fee` — базовые единицы, ровно та сумма, что назовёт пул ([`fee_for`]).
+pub fn seal_fee(treasury: &ReaderAddress, fee: u64) -> Result<([u8; 32], Vec<u8>)> {
     let rho = random_field()?;
-    let envelope = envelope::build(treasury, &rho, &[0u8; 32], fee_micro, b"fee", &[])
+    let envelope = envelope::build(treasury, &rho, &[0u8; 32], fee, b"fee", &[])
         .context("seal the fee envelope")?;
     Ok((rho, envelope))
 }
@@ -136,7 +140,7 @@ pub fn open_note(
 ) -> Option<OpenNoteV2> {
     let bytes = hex::decode(record.envelope_hex.trim_start_matches("0x")).ok()?;
     let view = envelope::open_as_recipient(&bytes, reader_secret).ok()??;
-    let amount = view.denomination.checked_mul(units_per_micro)?;
+    let amount = view.denomination;
     let rho = fr(&view.secret);
     let aux = fr(&view.nullifier);
     let refund = if record.refund_after == 0 {
@@ -161,7 +165,7 @@ pub fn open_note(
         rho,
         aux,
         amount,
-        amount_micro: view.denomination,
+        amount_micro: amount / units_per_micro.max(1),
         memo: String::from_utf8_lossy(&view.memo).into_owned(),
         refund,
         nullifier: fr_to_word(note_v2::nullifier(rho, record.leaf_index)),
@@ -233,6 +237,16 @@ pub fn publish_owner_key(
     send_call(&Node::new(pool.send_url)?, signer, pool.chain_id, &call).map(Some)
 }
 
+/// Комиссия, которую пул возьмёт с платежа `amount` (базовые единицы) —
+/// спрашивается у самого пула, чтобы конверт казне нёс ровно её.
+pub fn fee_for(pool: &EvmPool, amount: u64) -> Result<u64> {
+    let node = Node::new(pool.read_url)?;
+    word_u64(&node.eth_call(
+        pool.hidden_pool,
+        &[&SEL_FEE_FOR[..], &word(u128::from(amount))].concat(),
+    )?)
+}
+
 /// Чем кончился платёж v2.
 #[derive(Debug)]
 pub struct PaymentV2 {
@@ -267,10 +281,7 @@ pub fn pay(
     let send = Node::new(pool.send_url)?;
     let me = format!("{:#x}", signer.address());
 
-    let fee = word_u64(&read.eth_call(
-        pool.hidden_pool,
-        &[&SEL_FEE_FOR[..], &word(u128::from(amount))].concat(),
-    )?)?;
+    let fee = fee_for(pool, amount)?;
     let total = u128::from(amount) + u128::from(fee);
     let balance = word_u128(&read.eth_call(
         pool.token,

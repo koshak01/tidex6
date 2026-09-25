@@ -236,6 +236,22 @@ pub const POOLS: &[EvmPool] = &[
         (ARC_USDC, "USDC", 6),
         CURRENT_MAINNET,
     ),
+    // Стенд формата v2 (ADR-022), 25.09.2026: лист считает пул, тратит только
+    // владелец, комиссия обязательная. Ключи доказательств dev — только
+    // тестнет; на выкате v2 займёт место основного пула.
+    EvmPool {
+        owner_keys: "0x6CEDF1b9877bd980cE0a90eDC5a1c5BEfb6C2B81",
+        ..row(
+            "arc-testnet-v2",
+            "Arc Testnet · v2",
+            5_042_002,
+            ARC_T,
+            ARC_REGISTRY,
+            "0x9c98DB403244C5A1b1CF78aB449Cbda262AAcE09",
+            (ARC_USDC, "USDC", 6),
+            CURRENT,
+        )
+    },
     row(
         "arbitrum-sepolia-v1",
         "Earlier pool · Arbitrum Sepolia",

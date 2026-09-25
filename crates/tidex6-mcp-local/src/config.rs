@@ -54,6 +54,11 @@ pub struct Config {
     #[serde(default)]
     pub evm_proving_key_path: Option<String>,
 
+    /// Ключ доказательства вывода для пулов v2 (ADR-022) — `withdraw_v2_pk.bin`.
+    /// Молчание означает `~/.tidex6-local/withdraw_v2_pk.bin`.
+    #[serde(default)]
+    pub evm_proving_key_v2_path: Option<String>,
+
     /// Релеер: индекс депозитов и отправка вывода без газа у получателя.
     #[serde(default = "default_relayer")]
     pub relayer: String,
@@ -153,6 +158,26 @@ impl Config {
             owner_only(evm)?;
         }
         Ok(())
+    }
+
+    /// Ключ доказательства для пулов v2.
+    pub fn evm_proving_key_v2(&self) -> Result<PathBuf> {
+        let path = match &self.evm_proving_key_v2_path {
+            Some(explicit) => PathBuf::from(explicit),
+            None => {
+                let home = std::env::var("HOME").context("no $HOME")?;
+                Path::new(&home)
+                    .join(".tidex6-local")
+                    .join("withdraw_v2_pk.bin")
+            }
+        };
+        if !path.exists() {
+            anyhow::bail!(
+                "no v2 proving key at {} — copy crates/tidex6-confidential/artifacts/withdraw_v2_pk.bin there",
+                path.display()
+            );
+        }
+        Ok(path)
     }
 
     /// Где лежит ключ доказательства для пулов со скрытой суммой на EVM.

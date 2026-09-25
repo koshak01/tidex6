@@ -226,7 +226,8 @@ pub fn pay(
     })
 }
 
-fn treasury() -> Result<ReaderAddress> {
+/// Адрес читателя казны — кому запечатывается нота комиссии.
+pub fn treasury() -> Result<ReaderAddress> {
     let bytes = hex::decode(FEE_TREASURY_HEX.trim()).context("treasury address hex")?;
     ReaderAddress::from_bytes(&bytes).context("treasury address")
 }

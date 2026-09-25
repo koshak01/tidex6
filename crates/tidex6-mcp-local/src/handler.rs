@@ -719,8 +719,16 @@ impl LocalTools {
         let pool = evm_pool(&req.pool)?;
         let signer = self.evm_signer()?;
         let reader = self.identity.reader.clone();
+        let owner_pk = self.identity.owner_pk_v2();
         let published = run_on_os_thread("evm_enable", move || {
-            evm::send::publish_reader(pool, &signer, &reader)
+            let reader_tx = evm::send::publish_reader(pool, &signer, &reader)?;
+            // Пул v2 платит по ключу владельца: без него кошельку не заплатить.
+            let owner_tx = match (pool.is_v2(), owner_pk) {
+                (true, Some(pk)) => evm::v2::publish_owner_key(pool, &signer, &pk)?,
+                (true, None) => anyhow::bail!("this identity has no spending key for v2 pools"),
+                (false, _) => None,
+            };
+            Ok(reader_tx.or(owner_tx))
         })
         .await?;
         let body = match published {
@@ -781,6 +789,7 @@ impl LocalTools {
             .filter(|a| !a.is_empty())
             .map(str::to_string);
         let memo = req.memo.clone();
+        let refund_window = u64::try_from(self.config.revoke_window_secs).unwrap_or(0);
         let paid = run_on_os_thread("evm_send", move || {
             let recipient =
                 evm::send::lookup_reader(pool, &recipient_wallet)?.ok_or_else(|| {
@@ -798,10 +807,49 @@ impl LocalTools {
                 })?],
                 None => Vec::new(),
             };
-            evm::send::pay(pool, &signer, &recipient, &auditors, amount_micro, &memo)
+            if !pool.is_v2() {
+                let paid =
+                    evm::send::pay(pool, &signer, &recipient, &auditors, amount_micro, &memo)?;
+                return Ok((
+                    paid.transactions,
+                    paid.commitment_hex,
+                    paid.amount_micro,
+                    paid.fee_micro,
+                ));
+            }
+            // v2: нота на ключ владельца получателя, комиссию называет пул.
+            let owner = evm::v2::lookup_owner_key(pool, &recipient_wallet)?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "recipient {recipient_wallet} has not enabled v2 payments on {} (no owner key)",
+                    pool.name
+                )
+            })?;
+            let units = pool.base_units_per_micro();
+            let amount = amount_micro
+                .checked_mul(units)
+                .ok_or_else(|| anyhow::anyhow!("amount too large for a note"))?;
+            let fee = evm::v2::fee_for(pool, amount)?;
+            let payment = evm::v2::seal_payment(&recipient, &owner, &auditors, amount, &memo)?;
+            let (fee_rho, fee_envelope) = evm::v2::seal_fee(&evm::send::treasury()?, fee)?;
+            let paid = evm::v2::pay(
+                pool,
+                &signer,
+                &payment,
+                amount,
+                refund_window,
+                &fee_rho,
+                &fee_envelope,
+            )?;
+            Ok((
+                paid.transactions,
+                paid.core_hex,
+                amount_micro,
+                fee / units.max(1),
+            ))
         })
         .await?;
-        let deposit = paid.transactions.last().cloned().unwrap_or_default();
+        let (transactions, commitment_hex, paid_micro, fee_micro) = paid;
+        let deposit = transactions.last().cloned().unwrap_or_default();
         let body = serde_json::json!({
             "ok": true,
             "done": true,
@@ -812,11 +860,11 @@ impl LocalTools {
             "from": format!("{:#x}", self.evm_address()?),
             "to": req.recipient,
             "auditor": req.auditor,
-            "amount": micro_to_decimal(paid.amount_micro),
-            "fee": micro_to_decimal(paid.fee_micro),
+            "amount": micro_to_decimal(paid_micro),
+            "fee": micro_to_decimal(fee_micro),
             "symbol": pool.token_symbol,
-            "commitment": paid.commitment_hex,
-            "transactions": paid.transactions,
+            "commitment": commitment_hex,
+            "transactions": transactions,
             "transaction": format!("{}/tx/{deposit}", pool.explorer),
             "message": "Payment on chain. Do not report delivered.",
         });
@@ -842,24 +890,36 @@ impl LocalTools {
             let (mut waiting, mut received) = (0usize, 0usize);
             for pool in evm::pools::on_chain(chain) {
                 let leaves = relayer.deposits(pool)?;
-                let mine = evm::receive::my_notes(pool, &leaves, &identity)?;
-                for note in mine {
-                    let status = if note.is_spent {
+                // (amount_micro, spent, memo, sent_ts) — v1 и v2 открываются
+                // по-разному, показываются одинаково.
+                let rows: Vec<(u64, bool, String, u64)> = if pool.is_v2() {
+                    evm::receive::my_notes_v2(pool, &leaves, &identity)?
+                        .into_iter()
+                        .map(|(note, spent, _, ts)| (note.amount_micro, spent, note.memo, ts))
+                        .collect()
+                } else {
+                    evm::receive::my_notes(pool, &leaves, &identity)?
+                        .into_iter()
+                        .map(|m| (m.note.amount_micro, m.is_spent, m.note.memo, m.sent_ts))
+                        .collect()
+                };
+                for (amount_micro, is_spent, memo, sent_ts) in rows {
+                    let status = if is_spent {
                         received += 1;
                         "received"
                     } else {
                         waiting += 1;
                         "waiting"
                     };
-                    let memo = if note.note.memo.is_empty() {
-                        "(no memo)"
+                    let memo = if memo.is_empty() {
+                        "(no memo)".to_string()
                     } else {
-                        note.note.memo.as_str()
+                        memo
                     };
                     out.push_str(&format!(
                         "  {} · {} {} · {status} · {} — {memo}\n",
-                        format_unix_utc(note.sent_ts as i64),
-                        micro_to_decimal(note.note.amount_micro),
+                        format_unix_utc(sent_ts as i64),
+                        micro_to_decimal(amount_micro),
                         pool.token_symbol,
                         pool.name,
                     ));
@@ -894,37 +954,61 @@ impl LocalTools {
     ) -> Result<CallToolResult, McpError> {
         let chain = evm_pool(&req.pool)?.chain_id;
         let to = format!("{:#x}", self.evm_address()?);
-        let proving_key_path = self
+        // Ключи доказательств грузятся, только когда есть что выводить из пулов
+        // своей версии: у агента с одними нотами v2 файла v1 может не быть.
+        let key_v1 = self.config.evm_proving_key().map_err(|e| format!("{e:#}"));
+        let key_v2 = self
             .config
-            .evm_proving_key()
-            .map_err(|e| McpError::invalid_params(format!("{e:#}"), None))?;
+            .evm_proving_key_v2()
+            .map_err(|e| format!("{e:#}"));
         let identity = Arc::clone(&self.identity);
         let relayer_url = self.config.relayer.clone();
         let recipient = to.clone();
         let collected = run_on_os_thread("evm_collect", move || {
             let relayer = evm::receive::Relayer::new(&relayer_url)?;
-            let proving_key = evm::receive::load_proving_key(&proving_key_path)?;
+            let (mut pk_v1, mut pk_v2) = (None, None);
             let mut done = Vec::new();
             for pool in evm::pools::on_chain(chain) {
                 let leaves = relayer.deposits(pool)?;
-                for mine in evm::receive::my_notes(pool, &leaves, &identity)? {
-                    if mine.is_spent {
-                        continue;
-                    }
-                    let tx = evm::receive::collect_note(
-                        pool,
-                        &relayer,
-                        &proving_key,
-                        &leaves,
-                        &mine.note,
-                        &recipient,
-                    )?;
+                let mut record = |amount_micro: u64, tx: String| {
                     done.push(serde_json::json!({
                         "pool": pool.key,
                         "symbol": pool.token_symbol,
-                        "amount": micro_to_decimal(mine.note.amount_micro),
+                        "amount": micro_to_decimal(amount_micro),
                         "transaction": format!("{}/tx/{tx}", pool.explorer),
                     }));
+                };
+                if pool.is_v2() {
+                    for (note, spent, _, _) in evm::receive::my_notes_v2(pool, &leaves, &identity)?
+                    {
+                        if spent {
+                            continue;
+                        }
+                        if pk_v2.is_none() {
+                            let path = key_v2.clone().map_err(anyhow::Error::msg)?;
+                            pk_v2 = Some(evm::receive::load_proving_key(&path)?);
+                        }
+                        let key = pk_v2.as_ref().expect("loaded above");
+                        let tx = evm::receive::collect_note_v2(
+                            pool, &relayer, key, &leaves, &note, &identity, &recipient,
+                        )?;
+                        record(note.amount_micro, tx);
+                    }
+                } else {
+                    for mine in evm::receive::my_notes(pool, &leaves, &identity)? {
+                        if mine.is_spent {
+                            continue;
+                        }
+                        if pk_v1.is_none() {
+                            let path = key_v1.clone().map_err(anyhow::Error::msg)?;
+                            pk_v1 = Some(evm::receive::load_proving_key(&path)?);
+                        }
+                        let key = pk_v1.as_ref().expect("loaded above");
+                        let tx = evm::receive::collect_note(
+                            pool, &relayer, key, &leaves, &mine.note, &recipient,
+                        )?;
+                        record(mine.note.amount_micro, tx);
+                    }
                 }
             }
             Ok(done)
