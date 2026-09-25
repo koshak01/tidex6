@@ -152,13 +152,7 @@ impl Tidex6HiddenPool {
             return Err(PoolError::AmountOutOfRange(AmountOutOfRange {}));
         }
         let leaf_index = self.reserve_leaf(commitment, 1)?;
-
         let depositor = self.vm().msg_sender();
-        let pool = self.vm().contract_address();
-        if !self.token_transfer_from(depositor, pool, amount) {
-            return Err(PoolError::TransferFailed(TransferFailed {}));
-        }
-
         let new_root = self.append_leaf(leaf_index, commitment)?;
         self.vm().log(Deposit {
             commitment,
@@ -168,6 +162,66 @@ impl Tidex6HiddenPool {
             amount,
             envelope: envelope.0.into(),
         });
+
+        // Token pulled last, after the tree is final — the same order as the
+        // Solidity pool. Stylus already refuses re-entry; this keeps the two
+        // implementations one design.
+        let pool = self.vm().contract_address();
+        if !self.token_transfer_from(depositor, pool, amount) {
+            return Err(PoolError::TransferFailed(TransferFailed {}));
+        }
+        Ok(())
+    }
+
+    /// Fund a payment note and its fee note in one call: one token pull of
+    /// `amount + fee_amount`, two leaves, two `Deposit` logs — the same logs
+    /// two `deposit` calls emit, so every reader of the pool sees them
+    /// unchanged. One call is one wallet approval, and the pair can no longer
+    /// come apart when the separate fee transaction fails.
+    #[selector(name = "depositWithFee")]
+    pub fn deposit_with_fee(
+        &mut self,
+        amount: U256,
+        commitment: U256,
+        envelope: Bytes,
+        fee_amount: U256,
+        fee_commitment: U256,
+        fee_envelope: Bytes,
+    ) -> Result<(), PoolError> {
+        let max = U256::from(MAX_AMOUNT);
+        if amount.is_zero() || amount > max || fee_amount.is_zero() || fee_amount > max {
+            return Err(PoolError::AmountOutOfRange(AmountOutOfRange {}));
+        }
+        // Equal commitments fail here: the first reservation marks it known.
+        let first_leaf = self.reserve_leaf(commitment, 2)?;
+        self.reserve_leaf(fee_commitment, 1)?;
+
+        let depositor = self.vm().msg_sender();
+        let root1 = self.append_leaf(first_leaf, commitment)?;
+        self.vm().log(Deposit {
+            commitment,
+            leafIndex: first_leaf,
+            newRoot: root1,
+            depositor,
+            amount,
+            envelope: envelope.0.into(),
+        });
+        let second_leaf = first_leaf + U256::from(1);
+        let root2 = self.append_leaf(second_leaf, fee_commitment)?;
+        self.vm().log(Deposit {
+            commitment: fee_commitment,
+            leafIndex: second_leaf,
+            newRoot: root2,
+            depositor,
+            amount: fee_amount,
+            envelope: fee_envelope.0.into(),
+        });
+
+        // Both amounts fit 64 bits; the sum cannot overflow.
+        let pool = self.vm().contract_address();
+        if !self.token_transfer_from(depositor, pool, amount + fee_amount) {
+            return Err(PoolError::TransferFailed(TransferFailed {}));
+        }
         Ok(())
     }
 

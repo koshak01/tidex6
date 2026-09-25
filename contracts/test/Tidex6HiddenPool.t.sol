@@ -28,7 +28,11 @@ contract TestToken {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) external virtual returns (bool) {
+        return _move(from, to, amount);
+    }
+
+    function _move(address from, address to, uint256 amount) internal returns (bool) {
         require(balanceOf[from] >= amount, "balance");
         require(allowance[from][msg.sender] >= amount, "allowance");
         allowance[from][msg.sender] -= amount;
@@ -108,6 +112,30 @@ contract ReentrantToken is TestToken {
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
         return true;
+    }
+}
+
+/// A token that calls back into `deposit` while the pool is pulling it — the
+/// shape of an ERC-777-style token. Used to show a nested deposit cannot land
+/// on the same leaf as the one in flight.
+contract ReentrantDepositToken is TestToken {
+    Tidex6HiddenPool public pool;
+    bool public armed;
+    uint256 public nestedCommitment;
+
+    function arm(Tidex6HiddenPool pool_, uint256 commitment) external {
+        pool = pool_;
+        nestedCommitment = commitment;
+        armed = true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+        if (armed) {
+            armed = false;
+            // The token itself deposits; it holds a balance and allowance of its own.
+            pool.deposit(1, nestedCommitment, "");
+        }
+        return _move(from, to, amount);
     }
 }
 
@@ -402,6 +430,115 @@ contract Tidex6HiddenPoolTest is Test {
         assertTrue(evil.reenterRefused(), "the re-entrant withdrawal was refused");
         assertTrue(p.nullifierSpent(777), "and the nullifier stayed spent");
         assertEq(evil.balanceOf(bob), 1_000, "the honest payout still went through");
+    }
+
+    // ── depositWithFee ─────────────────────────────────────────────────────
+
+    /// One call, one token pull, two leaves and two `Deposit` logs — the same
+    /// logs two `deposit` calls emit, so the browser, the auditor, the relayer's
+    /// index and the treasury robots read the pair without a change.
+    function test_depositWithFeeAddsBothNotesInOneCall() public {
+        uint256 afterFirst = _rootWithFirstLeaf(C1);
+
+        vm.expectEmit(true, false, false, true, address(pool));
+        emit Deposit(C1, 0, afterFirst, alice, 1_000, hex"aa");
+        vm.expectEmit(true, false, false, false, address(pool));
+        emit Deposit(C2, 1, 0, alice, 100, hex"bb");
+
+        vm.prank(alice);
+        pool.depositWithFee(1_000, C1, hex"aa", 100, C2, hex"bb");
+
+        assertEq(token.balanceOf(address(pool)), 1_100, "pool holds payment and fee");
+        assertEq(token.balanceOf(alice), 998_900, "sender paid both in one pull");
+        assertEq(pool.nextLeafIndex(), 2, "two leaves");
+        assertTrue(pool.commitmentKnown(C1) && pool.commitmentKnown(C2), "both notes are in");
+    }
+
+    /// The pair lands exactly where two separate deposits would: a proof built
+    /// against a tree the client rebuilt from the logs has to verify here.
+    function test_depositWithFeeGivesTheSameRootAsTwoDeposits() public {
+        Tidex6HiddenPool twin = new Tidex6HiddenPool(
+            IERC20(address(token)),
+            Tidex6HiddenWithdrawVerifier(address(verifier)),
+            Tidex6HiddenTransferVerifier(address(verifier))
+        );
+        vm.startPrank(alice);
+        token.approve(address(twin), type(uint256).max);
+        twin.deposit(1_000, C1, "");
+        twin.deposit(100, C2, "");
+        pool.depositWithFee(1_000, C1, "", 100, C2, "");
+        vm.stopPrank();
+
+        assertEq(pool.currentRoot(), twin.currentRoot(), "same tree either way");
+    }
+
+    function test_depositWithFeeRefusesEqualCommitments() public {
+        vm.prank(alice);
+        vm.expectRevert(Tidex6HiddenPool.CommitmentAlreadyUsed.selector);
+        pool.depositWithFee(1_000, C1, "", 100, C1, "");
+    }
+
+    function test_depositWithFeeRefusesAZeroFee() public {
+        vm.prank(alice);
+        vm.expectRevert(Tidex6HiddenPool.AmountOutOfRange.selector);
+        pool.depositWithFee(1_000, C1, "", 0, C2, "");
+    }
+
+    function test_depositWithFeeRefusesAnOversizedFee() public {
+        vm.prank(alice);
+        vm.expectRevert(Tidex6HiddenPool.AmountOutOfRange.selector);
+        pool.depositWithFee(1_000, C1, "", uint256(type(uint64).max) + 1, C2, "");
+    }
+
+    /// A failed pull undoes both notes: the pair enters together or not at all.
+    function test_depositWithFeeWithoutAllowanceLeavesNoNote() public {
+        vm.prank(alice);
+        token.approve(address(pool), 1_050);
+        vm.prank(alice);
+        vm.expectRevert(bytes("allowance"));
+        pool.depositWithFee(1_000, C1, "", 100, C2, "");
+
+        assertEq(pool.nextLeafIndex(), 0, "no leaf");
+        assertFalse(pool.commitmentKnown(C1), "the payment note did not stay behind");
+    }
+
+    // ── re-entrancy on deposit ─────────────────────────────────────────────
+
+    /// A token that re-enters `deposit` while being pulled. The tree is final
+    /// before the pull, so the nested deposit takes the NEXT leaf and both
+    /// notes survive; pulled first, the nested note would have been
+    /// overwritten by the outer one.
+    function test_reentrantDepositCannotOverwriteALeaf() public {
+        ReentrantDepositToken evil = new ReentrantDepositToken();
+        Tidex6HiddenPool p = new Tidex6HiddenPool(
+            IERC20(address(evil)),
+            Tidex6HiddenWithdrawVerifier(address(verifier)),
+            Tidex6HiddenTransferVerifier(address(verifier))
+        );
+        evil.mint(alice, 10_000);
+        evil.mint(address(evil), 10);
+        vm.prank(alice);
+        evil.approve(address(p), type(uint256).max);
+        vm.prank(address(evil));
+        evil.approve(address(p), type(uint256).max);
+
+        evil.arm(p, C2);
+        vm.prank(alice);
+        p.deposit(1_000, C1, "");
+
+        Tidex6HiddenPool twin = new Tidex6HiddenPool(
+            IERC20(address(token)),
+            Tidex6HiddenWithdrawVerifier(address(verifier)),
+            Tidex6HiddenTransferVerifier(address(verifier))
+        );
+        vm.startPrank(alice);
+        token.approve(address(twin), type(uint256).max);
+        twin.deposit(1_000, C1, "");
+        twin.deposit(1, C2, "");
+        vm.stopPrank();
+
+        assertEq(p.nextLeafIndex(), 2, "both deposits took a leaf");
+        assertEq(p.currentRoot(), twin.currentRoot(), "and neither overwrote the other");
     }
 
     // ── transferNote (join-split) ──────────────────────────────────────────

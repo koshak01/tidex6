@@ -167,14 +167,54 @@ contract Tidex6HiddenPool {
     function deposit(uint256 amount, uint256 commitment, bytes calldata envelope) external {
         if (amount == 0 || amount > MAX_AMOUNT) revert AmountOutOfRange();
         uint256 leafIndex = _reserveLeaf(commitment, 1);
+        uint256 newRoot = _appendLeaf(leafIndex, commitment);
+        emit Deposit(commitment, leafIndex, newRoot, msg.sender, amount, envelope);
 
+        // The token is pulled last, after the tree is final. Pulled first, a
+        // token that calls back on transfer could re-enter `deposit`, reserve
+        // the same leaf index and have one of the two notes overwritten.
         if (!token.transferFrom(msg.sender, address(this), amount)) {
             revert TransferFailed();
         }
+    }
 
-        uint256 newRoot = _appendLeaf(leafIndex, commitment);
+    /// @notice Fund a payment note and its fee note in one call: one token
+    ///         pull of `amount + feeAmount`, two leaves, two `Deposit` logs —
+    ///         the same logs two `deposit` calls would emit, so every reader
+    ///         of the pool sees them unchanged.
+    /// @dev One call is one wallet approval instead of two, and the pair can
+    ///      no longer come apart: a payment whose separate fee transaction
+    ///      failed or was rejected used to stay in the pool without its fee.
+    /// @param amount Base units of the payment note.
+    /// @param commitment The payment note, Poseidon(secret, nullifier, amount).
+    /// @param envelope Sealed for the recipient.
+    /// @param feeAmount Base units of the fee note.
+    /// @param feeCommitment The fee note, sealed to the treasury.
+    /// @param feeEnvelope Sealed for the treasury's reader key.
+    function depositWithFee(
+        uint256 amount,
+        uint256 commitment,
+        bytes calldata envelope,
+        uint256 feeAmount,
+        uint256 feeCommitment,
+        bytes calldata feeEnvelope
+    ) external {
+        if (amount == 0 || amount > MAX_AMOUNT) revert AmountOutOfRange();
+        if (feeAmount == 0 || feeAmount > MAX_AMOUNT) revert AmountOutOfRange();
+        // Equal commitments fail here: the first reservation marks it known.
+        uint256 firstLeaf = _reserveLeaf(commitment, 2);
+        _reserveLeaf(feeCommitment, 1);
 
-        emit Deposit(commitment, leafIndex, newRoot, msg.sender, amount, envelope);
+        uint256 root1 = _appendLeaf(firstLeaf, commitment);
+        emit Deposit(commitment, firstLeaf, root1, msg.sender, amount, envelope);
+        uint256 root2 = _appendLeaf(firstLeaf + 1, feeCommitment);
+        emit Deposit(feeCommitment, firstLeaf + 1, root2, msg.sender, feeAmount, feeEnvelope);
+
+        // Pulled last, as in `deposit`. Both amounts fit 64 bits, the sum
+        // cannot overflow.
+        if (!token.transferFrom(msg.sender, address(this), amount + feeAmount)) {
+            revert TransferFailed();
+        }
     }
 
     /// @notice Spend one note into two. The proof shows the spent note is in
