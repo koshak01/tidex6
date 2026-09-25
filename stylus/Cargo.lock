@@ -976,7 +976,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-stylus-hidden-transfer-verifier-v2"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
 name = "tidex6-stylus-hidden-withdraw-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-hidden-withdraw-verifier-v2"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",

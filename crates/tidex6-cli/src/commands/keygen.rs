@@ -53,6 +53,15 @@ pub enum KeygenCommand {
         #[arg(long)]
         identity: Option<PathBuf>,
     },
+    /// Print the owner key of note format v2 (ADR-022) as hex — the public
+    /// value v2 notes are bound to, and the treasury key a v2 pool is
+    /// deployed with. Derived from the spending key; the key itself is not
+    /// printed.
+    PrintOwnerPk {
+        /// Identity file to read. Defaults to `~/.tidex6/identity.json`.
+        #[arg(long)]
+        identity: Option<PathBuf>,
+    },
 }
 
 /// On-disk representation of a tidex6 wallet identity (v3).
@@ -101,6 +110,7 @@ impl IdentityFile {
 pub fn run(args: KeygenArgs) -> Result<()> {
     match args.command {
         Some(KeygenCommand::PrintMlkemPk { identity }) => run_print_mlkem_pk(identity),
+        Some(KeygenCommand::PrintOwnerPk { identity }) => run_print_owner_pk(identity),
         None => run_generate(args.out, args.force),
     }
 }
@@ -175,6 +185,23 @@ fn run_print_mlkem_pk(identity: Option<PathBuf>) -> Result<()> {
         ));
     }
     println!("{}", ident.mlkem_public);
+    Ok(())
+}
+
+fn run_print_owner_pk(identity: Option<PathBuf>) -> Result<()> {
+    let path = match identity {
+        Some(p) => p,
+        None => resolve_output_path(None)?,
+    };
+    let ident = IdentityFile::load(&path)?;
+    let bytes: [u8; 32] = hex::decode(ident.spending_key.trim())
+        .context("invalid spending_key hex in identity file")?
+        .try_into()
+        .map_err(|_| anyhow!("spending_key in {} is not 32 bytes", path.display()))?;
+    println!(
+        "{}",
+        hex::encode(tidex6_client::evm::note::owner_pk_v2(&bytes))
+    );
     Ok(())
 }
 

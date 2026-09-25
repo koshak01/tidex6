@@ -262,6 +262,12 @@ pub fn prove_withdraw(
     })
 }
 
+/// Owner key of note format v2 (ADR-022) from a spending key: the value a
+/// wallet publishes so senders can bind notes to it. Public, safe to print.
+pub fn owner_pk_v2(spending_key: &[u8; 32]) -> [u8; 32] {
+    fr_to_word(tidex6_confidential::note_v2::owner_pk(fr(spending_key)))
+}
+
 fn fr(bytes: &[u8]) -> Fr {
     Fr::from_be_bytes_mod_order(bytes)
 }
