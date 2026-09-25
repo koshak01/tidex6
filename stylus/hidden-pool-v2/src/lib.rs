@@ -38,6 +38,8 @@ pub const MAX_AMOUNT: u64 = u64::MAX;
 /// Refund windows a depositor may choose; zero means no refund.
 pub const MIN_REFUND_WINDOW: u64 = 5 * 60;
 pub const MAX_REFUND_WINDOW: u64 = 30 * 24 * 60 * 60;
+/// The fee: 1% of the payment, rounded up, never below `fee_floor`.
+pub const FEE_PERCENT_DIVISOR: u64 = 100;
 /// Hash domains — the same constants as `tidex6-confidential::note_v2`.
 pub const D_CORE: u64 = 0x7469_6478_3602;
 pub const D_NF: u64 = 0x7469_6478_3603;
@@ -86,6 +88,10 @@ pub struct Tidex6HiddenPoolV2 {
     transfer_verifier: StorageAddress,
     /// Poseidon-T3 contract, kept out of this one for the 24 KB limit.
     poseidon: StorageAddress,
+    /// Owner key of the treasury: every fee note is filed for it.
+    treasury_owner_pk: StorageU256,
+    /// Smallest fee in base units.
+    fee_floor: StorageU256,
     next_leaf_index: StorageU256,
     root_ring_head: StorageU256,
     filled_subtrees: StorageArray<StorageU256, TREE_DEPTH>,
@@ -107,11 +113,15 @@ impl Tidex6HiddenPoolV2 {
         withdraw_verifier: Address,
         transfer_verifier: Address,
         poseidon: Address,
+        treasury_owner_pk: U256,
+        fee_floor: U256,
     ) {
         self.token.set(token);
         self.withdraw_verifier.set(withdraw_verifier);
         self.transfer_verifier.set(transfer_verifier);
         self.poseidon.set(poseidon);
+        self.treasury_owner_pk.set(treasury_owner_pk);
+        self.fee_floor.set(fee_floor);
 
         let mut zero_hash = U256::ZERO;
         for level in 0..TREE_DEPTH {
@@ -122,83 +132,53 @@ impl Tidex6HiddenPoolV2 {
         self.root_history.setter(0).unwrap().set(zero_hash);
     }
 
-    /// Fund a note of `amount` for the owner of `core`; the leaf is bound to
-    /// the amount received. `refund_window` seconds after which the funder may
-    /// take it back; 0 — no refund.
-    pub fn deposit(&mut self, core: U256, amount: U256, refund_window: U256, envelope: Bytes) -> Result<(), PoolError> {
-        let refund_after = self.refund_after(refund_window)?;
-        let leaf = self.leaf(core, amount, refund_after)?;
-        let leaf_index = self.reserve_leaves(1)?;
-        self.mark_leaf(leaf, leaf_index)?;
-        let depositor = self.vm().msg_sender();
-        let new_root = self.append_leaf(leaf_index, leaf)?;
-        self.vm().log(Deposit {
-            commitment: leaf,
-            leafIndex: leaf_index,
-            newRoot: new_root,
-            depositor,
-            amount,
-            refundAfter: refund_after,
-            envelope: envelope.0.into(),
-        });
-        // Pulled last, after the tree is final.
-        let pool = self.vm().contract_address();
-        if !self.token_transfer_from(depositor, pool, amount) {
-            return Err(PoolError::TransferFailed(TransferFailed {}));
-        }
-        Ok(())
-    }
-
-    /// A payment note and its fee note in one call; the fee note has no refund.
-    #[selector(name = "depositWithFee")]
+    /// Fund a note of `amount` for the owner of `core` and the fee on it for
+    /// the treasury; the sender is charged `amount + fee_for(amount)`. The fee
+    /// note's core is built here from the treasury key, with no refund.
     #[allow(clippy::too_many_arguments)]
-    pub fn deposit_with_fee(
+    pub fn deposit(
         &mut self,
         core: U256,
         amount: U256,
         refund_window: U256,
         envelope: Bytes,
-        fee_core: U256,
-        fee_amount: U256,
+        fee_rho: U256,
         fee_envelope: Bytes,
     ) -> Result<(), PoolError> {
+        if !is_field_element(fee_rho) {
+            return Err(PoolError::NotAFieldElement(NotAFieldElement {}));
+        }
+        let fee = self.fee_for(amount);
         let refund_after = self.refund_after(refund_window)?;
-        let leaf = self.leaf(core, amount, refund_after)?;
-        let fee_leaf = self.leaf(fee_core, fee_amount, U256::ZERO)?;
         let first_leaf = self.reserve_leaves(2)?;
-        let second_leaf = first_leaf + U256::from(1);
-        self.mark_leaf(leaf, first_leaf)?;
-        self.mark_leaf(fee_leaf, second_leaf)?;
-
+        self.file_note(core, amount, refund_after, envelope, first_leaf)?;
+        let fee_core = self.treasury_core(fee_rho)?;
+        self.file_note(
+            fee_core,
+            fee,
+            U256::ZERO,
+            fee_envelope,
+            first_leaf + U256::from(1),
+        )?;
         let depositor = self.vm().msg_sender();
-        let root1 = self.append_leaf(first_leaf, leaf)?;
-        self.vm().log(Deposit {
-            commitment: leaf,
-            leafIndex: first_leaf,
-            newRoot: root1,
-            depositor,
-            amount,
-            refundAfter: refund_after,
-            envelope: envelope.0.into(),
-        });
-        let root2 = self.append_leaf(second_leaf, fee_leaf)?;
-        self.vm().log(Deposit {
-            commitment: fee_leaf,
-            leafIndex: second_leaf,
-            newRoot: root2,
-            depositor,
-            amount: fee_amount,
-            refundAfter: U256::ZERO,
-            envelope: fee_envelope.0.into(),
-        });
         let pool = self.vm().contract_address();
-        if !self.token_transfer_from(depositor, pool, amount + fee_amount) {
+        if !self.token_transfer_from(depositor, pool, amount + fee) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
         Ok(())
     }
 
-    /// Spend one note into two (`transfer_v2`). No token moves.
+    /// The fee on a payment of `amount`: 1% rounded up, at least the floor.
+    #[selector(name = "feeFor")]
+    pub fn fee_for(&self, amount: U256) -> U256 {
+        let divisor = U256::from(FEE_PERCENT_DIVISOR);
+        let percent = (amount + divisor - U256::from(1)) / divisor;
+        percent.max(self.fee_floor.get())
+    }
+
+    /// Forward a note inside the pool: a payment, change back to the spender,
+    /// the fee to the treasury (`transfer_v2`). The pool supplies its own
+    /// treasury key and floor as public inputs. No token moves.
     #[selector(name = "transferNote")]
     #[allow(clippy::too_many_arguments)]
     pub fn transfer_note(
@@ -208,33 +188,57 @@ impl Tidex6HiddenPoolV2 {
         proof_c: [U256; 2],
         merkle_root: U256,
         nullifier: U256,
-        commitment_out1: U256,
-        commitment_out2: U256,
-        envelope1: Bytes,
-        envelope2: Bytes,
+        out: (U256, U256, U256, Bytes, Bytes, Bytes),
     ) -> Result<(), PoolError> {
+        let (pay, change, fee, pay_envelope, change_envelope, fee_envelope) = out;
         if self.nullifier_spent.get(nullifier) {
             return Err(PoolError::NullifierAlreadySpent(NullifierAlreadySpent {}));
         }
         if !self.is_known_root_inner(merkle_root) {
             return Err(PoolError::RootNotRecent(RootNotRecent {}));
         }
-        let first_leaf = self.reserve_leaves(2)?;
-        let second_leaf = first_leaf + U256::from(1);
-        self.mark_leaf(commitment_out1, first_leaf)?;
-        self.mark_leaf(commitment_out2, second_leaf)?;
+        let first_leaf = self.reserve_leaves(3)?;
+        let one = U256::from(1);
+        self.mark_leaf(pay, first_leaf)?;
+        self.mark_leaf(change, first_leaf + one)?;
+        self.mark_leaf(fee, first_leaf + one + one)?;
 
-        let public_inputs = [merkle_root, nullifier, commitment_out1, commitment_out2];
+        let public_inputs = [
+            merkle_root,
+            nullifier,
+            pay,
+            change,
+            fee,
+            self.treasury_owner_pk.get(),
+            self.fee_floor.get(),
+        ];
         let verifier = self.transfer_verifier.get();
-        if !self.verify_proof(verifier, SEL_VERIFY_PROOF_4, &proof_a, &proof_b, &proof_c, &public_inputs) {
+        if !self.verify_proof(
+            verifier,
+            SEL_VERIFY_PROOF_7,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &public_inputs,
+        ) {
             return Err(PoolError::InvalidProof(InvalidProof {}));
         }
         self.nullifier_spent.insert(nullifier, true);
 
-        let root1 = self.append_leaf(first_leaf, commitment_out1)?;
-        self.vm().log(NoteCreated { commitment: commitment_out1, leafIndex: first_leaf, newRoot: root1, envelope: envelope1.0.into() });
-        let root2 = self.append_leaf(second_leaf, commitment_out2)?;
-        self.vm().log(NoteCreated { commitment: commitment_out2, leafIndex: second_leaf, newRoot: root2, envelope: envelope2.0.into() });
+        for (offset, leaf, envelope) in [
+            (0u64, pay, pay_envelope),
+            (1, change, change_envelope),
+            (2, fee, fee_envelope),
+        ] {
+            let index = first_leaf + U256::from(offset);
+            let root = self.append_leaf(index, leaf)?;
+            self.vm().log(NoteCreated {
+                commitment: leaf,
+                leafIndex: index,
+                newRoot: root,
+                envelope: envelope.0.into(),
+            });
+        }
         Ok(())
     }
 
@@ -263,9 +267,25 @@ impl Tidex6HiddenPoolV2 {
         }
         let (recipient_hi, recipient_lo) = split_address(recipient);
         let (relayer_hi, relayer_lo) = split_address(relayer);
-        let public_inputs = [merkle_root, nullifier, recipient_hi, recipient_lo, relayer_hi, relayer_lo, fee, amount];
+        let public_inputs = [
+            merkle_root,
+            nullifier,
+            recipient_hi,
+            recipient_lo,
+            relayer_hi,
+            relayer_lo,
+            fee,
+            amount,
+        ];
         let verifier = self.withdraw_verifier.get();
-        if !self.verify_proof(verifier, SEL_VERIFY_PROOF_8, &proof_a, &proof_b, &proof_c, &public_inputs) {
+        if !self.verify_proof(
+            verifier,
+            SEL_VERIFY_PROOF_8,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &public_inputs,
+        ) {
             return Err(PoolError::InvalidProof(InvalidProof {}));
         }
         self.nullifier_spent.insert(nullifier, true);
@@ -276,7 +296,13 @@ impl Tidex6HiddenPoolV2 {
         if !fee.is_zero() && !self.token_transfer(relayer, fee) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
-        self.vm().log(Withdrawal { nullifier, recipient, relayer, fee, amount });
+        self.vm().log(Withdrawal {
+            nullifier,
+            recipient,
+            relayer,
+            fee,
+            amount,
+        });
         Ok(())
     }
 
@@ -311,7 +337,11 @@ impl Tidex6HiddenPoolV2 {
         if !self.token_transfer(funder, amount) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
-        self.vm().log(Refunded { nullifier, funder, amount });
+        self.vm().log(Refunded {
+            nullifier,
+            funder,
+            amount,
+        });
         Ok(())
     }
 
@@ -345,8 +375,8 @@ const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 const SEL_POSEIDON_HASH: [u8; 4] = [0xa7, 0x8d, 0xac, 0x0d];
 /// `verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[8])`.
 const SEL_VERIFY_PROOF_8: [u8; 4] = [0xc9, 0x21, 0x9a, 0x7a];
-/// `verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[4])`.
-const SEL_VERIFY_PROOF_4: [u8; 4] = [0x5f, 0xe8, 0xc1, 0x3b];
+/// `verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[7])`.
+const SEL_VERIFY_PROOF_7: [u8; 4] = [0xc8, 0x94, 0xe7, 0x57];
 
 /// Append a `U256` as a 32-byte big-endian word.
 #[inline]
@@ -396,7 +426,8 @@ impl Tidex6HiddenPoolV2 {
         if !self.leaf_position_plus_one.get(leaf).is_zero() {
             return Err(PoolError::CommitmentAlreadyUsed(CommitmentAlreadyUsed {}));
         }
-        self.leaf_position_plus_one.insert(leaf, position + U256::from(1));
+        self.leaf_position_plus_one
+            .insert(leaf, position + U256::from(1));
         Ok(())
     }
 
@@ -423,6 +454,39 @@ impl Tidex6HiddenPoolV2 {
             self.h(funder, refund_after)?
         };
         self.h(body, refund_tag)
+    }
+
+    /// File one funded note at `position`: its leaf from the amount, its
+    /// position, the insertion and the log.
+    fn file_note(
+        &mut self,
+        core: U256,
+        amount: U256,
+        refund_after: U256,
+        envelope: Bytes,
+        position: U256,
+    ) -> Result<(), PoolError> {
+        let leaf = self.leaf(core, amount, refund_after)?;
+        self.mark_leaf(leaf, position)?;
+        let new_root = self.append_leaf(position, leaf)?;
+        let depositor = self.vm().msg_sender();
+        self.vm().log(Deposit {
+            commitment: leaf,
+            leafIndex: position,
+            newRoot: new_root,
+            depositor,
+            amount,
+            refundAfter: refund_after,
+            envelope: envelope.0.into(),
+        });
+        Ok(())
+    }
+
+    /// Core of a fee note: owned by the treasury, randomness from the sender.
+    fn treasury_core(&self, fee_rho: U256) -> Result<U256, PoolError> {
+        let left = self.h(U256::from(D_CORE), self.treasury_owner_pk.get())?;
+        let right = self.h(fee_rho, U256::ZERO)?;
+        self.h(left, right)
     }
 
     /// `now + window`, or 0 for "no refund".
@@ -519,10 +583,19 @@ impl Tidex6HiddenPoolV2 {
 
         for level in 0..TREE_DEPTH {
             let (left, right) = if current_index & 1 == 0 {
-                self.filled_subtrees.setter(level).unwrap().set(current_hash);
-                (current_hash, self.zero_subtrees.get(level).unwrap_or(U256::ZERO))
+                self.filled_subtrees
+                    .setter(level)
+                    .unwrap()
+                    .set(current_hash);
+                (
+                    current_hash,
+                    self.zero_subtrees.get(level).unwrap_or(U256::ZERO),
+                )
             } else {
-                (self.filled_subtrees.get(level).unwrap_or(U256::ZERO), current_hash)
+                (
+                    self.filled_subtrees.get(level).unwrap_or(U256::ZERO),
+                    current_hash,
+                )
             };
             current_hash = self
                 .hash_pair(left, right)

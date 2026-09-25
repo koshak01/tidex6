@@ -2,8 +2,26 @@
 pragma solidity ^0.8.20;
 
 import {PoseidonT3} from "./PoseidonT3.sol";
-import {Tidex6HiddenWithdrawVerifier} from "./Tidex6HiddenWithdrawVerifier.sol";
-import {Tidex6HiddenTransferVerifier} from "./Tidex6HiddenTransferVerifier.sol";
+
+/// @notice Groth16 verifier of the v2 withdraw circuit (eight public inputs).
+interface IWithdrawVerifierV2 {
+    function verifyProof(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[8] calldata publicInputs
+    ) external view returns (bool);
+}
+
+/// @notice Groth16 verifier of the v2 in-pool transfer (seven public inputs).
+interface ITransferVerifierV2 {
+    function verifyProof(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[7] calldata publicInputs
+    ) external view returns (bool);
+}
 
 /// @notice Minimal ERC-20 surface the pool needs.
 interface IERC20V2 {
@@ -23,6 +41,10 @@ interface IERC20V2 {
 ///           back only through `refund`, only after the window they chose, and
 ///           only if the owner has not spent it first — one note, one
 ///           nullifier, whichever path comes first. Fee notes have no refund.
+///         - **The fee cannot be skipped.** Every way value enters or moves
+///           pays 1% (rounded up, at least `feeFloor`) as a note the pool
+///           itself files for the treasury key it was deployed with: a
+///           deposit here, a forward inside the pool through the circuit.
 ///
 ///         Leaf layout, two-input Poseidon throughout:
 ///
@@ -50,9 +72,16 @@ contract Tidex6HiddenPoolV2 {
     uint256 internal constant F =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
+    /// The fee: 1% of the payment, rounded up, never below `feeFloor`.
+    uint256 public constant FEE_PERCENT_DIVISOR = 100;
+
     IERC20V2 public immutable token;
-    Tidex6HiddenWithdrawVerifier public immutable withdrawVerifier;
-    Tidex6HiddenTransferVerifier public immutable transferVerifier;
+    IWithdrawVerifierV2 public immutable withdrawVerifier;
+    ITransferVerifierV2 public immutable transferVerifier;
+    /// Owner key of the treasury: every fee note is filed for it.
+    uint256 public immutable treasuryOwnerPk;
+    /// Smallest fee in base units — 0.1 token at the token's decimals.
+    uint256 public immutable feeFloor;
 
     uint256 public nextLeafIndex;
     uint256 public rootRingHead;
@@ -104,14 +133,29 @@ contract Tidex6HiddenPoolV2 {
     error UnknownNote();
     error RefundNotYet();
 
+    /// @notice The three notes an in-pool transfer creates, with their envelopes.
+    struct TransferOutputs {
+        uint256 pay;
+        uint256 change;
+        uint256 fee;
+        bytes payEnvelope;
+        bytes changeEnvelope;
+        bytes feeEnvelope;
+    }
+
     constructor(
         IERC20V2 token_,
-        Tidex6HiddenWithdrawVerifier withdrawVerifier_,
-        Tidex6HiddenTransferVerifier transferVerifier_
+        IWithdrawVerifierV2 withdrawVerifier_,
+        ITransferVerifierV2 transferVerifier_,
+        uint256 treasuryOwnerPk_,
+        uint256 feeFloor_
     ) {
+        if (treasuryOwnerPk_ >= F) revert NotAFieldElement();
         token = token_;
         withdrawVerifier = withdrawVerifier_;
         transferVerifier = transferVerifier_;
+        treasuryOwnerPk = treasuryOwnerPk_;
+        feeFloor = feeFloor_;
 
         uint256 zeroHash = 0;
         for (uint256 level = 0; level < TREE_DEPTH; level++) {
@@ -122,63 +166,69 @@ contract Tidex6HiddenPoolV2 {
         rootHistory[0] = zeroHash;
     }
 
-    /// @notice Fund a note of `amount` base units for the owner of `core`.
+    /// @notice Fund a note of `amount` base units for the owner of `core`, and
+    ///         the fee on it for the treasury. The sender is charged
+    ///         `amount + feeFor(amount)`.
     /// @param core H(H(D_CORE, ownerPk), H(rho, aux)), computed by the sender.
-    /// @param amount Base units pulled from the sender; the leaf is bound to it.
-    /// @param refundWindow Seconds after which the sender may take the note
+    /// @param amount Base units the recipient gets; the leaf is bound to it.
+    /// @param refundWindow Seconds after which the sender may take the payment
     ///        back if the owner has not; 0 — no refund.
-    /// @param envelope Sealed for the recipient (rho, amount, memo, refundAfter).
-    function deposit(uint256 core, uint256 amount, uint256 refundWindow, bytes calldata envelope) external {
-        _fileNote(core, amount, _refundAfter(refundWindow), envelope, _reserveLeaves(1));
-        // Pulled last, after the tree is final: a token that calls back on
-        // transfer cannot re-enter and overwrite a reserved leaf.
-        if (!token.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
-    }
-
-    /// @notice A payment note and its fee note in one call, one token pull.
-    ///         The fee note never has a refund: a fee, once paid, is final.
-    function depositWithFee(
+    /// @param envelope Sealed for the recipient.
+    /// @param feeRho Randomness of the fee note; the pool builds its core
+    ///        from the treasury key, so it can belong to nobody else.
+    /// @param feeEnvelope Sealed for the treasury's reader key.
+    function deposit(
         uint256 core,
         uint256 amount,
         uint256 refundWindow,
         bytes calldata envelope,
-        uint256 feeCore,
-        uint256 feeAmount,
+        uint256 feeRho,
         bytes calldata feeEnvelope
     ) external {
+        if (feeRho >= F) revert NotAFieldElement();
+        uint256 fee = feeFor(amount);
         uint256 firstLeaf = _reserveLeaves(2);
         _fileNote(core, amount, _refundAfter(refundWindow), envelope, firstLeaf);
-        _fileNote(feeCore, feeAmount, 0, feeEnvelope, firstLeaf + 1);
-        if (!token.transferFrom(msg.sender, address(this), amount + feeAmount)) revert TransferFailed();
+        _fileNote(_treasuryCore(feeRho), fee, 0, feeEnvelope, firstLeaf + 1);
+        // Pulled last, after the tree is final: a token that calls back on
+        // transfer cannot re-enter and overwrite a reserved leaf.
+        if (!token.transferFrom(msg.sender, address(this), amount + fee)) revert TransferFailed();
     }
 
-    /// @notice Spend one note into two; see `transfer_v2`. No token moves.
+    /// @notice The fee on a payment of `amount`: 1% rounded up, at least `feeFloor`.
+    function feeFor(uint256 amount) public view returns (uint256) {
+        uint256 percent = (amount + FEE_PERCENT_DIVISOR - 1) / FEE_PERCENT_DIVISOR;
+        return percent > feeFloor ? percent : feeFloor;
+    }
+
+    /// @notice Forward a note inside the pool: a payment, change back to the
+    ///         spender, and the fee to the treasury (`transfer_v2`). The
+    ///         circuit checks the fee against the pool's own treasury key and
+    ///         floor, which the pool supplies as public inputs. No token moves.
     function transferNote(
         uint256[2] calldata proofA,
         uint256[2][2] calldata proofB,
         uint256[2] calldata proofC,
         uint256 merkleRoot,
         uint256 nullifier,
-        uint256 commitmentOut1,
-        uint256 commitmentOut2,
-        bytes calldata envelope1,
-        bytes calldata envelope2
+        TransferOutputs calldata out
     ) external {
         if (nullifierSpent[nullifier]) revert NullifierAlreadySpent();
         if (!_isKnownRoot(merkleRoot)) revert RootNotRecent();
-        uint256 firstLeaf = _reserveLeaves(2);
-        _markLeaf(commitmentOut1, firstLeaf);
-        _markLeaf(commitmentOut2, firstLeaf + 1);
+        uint256 firstLeaf = _reserveLeaves(3);
+        _markLeaf(out.pay, firstLeaf);
+        _markLeaf(out.change, firstLeaf + 1);
+        _markLeaf(out.fee, firstLeaf + 2);
 
-        uint256[4] memory publicInputs = [merkleRoot, nullifier, commitmentOut1, commitmentOut2];
+        uint256[7] memory publicInputs =
+            [merkleRoot, nullifier, out.pay, out.change, out.fee, treasuryOwnerPk, feeFloor];
         if (!transferVerifier.verifyProof(proofA, proofB, proofC, publicInputs)) revert InvalidProof();
 
         nullifierSpent[nullifier] = true;
 
-        uint256 root1 = _appendLeaf(firstLeaf, commitmentOut1);
-        emit NoteCreated(commitmentOut1, firstLeaf, root1, envelope1);
-        uint256 root2 = _appendLeaf(firstLeaf + 1, commitmentOut2);
-        emit NoteCreated(commitmentOut2, firstLeaf + 1, root2, envelope2);
+        emit NoteCreated(out.pay, firstLeaf, _appendLeaf(firstLeaf, out.pay), out.payEnvelope);
+        emit NoteCreated(out.change, firstLeaf + 1, _appendLeaf(firstLeaf + 1, out.change), out.changeEnvelope);
+        emit NoteCreated(out.fee, firstLeaf + 2, _appendLeaf(firstLeaf + 2, out.fee), out.feeEnvelope);
     }
 
     /// @notice Withdraw a note to `recipient`. Only the owner can build the
@@ -264,6 +314,11 @@ contract Tidex6HiddenPoolV2 {
         uint256 body = PoseidonT3.hash(core, amount);
         uint256 refundTag = refundAfter == 0 ? 0 : PoseidonT3.hash(uint256(uint160(msg.sender)), refundAfter);
         return PoseidonT3.hash(body, refundTag);
+    }
+
+    /// Core of a fee note: owned by the treasury, randomness from the sender.
+    function _treasuryCore(uint256 feeRho) private view returns (uint256) {
+        return PoseidonT3.hash(PoseidonT3.hash(D_CORE, treasuryOwnerPk), PoseidonT3.hash(feeRho, 0));
     }
 
     function _refundAfter(uint256 refundWindow) private view returns (uint256) {
