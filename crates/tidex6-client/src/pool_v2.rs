@@ -515,7 +515,11 @@ pub fn my_notes(
     Ok(out)
 }
 
-/// Withdraw one of our notes to our own wallet, signed and paid by it.
+/// Withdraw one of our notes to `recipient`. `signer` submits and pays the
+/// network fee and stands as the relayer, taking no fee from the note; the
+/// proof binds both. A person collecting for themselves passes their own
+/// wallet as both.
+#[allow(clippy::too_many_arguments)]
 pub fn withdraw(
     rpc: &RpcClient,
     signer: &Keypair,
@@ -524,6 +528,7 @@ pub fn withdraw(
     leaves: &[LeafMemo],
     note: &OpenNoteSol,
     identity: &LocalIdentity,
+    recipient: &Pubkey,
 ) -> Result<String> {
     use solana_keypair::Signer;
     let spending_key = identity
@@ -544,7 +549,7 @@ pub fn withdraw(
         path_siblings: std::array::from_fn(|i| fr(path.siblings[i].as_bytes())),
         path_indices: std::array::from_fn(|i| (note.leaf_index >> i) & 1 == 1),
         merkle_root: fr(&root),
-        recipient: wallet.to_bytes(),
+        recipient: recipient.to_bytes(),
         relayer: wallet.to_bytes(),
         relayer_fee: 0,
     };
@@ -556,7 +561,6 @@ pub fn withdraw(
     let bytes = tidex6_circuits::solana_bytes::groth16_to_solana_bytes(&proof, &proving_key.vk)
         .map_err(|e| anyhow::anyhow!("proof bytes: {e:?}"))?;
 
-    let token = ata(&wallet, mint);
     let ix = Instruction {
         program_id: program_id(),
         accounts: tidex6_pool_v2::accounts::Withdraw {
@@ -564,10 +568,10 @@ pub fn withdraw(
             mint: *mint,
             vault: vault_pda(mint),
             nullifier: nullifier_pda(&note.nullifier),
-            recipient: wallet,
-            recipient_token: token,
+            recipient: *recipient,
+            recipient_token: ata(recipient, mint),
             relayer: wallet,
-            relayer_token: token,
+            relayer_token: ata(&wallet, mint),
             payer: wallet,
             token_program: TOKEN_PROGRAM,
             system_program: system_program::ID,
@@ -592,11 +596,12 @@ pub fn withdraw(
         accounts: Vec::new(),
         data: budget.data,
     };
-    send(
-        rpc,
-        signer,
-        &[budget, create_ata_ix(&wallet, &wallet, mint), ix],
-    )
+    let mut ixs = vec![budget, create_ata_ix(&wallet, recipient, mint)];
+    if *recipient != wallet {
+        ixs.push(create_ata_ix(&wallet, &wallet, mint));
+    }
+    ixs.push(ix);
+    send(rpc, signer, &ixs)
 }
 
 // ── refunds ──────────────────────────────────────────────────────────────

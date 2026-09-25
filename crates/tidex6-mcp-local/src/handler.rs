@@ -1330,7 +1330,9 @@ impl LocalTools {
                     pk = Some(evm::receive::load_proving_key(&key_path)?);
                 }
                 let key = pk.as_ref().expect("loaded above");
-                let tx = pool_v2::withdraw(&rpc, &keypair, &mint, key, &leaves, &note, &identity)?;
+                let me = identity.wallet;
+                let tx =
+                    pool_v2::withdraw(&rpc, &keypair, &mint, key, &leaves, &note, &identity, &me)?;
                 done.push(serde_json::json!({
                     "amount": micro_to_decimal(note.amount), "symbol": "USDC", "transaction": tx,
                 }));
