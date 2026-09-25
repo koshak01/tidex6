@@ -110,12 +110,15 @@ impl ConstraintSynthesizer<Fr> for WithdrawV2Circuit {
     }
 }
 
+/// Соседи и биты направления пути — снизу вверх.
+pub(crate) type PathVars = (Vec<FpVar<Fr>>, Vec<Boolean<Fr>>);
+
 /// Свидетели пути по дереву: соседи и биты направления снизу вверх.
 pub(crate) fn path_witness(
     cs: ConstraintSystemRef<Fr>,
     siblings: Option<[Fr; POOL_TREE_DEPTH]>,
     indices: Option<[bool; POOL_TREE_DEPTH]>,
-) -> Result<(Vec<FpVar<Fr>>, Vec<Boolean<Fr>>), SynthesisError> {
+) -> Result<PathVars, SynthesisError> {
     let missing = || SynthesisError::AssignmentMissing;
     let mut sibling_vars = Vec::with_capacity(POOL_TREE_DEPTH);
     let mut bit_vars = Vec::with_capacity(POOL_TREE_DEPTH);
