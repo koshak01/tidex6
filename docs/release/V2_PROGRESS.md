@@ -30,6 +30,10 @@ full post-mortem follows the rollout.
 | 25.09 | Clients on v2: the Rust client, CLI (`print-owner-pk`), local MCP and relayer (index, withdraw, treasury collector) speak the v2 note | `0ce958a`, relayer `72ba217` |
 | 25.09 | First v2 stand on Arc testnet (dev keys): pool, owner-key registry, both verifiers; a recipient published an owner key, then a 2 USDC payment went in and the pool filed two leaves itself — payment 2.0 and fee 0.1 — from what it received | tx `0x25e0660a…b28f` |
 
+| 25.09 | Found before the first withdraw: the stand's v2 keys came from the arkworks setup while every client proves in the snarkjs layout — no v2 withdraw would have verified. v2 keys now come only from ceremony states; the seeded setup is gone from the v2 modules | `81993c6` |
+| 25.09 | Genesis keys for both v2 circuits (snarkjs setup, zero contributions; pot13 / pot15), self-tested; the self-test rejects the former key. Verifiers, Stylus, Solana program VKs and proving keys regenerated | `a7af563` |
+| 25.09 | Refund without local storage: a payment with a refund window carries a funder slot sealed to the sender's own reader key; the sender rebuilds refunds from the chain on any device. MCP `evm_refund` | `72f1c87` |
+| 25.09 | WASM prover 2.7.0: owner key, core, leaf, refund tag, nullifier, fee, v2 withdraw and 1 → 3 transfer provers, funder slot | `81993c6`, `72f1c87` |
 
 ## Next
 
