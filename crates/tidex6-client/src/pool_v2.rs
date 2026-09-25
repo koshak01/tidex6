@@ -55,7 +55,8 @@ pub fn usdc_mint(is_mainnet: bool) -> Option<Pubkey> {
 /// with the signature, three accounts and the Anchor framing.
 const MEMO_CHUNK_LEN: usize = 800;
 
-fn program_id() -> Pubkey {
+/// The pool v2 program.
+pub fn program_id() -> Pubkey {
     tidex6_pool_v2::ID
 }
 

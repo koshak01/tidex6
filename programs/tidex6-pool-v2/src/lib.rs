@@ -367,7 +367,10 @@ pub struct Withdraw<'info> {
     /// CHECK: relayer wallet, bound to the proof (public inputs 5–6).
     pub relayer: UncheckedAccount<'info>,
 
-    #[account(mut, token::mint = mint, token::authority = relayer)]
+    /// `dup`: a recipient withdrawing on their own is also the relayer, and
+    /// the two token accounts are one. Token accounts belong to the token
+    /// program, so Anchor writes neither back on exit.
+    #[account(mut, dup, token::mint = mint, token::authority = relayer)]
     pub relayer_token: Account<'info, TokenAccount>,
 
     #[account(mut)]

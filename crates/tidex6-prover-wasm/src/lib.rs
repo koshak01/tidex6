@@ -979,6 +979,17 @@ pub fn refund_tag_evm(funder: &Uint8Array, refund_after: u64) -> Result<Uint8Arr
     )))
 }
 
+/// Refund tag of a Solana deposit: the funder's 32-byte key and the moment
+/// the refund opens (`refund_after` of its memo account).
+#[wasm_bindgen(js_name = refundTagSolana)]
+pub fn refund_tag_solana(funder: &Uint8Array, refund_after: u64) -> Result<Uint8Array, JsError> {
+    let key = to_field_bytes(funder, "funder")?;
+    Ok(field_out(note_v2::refund_tag(
+        note_v2::refund_addr_solana(&key),
+        refund_after,
+    )))
+}
+
 /// Nullifier of the note at `position`, shared by withdraw and refund.
 #[wasm_bindgen(js_name = nullifierV2)]
 pub fn nullifier_v2(rho: &Uint8Array, position: u64) -> Result<Uint8Array, JsError> {
@@ -1084,6 +1095,74 @@ pub fn prove_withdraw_v2_evm(
     relayer_fee: u64,
     proving_key: &Uint8Array,
 ) -> Result<Uint8Array, JsError> {
+    prove_withdraw_v2_impl(
+        spending_key,
+        rho,
+        aux,
+        amount,
+        refund,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        false,
+    )
+}
+
+/// The same withdraw proof in the Solana layout. Recipient and relayer are
+/// the full 32-byte wallet keys.
+#[wasm_bindgen(js_name = proveWithdrawV2Solana)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_withdraw_v2_solana(
+    spending_key: &Uint8Array,
+    rho: &Uint8Array,
+    aux: &Uint8Array,
+    amount: u64,
+    refund: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: u64,
+    proving_key: &Uint8Array,
+) -> Result<Uint8Array, JsError> {
+    prove_withdraw_v2_impl(
+        spending_key,
+        rho,
+        aux,
+        amount,
+        refund,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        recipient,
+        relayer_address,
+        relayer_fee,
+        proving_key,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_withdraw_v2_impl(
+    spending_key: &Uint8Array,
+    rho: &Uint8Array,
+    aux: &Uint8Array,
+    amount: u64,
+    refund: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    recipient: &Uint8Array,
+    relayer_address: &Uint8Array,
+    relayer_fee: u64,
+    proving_key: &Uint8Array,
+    solana: bool,
+) -> Result<Uint8Array, JsError> {
     if relayer_fee > amount {
         return Err(JsError::new("relayer fee exceeds the note amount"));
     }
@@ -1106,7 +1185,24 @@ pub fn prove_withdraw_v2_evm(
     let mut rng = rand::thread_rng();
     let (proof, _public_inputs) = withdraw_v2::prove_ceremony(&pk, &witness, &mut rng)
         .map_err(|e| JsError::new(&format!("prove_withdraw_v2 failed: {e}")))?;
+    if solana {
+        return solana_proof_bytes(&proof, &pk);
+    }
     Ok(Uint8Array::from(&groth16_proof_to_evm_bytes(&proof)[..]))
+}
+
+/// A proof in the byte layout `groth16-solana` reads: `a ‖ b ‖ c`, 256 bytes.
+fn solana_proof_bytes(
+    proof: &ark_groth16::Proof<Bn254>,
+    pk: &ProvingKey<Bn254>,
+) -> Result<Uint8Array, JsError> {
+    let bytes = groth16_to_solana_bytes(proof, &pk.vk)
+        .map_err(|e| JsError::new(&format!("solana proof layout: {e:?}")))?;
+    let mut out = Vec::with_capacity(PROOF_TOTAL_BYTES);
+    out.extend_from_slice(&bytes.proof_a);
+    out.extend_from_slice(&bytes.proof_b);
+    out.extend_from_slice(&bytes.proof_c);
+    Ok(Uint8Array::from(out.as_slice()))
 }
 
 /// An in-pool v2 transfer: the proof and the public values the pool takes.
@@ -1168,6 +1264,93 @@ pub fn prove_transfer_v2_evm(
     fee_floor: u64,
     proving_key: &Uint8Array,
 ) -> Result<TransferV2Proof, JsError> {
+    prove_transfer_v2_impl(
+        spending_key,
+        rho_in,
+        aux_in,
+        amount_in,
+        refund_in,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        core_pay,
+        amount_pay,
+        rho_change,
+        amount_change,
+        rho_fee,
+        amount_fee,
+        treasury_pk,
+        fee_floor,
+        proving_key,
+        false,
+    )
+}
+
+/// The same in-pool forward proof in the Solana layout.
+#[wasm_bindgen(js_name = proveTransferV2Solana)]
+#[allow(clippy::too_many_arguments)]
+pub fn prove_transfer_v2_solana(
+    spending_key: &Uint8Array,
+    rho_in: &Uint8Array,
+    aux_in: &Uint8Array,
+    amount_in: u64,
+    refund_in: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    core_pay: &Uint8Array,
+    amount_pay: u64,
+    rho_change: &Uint8Array,
+    amount_change: u64,
+    rho_fee: &Uint8Array,
+    amount_fee: u64,
+    treasury_pk: &Uint8Array,
+    fee_floor: u64,
+    proving_key: &Uint8Array,
+) -> Result<TransferV2Proof, JsError> {
+    prove_transfer_v2_impl(
+        spending_key,
+        rho_in,
+        aux_in,
+        amount_in,
+        refund_in,
+        path_siblings_concat,
+        path_indices_packed,
+        merkle_root,
+        core_pay,
+        amount_pay,
+        rho_change,
+        amount_change,
+        rho_fee,
+        amount_fee,
+        treasury_pk,
+        fee_floor,
+        proving_key,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_transfer_v2_impl(
+    spending_key: &Uint8Array,
+    rho_in: &Uint8Array,
+    aux_in: &Uint8Array,
+    amount_in: u64,
+    refund_in: &Uint8Array,
+    path_siblings_concat: &Uint8Array,
+    path_indices_packed: &Uint8Array,
+    merkle_root: &Uint8Array,
+    core_pay: &Uint8Array,
+    amount_pay: u64,
+    rho_change: &Uint8Array,
+    amount_change: u64,
+    rho_fee: &Uint8Array,
+    amount_fee: u64,
+    treasury_pk: &Uint8Array,
+    fee_floor: u64,
+    proving_key: &Uint8Array,
+    solana: bool,
+) -> Result<TransferV2Proof, JsError> {
     let total = amount_pay
         .checked_add(amount_change)
         .and_then(|sum| sum.checked_add(amount_fee));
@@ -1207,8 +1390,13 @@ pub fn prove_transfer_v2_evm(
     let (proof, public) = transfer_v2::prove_ceremony(&pk, &witness, &mut rng)
         .map_err(|e| JsError::new(&format!("prove_transfer_v2 failed: {e}")))?;
     // Public inputs: [root, nf, cm_pay, cm_change, cm_fee, treasury_pk, fee_floor].
+    let proof = if solana {
+        solana_proof_bytes(&proof, &pk)?.to_vec()
+    } else {
+        groth16_proof_to_evm_bytes(&proof).to_vec()
+    };
     Ok(TransferV2Proof {
-        proof: groth16_proof_to_evm_bytes(&proof).to_vec(),
+        proof,
         nullifier: public[1],
         commitment_pay: public[2],
         commitment_change: public[3],
