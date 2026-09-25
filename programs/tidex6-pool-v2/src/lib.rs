@@ -296,9 +296,10 @@ pub struct Refund<'info> {
     #[account(mut, token::mint = mint, token::authority = depositor)]
     pub depositor_token: Account<'info, TokenAccount>,
 
+    // Not closed: the memo accounts are the pool's leaf list — every client
+    // rebuilds the tree from them, and a closed one would leave a hole that
+    // no later withdraw could prove against.
     #[account(
-        mut,
-        close = depositor,
         seeds = [MemoAccount::SEED_PREFIX, &leaf],
         bump = memo.bump,
         has_one = depositor,

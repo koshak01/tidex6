@@ -72,6 +72,7 @@ pub mod confidential;
 pub mod deposit;
 pub mod evm;
 pub mod pool;
+pub mod pool_v2;
 pub mod refund;
 pub mod registry;
 pub mod withdraw;

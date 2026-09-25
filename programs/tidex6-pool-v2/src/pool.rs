@@ -124,9 +124,11 @@ pub struct RefundEvent {
 }
 
 /// Per-note account: the sealed envelope and what `refund` needs.
-/// PDA `[b"memo", leaf]`.
+/// PDA `[b"memo", leaf]`. The memo accounts of a mint are its pool's leaf
+/// list — `mint` comes first so a client selects them with one filter.
 #[account]
 pub struct MemoAccount {
+    pub mint: Pubkey,
     pub leaf: Field,
     pub depositor: Pubkey,
     pub refund_after: i64,
@@ -144,7 +146,7 @@ impl MemoAccount {
     pub const MAX_TOTAL_LEN: usize = 8192;
 
     pub fn space(total_len: u32) -> usize {
-        8 + FIELD_ELEMENT_BYTES + 32 + 8 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + total_len as usize
+        8 + 32 + FIELD_ELEMENT_BYTES + 32 + 8 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + total_len as usize
     }
 }
 
@@ -321,6 +323,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
     let chunk_len = args.memo_chunk.len();
     {
         let memo = &mut ctx.accounts.memo;
+        memo.mint = mint_key;
         memo.leaf = leaf;
         memo.depositor = payer;
         memo.refund_after = args.refund_after;
@@ -335,6 +338,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
     }
     {
         let memo = &mut ctx.accounts.fee_memo;
+        memo.mint = mint_key;
         memo.leaf = fee_leaf;
         memo.depositor = payer;
         memo.refund_after = 0;
@@ -574,6 +578,7 @@ pub fn handle_transfer_note(
         .map_err(|_| PoolError::Groth16VerificationFailed)?;
 
     let mut pool = ctx.accounts.pool.load_mut()?;
+    let mint_key = pool.mint;
     append_leaf(&mut pool, first_leaf, leaf_pay)?;
     append_leaf(&mut pool, first_leaf + 1, leaf_change)?;
     let new_root = append_leaf(&mut pool, first_leaf + 2, leaf_fee)?;
@@ -595,6 +600,7 @@ pub fn handle_transfer_note(
     .into_iter()
     .enumerate()
     {
+        memo.mint = mint_key;
         memo.leaf = leaves[i];
         memo.depositor = payer;
         memo.refund_after = 0;

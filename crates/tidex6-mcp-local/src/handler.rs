@@ -11,11 +11,13 @@ use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router
 use schemars::JsonSchema;
 use serde::Deserialize;
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use tidex6_client::confidential::{
     DailySpend, LocalIdentity, PoolService, ReadAs, collect_waiting, scan, send_payment,
 };
 use tidex6_client::evm;
+use tidex6_client::pool_v2;
 use tidex6_core::envelope::ReaderAddress;
 use tidex6_core::network::{Asset, Network};
 use uuid::Uuid;
@@ -175,6 +177,20 @@ pub struct EvmSendReq {
     pub recipient: String,
     /// Amount the recipient gets, decimal (e.g. "2.5"); the 1% fee goes on top.
     pub amount: String,
+    #[serde(default)]
+    pub auditor: Option<String>,
+    #[serde(default)]
+    pub memo: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SolV2SendReq {
+    /// Recipient Solana wallet; must have published a reader key and a v2 owner key.
+    pub recipient: String,
+    /// Amount the recipient gets, decimal USDC (e.g. "2.5"); the 1% fee goes on top.
+    pub amount: String,
+    #[serde(default)]
+    pub network: NetworkArg,
     #[serde(default)]
     pub auditor: Option<String>,
     #[serde(default)]
@@ -1088,6 +1104,286 @@ impl LocalTools {
             body.to_string(),
         )]))
     }
+
+    /// Solana pool v2: publish this wallet's owner key.
+    #[tool(
+        description = "Solana v2 enable: publish this wallet's owner key in pool v2 so it can be paid in the v2 format (needs the reader key published already). One transaction, idempotent. Param: network."
+    )]
+    async fn sol_v2_enable(
+        &self,
+        Parameters(req): Parameters<NetworkOnly>,
+    ) -> Result<CallToolResult, McpError> {
+        let rpc_url = self.config.rpc_for(req.network.to_net()).to_string();
+        let owner_pk = self
+            .identity
+            .owner_pk_v2()
+            .ok_or_else(|| McpError::invalid_params("identity has no spending key", None))?;
+        let keypair = Arc::clone(&self.keypair);
+        let tx = run_on_os_thread("sol_v2_enable", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            pool_v2::publish_owner_key(&rpc, &keypair, owner_pk)
+        })
+        .await?;
+        let body = serde_json::json!({
+            "ok": true, "done": true, "funds_moved": false,
+            "status": if tx.is_some() { "published" } else { "already published" },
+            "wallet": self.identity.wallet.to_string(),
+            "transaction": tx,
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
+
+    /// Solana pool v2: pay a wallet.
+    #[tool(
+        description = "Solana v2 private payment in USDC from the config wallet: note bound to the recipient's owner key, 1% fee (floor 0.1) on top as a treasury note, refundable after the configured window. Params: recipient, amount decimal, network, optional auditor/memo. Final JSON ok/done."
+    )]
+    async fn sol_v2_send(
+        &self,
+        Parameters(req): Parameters<SolV2SendReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let network = req.network.to_net();
+        let is_mainnet = matches!(req.network, NetworkArg::Mainnet);
+        let mint = pool_v2::usdc_mint(is_mainnet).ok_or_else(|| {
+            McpError::invalid_params(format!("no v2 pool on {} yet", req.network.name()), None)
+        })?;
+        let amount =
+            decimal_to_micro(&req.amount).map_err(|e| McpError::invalid_params(e, None))?;
+        if is_mainnet {
+            let mut spend = self
+                .spend
+                .lock()
+                .map_err(|_| McpError::internal_error("spend poisoned", None))?;
+            self.config
+                .limits()
+                .check(
+                    Asset::Wusdc,
+                    amount,
+                    None,
+                    &mut spend,
+                    std::time::SystemTime::now(),
+                )
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        }
+        let parse = |w: &str| -> Result<Pubkey, McpError> {
+            w.trim().parse().map_err(|_| {
+                McpError::invalid_params(format!("`{w}` is not a Solana address"), None)
+            })
+        };
+        let recipient = parse(&req.recipient)?;
+        let auditor = match req
+            .auditor
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+        {
+            Some(a) => Some(parse(a)?),
+            None => None,
+        };
+        let rpc_url = self.config.rpc_for(network).to_string();
+        let keypair = Arc::clone(&self.keypair);
+        let own_reader = self.identity.reader.clone();
+        let memo = req.memo.clone();
+        let refund_window = u64::try_from(self.config.revoke_window_secs).unwrap_or(0);
+        let paid = run_on_os_thread("sol_v2_send", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            let reader = tidex6_client::registry::lookup(&rpc, &recipient)?.ok_or_else(|| {
+                anyhow::anyhow!("recipient {recipient} has not published a reader key")
+            })?;
+            let owner_pk = pool_v2::lookup_owner_key(&rpc, &recipient)?.ok_or_else(|| {
+                anyhow::anyhow!("recipient {recipient} has not enabled v2 payments (no owner key)")
+            })?;
+            let auditors = match auditor {
+                Some(a) => vec![
+                    tidex6_client::registry::lookup(&rpc, &a)?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("auditor {a} has not published a reader key")
+                        })?
+                        .address,
+                ],
+                None => Vec::new(),
+            };
+            let treasury = evm::send::treasury()?;
+            pool_v2::pay(
+                &rpc,
+                &keypair,
+                &pool_v2::PaymentV2 {
+                    mint,
+                    reader: &reader.address,
+                    owner_pk,
+                    auditors: &auditors,
+                    amount,
+                    memo: &memo,
+                    refund_window,
+                    funder: Some(&own_reader),
+                    treasury: &treasury,
+                },
+            )
+        })
+        .await?;
+        let body = serde_json::json!({
+            "ok": true, "done": true, "funds_moved": true, "status": "done",
+            "network": req.network.name(), "to": req.recipient,
+            "amount": micro_to_decimal(paid.amount), "fee": micro_to_decimal(paid.fee),
+            "symbol": "USDC", "leaf": paid.leaf_hex, "transactions": paid.transactions,
+            "message": "Payment on chain. Do not report delivered.",
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
+
+    /// Solana pool v2: list payments to this wallet.
+    #[tool(
+        description = "Solana v2 payments: notes addressed to this wallet in pool v2 (read-only), waiting or received. Param: network."
+    )]
+    async fn sol_v2_payments(
+        &self,
+        Parameters(req): Parameters<NetworkOnly>,
+    ) -> Result<CallToolResult, McpError> {
+        let mint =
+            pool_v2::usdc_mint(matches!(req.network, NetworkArg::Mainnet)).ok_or_else(|| {
+                McpError::invalid_params(format!("no v2 pool on {} yet", req.network.name()), None)
+            })?;
+        let rpc_url = self.config.rpc_for(req.network.to_net()).to_string();
+        let identity = Arc::clone(&self.identity);
+        let text = run_on_os_thread("sol_v2_payments", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            let leaves = pool_v2::leaves(&rpc, &mint)?;
+            let notes = pool_v2::my_notes(&rpc, &leaves, &identity)?;
+            if notes.is_empty() {
+                return Ok("No v2 payments for this wallet.\n".to_string());
+            }
+            let mut out = String::new();
+            let mut waiting = 0usize;
+            for (note, spent) in &notes {
+                if !spent {
+                    waiting += 1;
+                }
+                let memo = if note.memo.is_empty() {
+                    "(no memo)"
+                } else {
+                    &note.memo
+                };
+                out.push_str(&format!(
+                    "  leaf {} · {} USDC · {} — {memo}\n",
+                    note.leaf_index,
+                    micro_to_decimal(note.amount),
+                    if *spent { "received" } else { "waiting" },
+                ));
+            }
+            out.push_str(&format!("\ntotal {} · waiting {waiting}\n", notes.len()));
+            if waiting > 0 {
+                out.push_str(
+                    "To withdraw waiting notes: ask the user, then call sol_v2_collect.\n",
+                );
+            }
+            Ok(out)
+        })
+        .await?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+    }
+
+    /// Solana pool v2: withdraw waiting notes to this wallet.
+    #[tool(
+        description = "Solana v2 collect: withdraw every waiting v2 note to the config wallet; proves locally, the wallet signs and pays the network fee. Param: network. Final JSON."
+    )]
+    async fn sol_v2_collect(
+        &self,
+        Parameters(req): Parameters<NetworkOnly>,
+    ) -> Result<CallToolResult, McpError> {
+        let mint =
+            pool_v2::usdc_mint(matches!(req.network, NetworkArg::Mainnet)).ok_or_else(|| {
+                McpError::invalid_params(format!("no v2 pool on {} yet", req.network.name()), None)
+            })?;
+        let rpc_url = self.config.rpc_for(req.network.to_net()).to_string();
+        let identity = Arc::clone(&self.identity);
+        let keypair = Arc::clone(&self.keypair);
+        let key_path = self
+            .config
+            .evm_proving_key_v2()
+            .map_err(|e| McpError::invalid_params(format!("{e:#}"), None))?;
+        let done = run_on_os_thread("sol_v2_collect", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            let leaves = pool_v2::leaves(&rpc, &mint)?;
+            let mut pk = None;
+            let mut done = Vec::new();
+            for (note, spent) in pool_v2::my_notes(&rpc, &leaves, &identity)? {
+                if spent {
+                    continue;
+                }
+                if pk.is_none() {
+                    pk = Some(evm::receive::load_proving_key(&key_path)?);
+                }
+                let key = pk.as_ref().expect("loaded above");
+                let tx = pool_v2::withdraw(&rpc, &keypair, &mint, key, &leaves, &note, &identity)?;
+                done.push(serde_json::json!({
+                    "amount": micro_to_decimal(note.amount), "symbol": "USDC", "transaction": tx,
+                }));
+            }
+            Ok(done)
+        })
+        .await?;
+        let body = if done.is_empty() {
+            serde_json::json!({"ok": false, "done": true, "funds_moved": false, "status": "failed", "error": "Nothing waiting."})
+        } else {
+            serde_json::json!({"ok": true, "done": true, "funds_moved": true, "status": "done", "notes": done})
+        };
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
+
+    /// Solana pool v2: take back uncollected payments past their window.
+    #[tool(
+        description = "Solana v2 refund: take back this wallet's own v2 payments the recipient has not collected once their window passed. No proof. Param: network. Final JSON; lists payments still inside the window."
+    )]
+    async fn sol_v2_refund(
+        &self,
+        Parameters(req): Parameters<NetworkOnly>,
+    ) -> Result<CallToolResult, McpError> {
+        let mint =
+            pool_v2::usdc_mint(matches!(req.network, NetworkArg::Mainnet)).ok_or_else(|| {
+                McpError::invalid_params(format!("no v2 pool on {} yet", req.network.name()), None)
+            })?;
+        let rpc_url = self.config.rpc_for(req.network.to_net()).to_string();
+        let identity = Arc::clone(&self.identity);
+        let keypair = Arc::clone(&self.keypair);
+        let me = self.identity.wallet;
+        let (refunded, pending) = run_on_os_thread("sol_v2_refund", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            let leaves = pool_v2::leaves(&rpc, &mint)?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs() as i64;
+            let (mut refunded, mut pending) = (Vec::new(), Vec::new());
+            for (r, spent) in pool_v2::my_refunds(&rpc, &leaves, &identity, &me)? {
+                if spent {
+                    continue;
+                }
+                let amount = micro_to_decimal(r.copy.amount);
+                if now < r.refund_after {
+                    pending.push(serde_json::json!({
+                        "amount": amount, "refund_opens": format_unix_utc(r.refund_after),
+                    }));
+                    continue;
+                }
+                let tx = pool_v2::refund(&rpc, &keypair, &mint, &r)?;
+                refunded.push(serde_json::json!({"amount": amount, "transaction": tx}));
+            }
+            Ok((refunded, pending))
+        })
+        .await?;
+        let body = serde_json::json!({
+            "ok": !refunded.is_empty(), "done": true, "funds_moved": !refunded.is_empty(),
+            "status": if refunded.is_empty() { "nothing" } else { "done" },
+            "refunded": refunded, "inside_window": pending,
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -1099,6 +1395,7 @@ impl ServerHandler for LocalTools {
         info.instructions = Some(
             "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami, \
              EVM: evm_send|evm_payments|evm_collect|evm_enable|evm_refund with pool=<key>. \
+             Solana pool v2: sol_v2_enable|sol_v2_send|sol_v2_payments|sol_v2_collect|sol_v2_refund. \
              about = version + custody T2. ceremony = CONTRIBUTE_URL with ?s= first (public setup). \
              payments = recipient list (read-only). collect only after user says yes. \
              audit = auditor view. Heavy send/collect on OS thread; RAYON=1."

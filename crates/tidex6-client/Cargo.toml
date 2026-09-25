@@ -15,6 +15,9 @@ tidex6-circuits = { version = "2.18.0", path = "../tidex6-circuits" }
 tidex6-indexer = { version = "2.18.0", path = "../tidex6-indexer" }
 tidex6-verifier-v2 = { version = "2.18.0", path = "../../programs/tidex6-verifier-v2", features = ["no-entrypoint"] }
 tidex6-registry = { version = "2.18.0", path = "../../programs/tidex6-registry", features = ["no-entrypoint"] }
+tidex6-pool-v2 = { version = "2.18.0", path = "../../programs/tidex6-pool-v2", features = ["no-entrypoint"] }
+# Pool v2 state is zero-copy: read it as plain bytes.
+bytemuck = "1"
 tidex6-confidential = { version = "2.18.0", path = "../tidex6-confidential" }
 
 anchor-client = { workspace = true }
