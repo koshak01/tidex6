@@ -39,6 +39,8 @@ full post-mortem follows the rollout.
 | 26.09 | Solana pool v2 reviewed before its first deployment and fixed: a forward now files an envelope account for each of its three notes (the recipient could not have found a forwarded note), memo accounts carry their mint (one program, several pools, separate trees) and outlive refunds (a closed memo is a hole in the leaf list) | `2ad6285`, `eebccab` |
 | 26.09 | Solana client and local MCP for pool v2: owner keys, pay with the fee note and the funder copy, leaves from memo accounts, find, withdraw, refund; devnet USDC. Program id `6Pgc17…1sVe` | `eebccab`, `7f371b0` |
 | 26.09 | Ceremony coordinator takes one contribution for both v2 circuits (withdraw and in-pool transfer); earlier chains kept in the transcript | web `v3.64.0` |
+| 26.09 | Solana pool v2 on devnet: program `6Pgc17…1sVe` (447 KB), USDC pool `48q2gJ8i…cyhz` with the same treasury key and fee floor as the EVM stand; genesis keys, devnet only | deploy `3dTAVA1L…oFRM`, init `3fQATUp4…v4LN` |
+| 26.09 | Public ceremony restarted on the two v2 circuits (withdraw, in-pool transfer); earlier chains archived in the transcript | ceremony.tidex6.com |
 
 ## Next
 
