@@ -129,13 +129,7 @@ contract Tidex6HiddenPoolV2 {
     ///        back if the owner has not; 0 — no refund.
     /// @param envelope Sealed for the recipient (rho, amount, memo, refundAfter).
     function deposit(uint256 core, uint256 amount, uint256 refundWindow, bytes calldata envelope) external {
-        uint256 refundAfter = _refundAfter(refundWindow);
-        uint256 leaf = _leaf(core, amount, refundAfter);
-        uint256 leafIndex = _reserveLeaves(1);
-        _markLeaf(leaf, leafIndex);
-        uint256 newRoot = _appendLeaf(leafIndex, leaf);
-        emit Deposit(leaf, leafIndex, newRoot, msg.sender, amount, refundAfter, envelope);
-
+        _fileNote(core, amount, _refundAfter(refundWindow), envelope, _reserveLeaves(1));
         // Pulled last, after the tree is final: a token that calls back on
         // transfer cannot re-enter and overwrite a reserved leaf.
         if (!token.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
@@ -152,18 +146,9 @@ contract Tidex6HiddenPoolV2 {
         uint256 feeAmount,
         bytes calldata feeEnvelope
     ) external {
-        uint256 refundAfter = _refundAfter(refundWindow);
-        uint256 leaf = _leaf(core, amount, refundAfter);
-        uint256 feeLeaf = _leaf(feeCore, feeAmount, 0);
         uint256 firstLeaf = _reserveLeaves(2);
-        _markLeaf(leaf, firstLeaf);
-        _markLeaf(feeLeaf, firstLeaf + 1);
-
-        uint256 root1 = _appendLeaf(firstLeaf, leaf);
-        emit Deposit(leaf, firstLeaf, root1, msg.sender, amount, refundAfter, envelope);
-        uint256 root2 = _appendLeaf(firstLeaf + 1, feeLeaf);
-        emit Deposit(feeLeaf, firstLeaf + 1, root2, msg.sender, feeAmount, 0, feeEnvelope);
-
+        _fileNote(core, amount, _refundAfter(refundWindow), envelope, firstLeaf);
+        _fileNote(feeCore, feeAmount, 0, feeEnvelope, firstLeaf + 1);
         if (!token.transferFrom(msg.sender, address(this), amount + feeAmount)) revert TransferFailed();
     }
 
@@ -255,6 +240,21 @@ contract Tidex6HiddenPoolV2 {
 
     function isKnownRoot(uint256 root) external view returns (bool) {
         return _isKnownRoot(root);
+    }
+
+    /// File one funded note at `position`: compute its leaf from the amount,
+    /// record the position, insert it and log the deposit.
+    function _fileNote(
+        uint256 core,
+        uint256 amount,
+        uint256 refundAfter,
+        bytes calldata envelope,
+        uint256 position
+    ) private {
+        uint256 leaf = _leaf(core, amount, refundAfter);
+        _markLeaf(leaf, position);
+        uint256 newRoot = _appendLeaf(position, leaf);
+        emit Deposit(leaf, position, newRoot, msg.sender, amount, refundAfter, envelope);
     }
 
     /// The leaf the pool files for `core` funded with `amount` by `msg.sender`.
