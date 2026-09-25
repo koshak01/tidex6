@@ -36,6 +36,9 @@ full post-mortem follows the rollout.
 | 25.09 | WASM prover 2.7.0: owner key, core, leaf, refund tag, nullifier, fee, v2 withdraw and 1 → 3 transfer provers, funder slot | `81993c6`, `72f1c87` |
 | 25.09 | Full v2 loop on the redeployed Arc testnet stand (genesis keys): owner key published, 2 USDC paid (pool filed payment 2.0 with a 24 h refund window and a funder slot, fee 0.1 with none), recipient proved the withdraw locally and the relayer sent it — 2.0 out, the fee note stays for the treasury | tx `0x0bd1fc14…5edd`, `0x70859daf…17a6` |
 | 26.09 | Site on v2 (Arc testnet): send binds the note to the recipient's owner key and lets the pool name the fee; receive opens v2 notes and checks them against the pool's leaf, withdraws with the spending key, forwards 1 → 3; senders take back uncollected payments after the deadline; registration publishes the owner key | web `v3.63.0` |
+| 26.09 | Solana pool v2 reviewed before its first deployment and fixed: a forward now files an envelope account for each of its three notes (the recipient could not have found a forwarded note), memo accounts carry their mint (one program, several pools, separate trees) and outlive refunds (a closed memo is a hole in the leaf list) | `2ad6285`, `eebccab` |
+| 26.09 | Solana client and local MCP for pool v2: owner keys, pay with the fee note and the funder copy, leaves from memo accounts, find, withdraw, refund; devnet USDC. Program id `6Pgc17…1sVe` | `eebccab`, `7f371b0` |
+| 26.09 | Ceremony coordinator takes one contribution for both v2 circuits (withdraw and in-pool transfer); earlier chains kept in the transcript | web `v3.64.0` |
 
 ## Next
 
