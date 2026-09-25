@@ -40,7 +40,10 @@ contract Tidex6HiddenPoolV2Test is Test {
             vm.prank(who);
             token.approve(address(pool), type(uint256).max);
         }
+        c0 = core(OWNER_PK, RHO, AUX);
     }
+
+    uint256 c0;
 
     function core(uint256 ownerPk, uint256 rho, uint256 aux) internal view returns (uint256) {
         return PoseidonT3.hash(PoseidonT3.hash(pool.D_CORE(), ownerPk), PoseidonT3.hash(rho, aux));
@@ -56,7 +59,7 @@ contract Tidex6HiddenPoolV2Test is Test {
     }
 
     function test_leafIsBoundToTheAmountPaidIn() public {
-        uint256 c = core(OWNER_PK, RHO, AUX);
+        uint256 c = c0;
         vm.prank(mallory);
         pool.deposit(c, 1, 0, "");
         // The leaf a million-unit note would need is not in the tree: the pool
@@ -66,7 +69,7 @@ contract Tidex6HiddenPoolV2Test is Test {
     }
 
     function test_refundAfterTheWindowPaysTheFunder() public {
-        uint256 c = core(OWNER_PK, RHO, AUX);
+        uint256 c = c0;
         vm.prank(alice);
         pool.deposit(c, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
@@ -81,7 +84,7 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_refundBeforeTheWindowIsRefused() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         vm.warp(refundAfter - 1);
         vm.prank(alice);
@@ -91,7 +94,7 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_onlyTheFunderCanRefund() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         vm.warp(refundAfter);
         // Mallory knows every part of the note; the leaf still carries Alice.
@@ -102,7 +105,7 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_refundCannotClaimMoreThanWasPaid() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         vm.warp(refundAfter);
         vm.prank(alice);
@@ -112,7 +115,7 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_refundTwiceIsRefused() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         vm.warp(refundAfter);
         vm.startPrank(alice);
@@ -124,7 +127,7 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_noRefundAfterTheOwnerWithdrew() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         uint256 nf = nullifierAt(RHO, 0);
 
@@ -142,9 +145,10 @@ contract Tidex6HiddenPoolV2Test is Test {
 
     function test_noWithdrawAfterRefund() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, WINDOW, "");
+        pool.deposit(c0, 5_000, WINDOW, "");
         uint256 refundAfter = block.timestamp + WINDOW;
         uint256 root = pool.currentRoot();
+        uint256 nf = nullifierAt(RHO, 0);
         vm.warp(refundAfter);
         vm.prank(alice);
         pool.refund(OWNER_PK, RHO, AUX, 5_000, refundAfter);
@@ -153,12 +157,12 @@ contract Tidex6HiddenPoolV2Test is Test {
         uint256[2][2] memory b;
         uint256[2] memory c;
         vm.expectRevert(Tidex6HiddenPoolV2.NullifierAlreadySpent.selector);
-        pool.withdraw(a, b, c, root, nullifierAt(RHO, 0), bob, address(0), 0, 5_000);
+        pool.withdraw(a, b, c, root, nf, bob, address(0), 0, 5_000);
     }
 
     function test_aNoteWithoutRefundCannotBeRefunded() public {
         vm.prank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, 0, "");
+        pool.deposit(c0, 5_000, 0, "");
         vm.warp(block.timestamp + 365 days);
         vm.prank(alice);
         vm.expectRevert(Tidex6HiddenPoolV2.RefundNotYet.selector);
@@ -166,7 +170,7 @@ contract Tidex6HiddenPoolV2Test is Test {
     }
 
     function test_theFeeNoteHasNoRefundAndSitsNextToThePayment() public {
-        uint256 payCore = core(OWNER_PK, RHO, AUX);
+        uint256 payCore = c0;
         uint256 feeCore = core(0x7EA5, 0x99, AUX);
         vm.prank(alice);
         pool.depositWithFee(payCore, 5_000, WINDOW, "", feeCore, 100, "");
@@ -187,22 +191,22 @@ contract Tidex6HiddenPoolV2Test is Test {
         // Faerie Gold: the same rho in two notes. Positions differ, so do the
         // nullifiers, and the owner can spend both.
         vm.startPrank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, 0, "");
-        pool.deposit(core(OWNER_PK, RHO, AUX), 6_000, 0, "");
+        pool.deposit(c0, 5_000, 0, "");
+        pool.deposit(c0, 6_000, 0, "");
         vm.stopPrank();
         assertTrue(nullifierAt(RHO, 0) != nullifierAt(RHO, 1));
     }
 
     function test_anIdenticalNoteIsRefused() public {
         vm.startPrank(alice);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, 0, "");
+        pool.deposit(c0, 5_000, 0, "");
         vm.expectRevert(Tidex6HiddenPoolV2.CommitmentAlreadyUsed.selector);
-        pool.deposit(core(OWNER_PK, RHO, AUX), 5_000, 0, "");
+        pool.deposit(c0, 5_000, 0, "");
         vm.stopPrank();
     }
 
     function test_refundWindowBounds() public {
-        uint256 c = core(OWNER_PK, RHO, AUX);
+        uint256 c = c0;
         vm.startPrank(alice);
         vm.expectRevert(Tidex6HiddenPoolV2.RefundWindowOutOfRange.selector);
         pool.deposit(c, 5_000, 4 minutes, "");
