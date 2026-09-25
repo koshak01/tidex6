@@ -24,12 +24,14 @@ use ark_serialize::CanonicalSerialize;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::rngs::StdRng;
 use tidex6_circuits::solana_bytes::{Groth16SolanaBytes, groth16_to_solana_bytes};
-use tidex6_confidential::{transfer, withdraw};
+use tidex6_confidential::{transfer, transfer_v2, withdraw, withdraw_v2};
 
 /// Fixed seeds (ASCII-мнемоника). Смена seed / схемы / arkworks-версии
 /// инвалидирует VK и требует редеплоя верификатора.
 const WITHDRAW_SEED: u64 = 0x775f_6869_6464_656e; // "w_hidden"
 const TRANSFER_SEED: u64 = 0x745f_6869_6464_656e; // "t_hidden"
+const WITHDRAW_V2_SEED: u64 = 0x775f_6869_6464_7632; // "w_hiddv2"
+const TRANSFER_V2_SEED: u64 = 0x745f_6869_6464_7632; // "t_hiddv2"
 
 fn main() {
     let artifacts = find_workspace_root().join("crates/tidex6-confidential/artifacts");
@@ -55,6 +57,28 @@ fn main() {
         "transfer",
         "TRANSFER",
         transfer::TRANSFER_NR_PUBLIC_INPUTS,
+        &pk,
+        &vk,
+    );
+
+    // ── v2 (ADR-022): dev keys for testnets until the v2 ceremony ──
+    let mut rng = StdRng::seed_from_u64(WITHDRAW_V2_SEED);
+    let (pk, vk) = withdraw_v2::setup(&mut rng).expect("withdraw_v2 setup");
+    emit(
+        &artifacts,
+        "withdraw_v2",
+        "WITHDRAW_V2",
+        withdraw::WITHDRAW_NR_PUBLIC_INPUTS,
+        &pk,
+        &vk,
+    );
+    let mut rng = StdRng::seed_from_u64(TRANSFER_V2_SEED);
+    let (pk, vk) = transfer_v2::setup(&mut rng).expect("transfer_v2 setup");
+    emit(
+        &artifacts,
+        "transfer_v2",
+        "TRANSFER_V2",
+        transfer_v2::TRANSFER_V2_NR_PUBLIC_INPUTS,
         &pk,
         &vk,
     );

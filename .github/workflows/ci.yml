@@ -114,3 +114,5 @@ jobs:
         run: cargo check -p tidex6-verifier
       - name: cargo check -p tidex6-caller
         run: cargo check -p tidex6-caller
+      - name: cargo check -p tidex6-pool-v2
+        run: cargo check -p tidex6-pool-v2

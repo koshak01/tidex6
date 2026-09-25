@@ -6844,6 +6844,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-pool-v2"
+version = "2.20.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "bytemuck",
+ "groth16-solana",
+ "solana-poseidon",
+ "solana-security-txt",
+]
+
+[[package]]
 name = "tidex6-registry"
 version = "2.20.0"
 dependencies = [
