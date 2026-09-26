@@ -45,6 +45,7 @@ full post-mortem follows the rollout.
 | 26.09 | Site on Solana devnet v2: send, receive, take back, owner key at registration; the relayer serves the leaf list (`/sol-v2-leaves/`) the RPC proxy cannot | web `v3.65.0`, relayer `v3.24.0` |
 | 26.09 | Full Solana v2 loop on devnet: reader and owner keys published, 2 USDC paid (payment 2.0 + fee 0.1 filed by the program), found and withdrawn by the owner key; a refundable payment came back to its funder after the window and could no longer be collected. The vault holds exactly the two fee notes | withdraw `gTJcSRn6…t8Px`, refund `5rnLSe9T…NjCW` |
 | 26.09 | Found on devnet: a refund window at the minimum was always refused (client read the block time, the program checks later) — 120 s margin | `82b748f` |
+| 26.09 | Treasury collector on Solana v2: both fee notes (0.1 + 0.1 USDC) withdrawn to the treasury wallet on the first pass, the relayer paying the network fee; the pool vault is empty — every note in it accounted for | relayer `v3.25.0` |
 
 ## Next
 
