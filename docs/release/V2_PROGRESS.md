@@ -48,6 +48,7 @@ full post-mortem follows the rollout.
 | 26.09 | Treasury collector on Solana v2: both fee notes (0.1 + 0.1 USDC) withdrawn to the treasury wallet on the first pass, the relayer paying the network fee; the pool vault is empty — every note in it accounted for | relayer `v3.25.0` |
 | 28.09 | Note amounts count millionths of a token on every chain (`unitScale = 10^(decimals-6)`): a 64-bit note holds 18 trillion tokens at 18 decimals instead of 18.4. The Stylus pool gained the public reads the Solidity pool has (an in-pool forward on Stylus would have failed without them) | `8cd91ab` |
 | 28.09 | v2 on every EVM testnet: Base Sepolia, HyperEVM (Solidity), Arbitrum Sepolia USDC/USDG and Robinhood USDG/TSLA (Stylus, verified reproducible builds); v1 testnet pools are withdraw-only | `a1c8a1a`, relayer `v3.27.0`, web `v3.67.0` |
+| 28.09 | Forward inside the Solana v2 pool (1 → 3) in the client, MCP and site; proven on devnet: a 3 USDC note became 1 to the recipient, 1.9 change and a 0.1 fee note, and both new notes were withdrawn | `fd1e012`, web `v3.68.0` |
 
 ## Next
 
