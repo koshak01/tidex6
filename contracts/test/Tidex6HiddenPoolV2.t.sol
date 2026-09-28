@@ -61,7 +61,8 @@ contract Tidex6HiddenPoolV2Test is Test {
             IWithdrawVerifierV2(address(verifier)),
             ITransferVerifierV2(address(verifier)),
             TREASURY_PK,
-            FEE_FLOOR
+            FEE_FLOOR,
+            1
         );
         for (uint256 i = 0; i < 2; i++) {
             address who = i == 0 ? alice : mallory;

@@ -147,7 +147,12 @@ impl Tidex6HiddenPool {
     /// cannot check it and does not need to — a commitment that does not match
     /// its amount is a note nobody can ever withdraw. `envelope` is sealed for
     /// the recipient before anything left the sender's browser.
-    pub fn deposit(&mut self, amount: U256, commitment: U256, envelope: Bytes) -> Result<(), PoolError> {
+    pub fn deposit(
+        &mut self,
+        amount: U256,
+        commitment: U256,
+        envelope: Bytes,
+    ) -> Result<(), PoolError> {
         if amount.is_zero() || amount > U256::from(MAX_AMOUNT) {
             return Err(PoolError::AmountOutOfRange(AmountOutOfRange {}));
         }
@@ -253,9 +258,21 @@ impl Tidex6HiddenPool {
         let first_leaf = self.reserve_leaf(commitment_out1, 2)?;
         self.reserve_leaf(commitment_out2, 1)?;
 
-        let public_inputs = [merkle_root, nullifier_hash, commitment_out1, commitment_out2];
+        let public_inputs = [
+            merkle_root,
+            nullifier_hash,
+            commitment_out1,
+            commitment_out2,
+        ];
         let verifier = self.transfer_verifier.get();
-        if !self.verify_proof(verifier, SEL_VERIFY_PROOF_4, &proof_a, &proof_b, &proof_c, &public_inputs) {
+        if !self.verify_proof(
+            verifier,
+            SEL_VERIFY_PROOF_4,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &public_inputs,
+        ) {
             return Err(PoolError::InvalidProof(InvalidProof {}));
         }
 
@@ -325,7 +342,14 @@ impl Tidex6HiddenPool {
             amount,
         ];
         let verifier = self.withdraw_verifier.get();
-        if !self.verify_proof(verifier, SEL_VERIFY_PROOF_8, &proof_a, &proof_b, &proof_c, &public_inputs) {
+        if !self.verify_proof(
+            verifier,
+            SEL_VERIFY_PROOF_8,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &public_inputs,
+        ) {
             return Err(PoolError::InvalidProof(InvalidProof {}));
         }
 
@@ -341,7 +365,13 @@ impl Tidex6HiddenPool {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
 
-        self.vm().log(Withdrawal { nullifierHash: nullifier_hash, recipient, relayer, fee, amount });
+        self.vm().log(Withdrawal {
+            nullifierHash: nullifier_hash,
+            recipient,
+            relayer,
+            fee,
+            amount,
+        });
         Ok(())
     }
 
@@ -507,10 +537,19 @@ impl Tidex6HiddenPool {
 
         for level in 0..TREE_DEPTH {
             let (left, right) = if current_index & 1 == 0 {
-                self.filled_subtrees.setter(level).unwrap().set(current_hash);
-                (current_hash, self.zero_subtrees.get(level).unwrap_or(U256::ZERO))
+                self.filled_subtrees
+                    .setter(level)
+                    .unwrap()
+                    .set(current_hash);
+                (
+                    current_hash,
+                    self.zero_subtrees.get(level).unwrap_or(U256::ZERO),
+                )
             } else {
-                (self.filled_subtrees.get(level).unwrap_or(U256::ZERO), current_hash)
+                (
+                    self.filled_subtrees.get(level).unwrap_or(U256::ZERO),
+                    current_hash,
+                )
             };
             current_hash = self
                 .hash_pair(left, right)

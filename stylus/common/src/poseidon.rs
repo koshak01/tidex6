@@ -10,7 +10,9 @@
 
 use alloy_primitives::U256;
 
-use crate::field::{add_mod, from_mont, limbs_from_u256, mont_mul, to_mont, u256_from_limbs, Limbs, ZERO};
+use crate::field::{
+    add_mod, from_mont, limbs_from_u256, mont_mul, to_mont, u256_from_limbs, Limbs, ZERO,
+};
 use crate::poseidon_consts::{ARK, FULL_ROUNDS, MDS, PARTIAL_ROUNDS, WIDTH};
 
 /// x^5 in the scalar field (Montgomery form in, Montgomery form out).

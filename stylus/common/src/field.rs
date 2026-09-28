@@ -122,7 +122,11 @@ pub fn mont_mul(a: &Limbs, b: &Limbs) -> Limbs {
         t[4] = t[5] + c;
     }
     let r = [t[0], t[1], t[2], t[3]];
-    if t[4] != 0 || ge_p(&r) { sub_p(&r) } else { r }
+    if t[4] != 0 || ge_p(&r) {
+        sub_p(&r)
+    } else {
+        r
+    }
 }
 
 /// `a + b mod p`. Inputs below `p`, so the sum never carries out of 256 bits.
@@ -134,7 +138,11 @@ pub fn add_mod(a: &Limbs, b: &Limbs) -> Limbs {
         out[i] = lo;
         carry = c;
     }
-    if carry != 0 || ge_p(&out) { sub_p(&out) } else { out }
+    if carry != 0 || ge_p(&out) {
+        sub_p(&out)
+    } else {
+        out
+    }
 }
 
 /// Plain value → Montgomery form.

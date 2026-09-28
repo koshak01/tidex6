@@ -110,7 +110,13 @@ impl Tidex6Pool {
     /// empty-subtree hashes level by level — exactly as the Solana pool does at
     /// initialisation.
     #[constructor]
-    pub fn constructor(&mut self, token: Address, verifier: Address, poseidon: Address, denomination: U256) {
+    pub fn constructor(
+        &mut self,
+        token: Address,
+        verifier: Address,
+        poseidon: Address,
+        denomination: U256,
+    ) {
         self.token.set(token);
         self.verifier.set(verifier);
         self.poseidon.set(poseidon);
@@ -211,7 +217,12 @@ impl Tidex6Pool {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
 
-        self.vm().log(Withdrawal { nullifierHash: nullifier_hash, recipient, relayer, fee });
+        self.vm().log(Withdrawal {
+            nullifierHash: nullifier_hash,
+            recipient,
+            relayer,
+            fee,
+        });
         Ok(())
     }
 
@@ -241,9 +252,6 @@ impl Tidex6Pool {
     pub fn denomination(&self) -> U256 {
         self.denomination.get()
     }
-
-
-
 }
 
 /// `transferFrom(address,address,uint256)`.
@@ -361,10 +369,19 @@ impl Tidex6Pool {
 
         for level in 0..TREE_DEPTH {
             let (left, right) = if current_index & 1 == 0 {
-                self.filled_subtrees.setter(level).unwrap().set(current_hash);
-                (current_hash, self.zero_subtrees.get(level).unwrap_or(U256::ZERO))
+                self.filled_subtrees
+                    .setter(level)
+                    .unwrap()
+                    .set(current_hash);
+                (
+                    current_hash,
+                    self.zero_subtrees.get(level).unwrap_or(U256::ZERO),
+                )
             } else {
-                (self.filled_subtrees.get(level).unwrap_or(U256::ZERO), current_hash)
+                (
+                    self.filled_subtrees.get(level).unwrap_or(U256::ZERO),
+                    current_hash,
+                )
             };
             current_hash = self
                 .hash_pair(left, right)

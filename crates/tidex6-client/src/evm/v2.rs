@@ -12,10 +12,11 @@
 //!
 //! Конверт v2 — тот же ML-KEM-конверт, в слоте получателя вместо
 //! `secret ‖ nullifier` лежат `rho ‖ aux`: владелец восстанавливает по ним
-//! ядро своей ноты. Сумма в конверте — **в базовых единицах токена**, не в
-//! микро: комиссию считает пул (1% с округлением вверх), и у 18-значного
-//! токена она не обязана делиться на микро-единицу, а лист казна пересчитать
-//! обязана. 64 бита базовых единиц — тот же предел, что держит сам пул.
+//! ядро своей ноты. Суммы ноты, конверта и комиссии — **в единицах ноты**,
+//! миллионных долях токена при любых его знаках: пул переводит токен в
+//! `unitScale = 10^(decimals - 6)` раз больше. У токенов с 6 знаками единица
+//! ноты и базовая совпадают; у 18-значного нота в 64 бита держит 18 трлн
+//! токенов, а не 18.
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result, bail};
@@ -152,7 +153,6 @@ pub fn open_note(
     record: &LeafRecord,
     reader_secret: &PqcSecretKey,
     owner_pk: &[u8; 32],
-    units_per_micro: u64,
 ) -> Option<OpenNoteV2> {
     let bytes = hex::decode(record.envelope_hex.trim_start_matches("0x")).ok()?;
     let view = envelope::open_as_recipient(&bytes, reader_secret).ok()??;
@@ -181,7 +181,7 @@ pub fn open_note(
         rho,
         aux,
         amount,
-        amount_micro: amount / units_per_micro.max(1),
+        amount_micro: amount,
         memo: String::from_utf8_lossy(&view.memo).into_owned(),
         refund,
         nullifier: fr_to_word(note_v2::nullifier(rho, record.leaf_index)),
@@ -381,7 +381,9 @@ pub fn pay(
     let me = format!("{:#x}", signer.address());
 
     let fee = fee_for(pool, amount)?;
-    let total = u128::from(amount) + u128::from(fee);
+    // Note units in, token base units on the wire: the pool charges
+    // `(amount + fee) * unitScale`.
+    let total = (u128::from(amount) + u128::from(fee)) * u128::from(pool.base_units_per_micro());
     let balance = word_u128(&read.eth_call(
         pool.token,
         &[&SEL_BALANCE_OF[..], &address_word_str(&me)?].concat(),

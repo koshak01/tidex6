@@ -19,7 +19,7 @@ use alloc::vec;
 #[allow(unused_imports)]
 use alloc::vec::Vec;
 
-use alloy_primitives::{Address, FixedBytes, U256, B256};
+use alloy_primitives::{Address, FixedBytes, B256, U256};
 use alloy_sol_types::sol;
 use stylus_sdk::abi::Bytes;
 use stylus_sdk::call::static_call;
@@ -37,7 +37,9 @@ pub const READER_LEN: usize = 1216;
 /// registry on Robinhood testnet wrote L1 block 11 632 538 into an entry
 /// whose log lives in L2 block 112 770 157, and nobody could find the key
 /// again. The only source of this chain's own block number is ArbSys.
-const ARBSYS: Address = Address::new([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x64]);
+const ARBSYS: Address = Address::new([
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x64,
+]);
 
 /// `arbBlockNumber()` selector on ArbSys.
 const ARB_BLOCK_NUMBER: [u8; 4] = [0xa3, 0xb1, 0xb3, 0x1d];
@@ -99,14 +101,24 @@ impl Tidex6Registry {
         let key_hash: B256 = keccak(&reader);
         let block = self
             .arb_block_number()
-            .ok_or(RegistryError::BlockNumberUnavailable(BlockNumberUnavailable {}))?;
+            .ok_or(RegistryError::BlockNumberUnavailable(
+                BlockNumberUnavailable {},
+            ))?;
 
         let mut entry = self.entries.setter(wallet);
         entry.key_hash.set(key_hash);
-        entry.version.set(alloy_primitives::aliases::U8::from(version));
-        entry.published_at.set(alloy_primitives::aliases::U64::from(block));
+        entry
+            .version
+            .set(alloy_primitives::aliases::U8::from(version));
+        entry
+            .published_at
+            .set(alloy_primitives::aliases::U64::from(block));
 
-        self.vm().log(ReaderPublished { wallet, version, reader: reader.0.into() });
+        self.vm().log(ReaderPublished {
+            wallet,
+            version,
+            reader: reader.0.into(),
+        });
         Ok(())
     }
 

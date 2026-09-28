@@ -53,7 +53,11 @@ fn read_g1(bytes: &[u8]) -> Option<[U256; 2]> {
 }
 
 /// `vk_x = IC[0] + Σ IC[i+1] · input[i]`, one `ecMul` and one `ecAdd` per input.
-fn public_input_commitment<F>(vk: &VerifyingKey<'_>, precompile: &F, inputs: &[U256]) -> Option<[U256; 2]>
+fn public_input_commitment<F>(
+    vk: &VerifyingKey<'_>,
+    precompile: &F,
+    inputs: &[U256],
+) -> Option<[U256; 2]>
 where
     F: Fn(Address, &[u8]) -> Option<Vec<u8>>,
 {
@@ -76,14 +80,25 @@ where
 }
 
 /// `e(-A, B) · e(alpha, beta) · e(vk_x, gamma) · e(C, delta) == 1`.
-fn pairing_ok<F>(vk: &VerifyingKey<'_>, precompile: &F, pa: [U256; 2], pb: [[U256; 2]; 2], pc: [U256; 2], vk_x: [U256; 2]) -> bool
+fn pairing_ok<F>(
+    vk: &VerifyingKey<'_>,
+    precompile: &F,
+    pa: [U256; 2],
+    pb: [[U256; 2]; 2],
+    pc: [U256; 2],
+    vk_x: [U256; 2],
+) -> bool
 where
     F: Fn(Address, &[u8]) -> Option<Vec<u8>>,
 {
     let mut input = Vec::with_capacity(768);
     // -A
     push_word(&mut input, pa[0]);
-    let neg_y = if pa[1].is_zero() { U256::ZERO } else { Q.wrapping_sub(pa[1]) };
+    let neg_y = if pa[1].is_zero() {
+        U256::ZERO
+    } else {
+        Q.wrapping_sub(pa[1])
+    };
     push_word(&mut input, neg_y);
     // B
     for coordinate in pb.iter().flatten() {
@@ -131,7 +146,14 @@ where
 ///
 /// # Возвращает
 /// * `bool` — `true` only when the proof verifies; every failure is `false`.
-pub fn verify<F>(vk: &VerifyingKey<'_>, precompile: F, pa: [U256; 2], pb: [[U256; 2]; 2], pc: [U256; 2], inputs: &[U256]) -> bool
+pub fn verify<F>(
+    vk: &VerifyingKey<'_>,
+    precompile: F,
+    pa: [U256; 2],
+    pb: [[U256; 2]; 2],
+    pc: [U256; 2],
+    inputs: &[U256],
+) -> bool
 where
     F: Fn(Address, &[u8]) -> Option<Vec<u8>>,
 {

@@ -90,8 +90,11 @@ pub struct Tidex6HiddenPoolV2 {
     poseidon: StorageAddress,
     /// Owner key of the treasury: every fee note is filed for it.
     treasury_owner_pk: StorageU256,
-    /// Smallest fee in base units.
+    /// Smallest fee in note units — 0.1 token.
     fee_floor: StorageU256,
+    /// Token base units per note unit, `10 ** (decimals - 6)`: notes and
+    /// fees count millionths of a token whatever its decimals.
+    unit_scale: StorageU256,
     next_leaf_index: StorageU256,
     root_ring_head: StorageU256,
     filled_subtrees: StorageArray<StorageU256, TREE_DEPTH>,
@@ -115,13 +118,18 @@ impl Tidex6HiddenPoolV2 {
         poseidon: Address,
         treasury_owner_pk: U256,
         fee_floor: U256,
-    ) {
+        unit_scale: U256,
+    ) -> Result<(), PoolError> {
+        if unit_scale.is_zero() {
+            return Err(PoolError::AmountOutOfRange(AmountOutOfRange {}));
+        }
         self.token.set(token);
         self.withdraw_verifier.set(withdraw_verifier);
         self.transfer_verifier.set(transfer_verifier);
         self.poseidon.set(poseidon);
         self.treasury_owner_pk.set(treasury_owner_pk);
         self.fee_floor.set(fee_floor);
+        self.unit_scale.set(unit_scale);
 
         let mut zero_hash = U256::ZERO;
         for level in 0..TREE_DEPTH {
@@ -130,6 +138,7 @@ impl Tidex6HiddenPoolV2 {
             zero_hash = self.hash_pair(zero_hash, zero_hash).unwrap_or(U256::ZERO);
         }
         self.root_history.setter(0).unwrap().set(zero_hash);
+        Ok(())
     }
 
     /// Fund a note of `amount` for the owner of `core` and the fee on it for
@@ -162,7 +171,8 @@ impl Tidex6HiddenPoolV2 {
         )?;
         let depositor = self.vm().msg_sender();
         let pool = self.vm().contract_address();
-        if !self.token_transfer_from(depositor, pool, amount + fee) {
+        let charged = (amount + fee) * self.unit_scale.get();
+        if !self.token_transfer_from(depositor, pool, charged) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
         Ok(())
@@ -290,10 +300,11 @@ impl Tidex6HiddenPoolV2 {
         }
         self.nullifier_spent.insert(nullifier, true);
 
-        if !self.token_transfer(recipient, amount - fee) {
+        let scale = self.unit_scale.get();
+        if !self.token_transfer(recipient, (amount - fee) * scale) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
-        if !fee.is_zero() && !self.token_transfer(relayer, fee) {
+        if !fee.is_zero() && !self.token_transfer(relayer, fee * scale) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
         self.vm().log(Withdrawal {
@@ -334,7 +345,8 @@ impl Tidex6HiddenPoolV2 {
         self.nullifier_spent.insert(nullifier, true);
 
         let funder = self.vm().msg_sender();
-        if !self.token_transfer(funder, amount) {
+        let scale = self.unit_scale.get();
+        if !self.token_transfer(funder, amount * scale) {
             return Err(PoolError::TransferFailed(TransferFailed {}));
         }
         self.vm().log(Refunded {
@@ -364,6 +376,47 @@ impl Tidex6HiddenPoolV2 {
     #[selector(name = "leafPositionPlusOne")]
     pub fn leaf_position_plus_one(&self, leaf: U256) -> U256 {
         self.leaf_position_plus_one.get(leaf)
+    }
+
+    // Public reads with the Solidity pool's names: clients read the treasury
+    // key and fee floor for an in-pool forward, operators check a deployment.
+
+    pub fn token(&self) -> Address {
+        self.token.get()
+    }
+
+    #[selector(name = "withdrawVerifier")]
+    pub fn withdraw_verifier(&self) -> Address {
+        self.withdraw_verifier.get()
+    }
+
+    #[selector(name = "transferVerifier")]
+    pub fn transfer_verifier(&self) -> Address {
+        self.transfer_verifier.get()
+    }
+
+    pub fn poseidon(&self) -> Address {
+        self.poseidon.get()
+    }
+
+    #[selector(name = "treasuryOwnerPk")]
+    pub fn treasury_owner_pk(&self) -> U256 {
+        self.treasury_owner_pk.get()
+    }
+
+    #[selector(name = "feeFloor")]
+    pub fn fee_floor(&self) -> U256 {
+        self.fee_floor.get()
+    }
+
+    #[selector(name = "unitScale")]
+    pub fn unit_scale(&self) -> U256 {
+        self.unit_scale.get()
+    }
+
+    #[selector(name = "nextLeafIndex")]
+    pub fn next_leaf_index(&self) -> U256 {
+        self.next_leaf_index.get()
     }
 }
 

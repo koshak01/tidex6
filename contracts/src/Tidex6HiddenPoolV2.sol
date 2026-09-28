@@ -80,8 +80,13 @@ contract Tidex6HiddenPoolV2 {
     ITransferVerifierV2 public immutable transferVerifier;
     /// Owner key of the treasury: every fee note is filed for it.
     uint256 public immutable treasuryOwnerPk;
-    /// Smallest fee in base units — 0.1 token at the token's decimals.
+    /// Smallest fee in note units — 0.1 token.
     uint256 public immutable feeFloor;
+    /// Token base units per note unit. Notes, fees and every amount the pool
+    /// names are in units of one millionth of a token, whatever its decimals:
+    /// `10 ** (decimals - 6)`. A 64-bit note then holds 18 trillion tokens on
+    /// an 18-decimal token instead of 18.
+    uint256 public immutable unitScale;
 
     uint256 public nextLeafIndex;
     uint256 public rootRingHead;
@@ -148,14 +153,17 @@ contract Tidex6HiddenPoolV2 {
         IWithdrawVerifierV2 withdrawVerifier_,
         ITransferVerifierV2 transferVerifier_,
         uint256 treasuryOwnerPk_,
-        uint256 feeFloor_
+        uint256 feeFloor_,
+        uint256 unitScale_
     ) {
         if (treasuryOwnerPk_ >= F) revert NotAFieldElement();
+        if (unitScale_ == 0) revert AmountOutOfRange();
         token = token_;
         withdrawVerifier = withdrawVerifier_;
         transferVerifier = transferVerifier_;
         treasuryOwnerPk = treasuryOwnerPk_;
         feeFloor = feeFloor_;
+        unitScale = unitScale_;
 
         uint256 zeroHash = 0;
         for (uint256 level = 0; level < TREE_DEPTH; level++) {
@@ -166,11 +174,11 @@ contract Tidex6HiddenPoolV2 {
         rootHistory[0] = zeroHash;
     }
 
-    /// @notice Fund a note of `amount` base units for the owner of `core`, and
+    /// @notice Fund a note of `amount` note units for the owner of `core`, and
     ///         the fee on it for the treasury. The sender is charged
-    ///         `amount + feeFor(amount)`.
+    ///         `(amount + feeFor(amount)) * unitScale` token base units.
     /// @param core H(H(D_CORE, ownerPk), H(rho, aux)), computed by the sender.
-    /// @param amount Base units the recipient gets; the leaf is bound to it.
+    /// @param amount Note units the recipient gets; the leaf is bound to it.
     /// @param refundWindow Seconds after which the sender may take the payment
     ///        back if the owner has not; 0 — no refund.
     /// @param envelope Sealed for the recipient.
@@ -192,7 +200,9 @@ contract Tidex6HiddenPoolV2 {
         _fileNote(_treasuryCore(feeRho), fee, 0, feeEnvelope, firstLeaf + 1);
         // Pulled last, after the tree is final: a token that calls back on
         // transfer cannot re-enter and overwrite a reserved leaf.
-        if (!token.transferFrom(msg.sender, address(this), amount + fee)) revert TransferFailed();
+        if (!token.transferFrom(msg.sender, address(this), (amount + fee) * unitScale)) {
+            revert TransferFailed();
+        }
     }
 
     /// @notice The fee on a payment of `amount`: 1% rounded up, at least `feeFloor`.
@@ -256,9 +266,9 @@ contract Tidex6HiddenPoolV2 {
 
         nullifierSpent[nullifier] = true;
 
-        if (!token.transfer(recipient, amount - fee)) revert TransferFailed();
+        if (!token.transfer(recipient, (amount - fee) * unitScale)) revert TransferFailed();
         if (fee > 0) {
-            if (!token.transfer(relayer, fee)) revert TransferFailed();
+            if (!token.transfer(relayer, fee * unitScale)) revert TransferFailed();
         }
         emit Withdrawal(nullifier, recipient, relayer, fee, amount);
     }
@@ -280,7 +290,7 @@ contract Tidex6HiddenPoolV2 {
         if (nullifierSpent[nullifier]) revert NullifierAlreadySpent();
         nullifierSpent[nullifier] = true;
 
-        if (!token.transfer(msg.sender, amount)) revert TransferFailed();
+        if (!token.transfer(msg.sender, amount * unitScale)) revert TransferFailed();
         emit Refunded(nullifier, msg.sender, amount);
     }
 

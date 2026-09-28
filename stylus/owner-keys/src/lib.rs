@@ -46,7 +46,10 @@ impl Tidex6OwnerKeys {
         }
         let wallet = self.vm().msg_sender();
         self.owner_key_of.insert(wallet, owner_pk);
-        self.vm().log(OwnerKeyPublished { wallet, ownerPk: owner_pk });
+        self.vm().log(OwnerKeyPublished {
+            wallet,
+            ownerPk: owner_pk,
+        });
         Ok(())
     }
 

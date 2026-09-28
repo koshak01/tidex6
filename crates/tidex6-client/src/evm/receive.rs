@@ -198,7 +198,6 @@ pub fn my_notes_v2(
         .owner_pk_v2()
         .context("this identity has no spending key; v2 notes need one")?;
     let node = Node::new(pool.read_url)?;
-    let units = pool.base_units_per_micro();
     let mut out = Vec::new();
     for record in leaves {
         let depositor = address_word(&record.depositor)
@@ -211,8 +210,7 @@ pub fn my_notes_v2(
             depositor,
             refund_after: record.refund_after,
         };
-        let Some(note) = super::v2::open_note(&leaf, identity.reader_secret(), &owner_pk, units)
-        else {
+        let Some(note) = super::v2::open_note(&leaf, identity.reader_secret(), &owner_pk) else {
             continue;
         };
         let data = [&SEL_NULLIFIER_SPENT[..], &note.nullifier].concat();

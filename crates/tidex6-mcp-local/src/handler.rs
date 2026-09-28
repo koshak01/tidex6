@@ -841,10 +841,9 @@ impl LocalTools {
                     pool.name
                 )
             })?;
-            let units = pool.base_units_per_micro();
-            let amount = amount_micro
-                .checked_mul(units)
-                .ok_or_else(|| anyhow::anyhow!("amount too large for a note"))?;
+            // v2 notes count millionths of a token (note units); the pool
+            // scales them to the token's decimals itself.
+            let amount = amount_micro;
             let fee = evm::v2::fee_for(pool, amount)?;
             // Копия ноты отправителю — только когда возврат вообще возможен.
             let funder = (refund_window > 0).then_some(&own_reader);
@@ -860,12 +859,7 @@ impl LocalTools {
                 &fee_rho,
                 &fee_envelope,
             )?;
-            Ok((
-                paid.transactions,
-                paid.core_hex,
-                amount_micro,
-                fee / units.max(1),
-            ))
+            Ok((paid.transactions, paid.core_hex, amount_micro, fee))
         })
         .await?;
         let (transactions, commitment_hex, paid_micro, fee_micro) = paid;
