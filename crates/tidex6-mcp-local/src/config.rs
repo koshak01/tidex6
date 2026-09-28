@@ -59,6 +59,11 @@ pub struct Config {
     #[serde(default)]
     pub evm_proving_key_v2_path: Option<String>,
 
+    /// Ключ доказательства пересылки внутри пула v2 — `transfer_v2_pk.bin`.
+    /// Молчание означает `~/.tidex6-local/transfer_v2_pk.bin`.
+    #[serde(default)]
+    pub transfer_v2_pk_path: Option<String>,
+
     /// Релеер: индекс депозитов и отправка вывода без газа у получателя.
     #[serde(default = "default_relayer")]
     pub relayer: String,
@@ -174,6 +179,26 @@ impl Config {
         if !path.exists() {
             anyhow::bail!(
                 "no v2 proving key at {} — copy crates/tidex6-confidential/artifacts/withdraw_v2_pk.bin there",
+                path.display()
+            );
+        }
+        Ok(path)
+    }
+
+    /// Ключ доказательства пересылки внутри пула v2.
+    pub fn transfer_v2_proving_key(&self) -> Result<PathBuf> {
+        let path = match &self.transfer_v2_pk_path {
+            Some(explicit) => PathBuf::from(explicit),
+            None => {
+                let home = std::env::var("HOME").context("no $HOME")?;
+                Path::new(&home)
+                    .join(".tidex6-local")
+                    .join("transfer_v2_pk.bin")
+            }
+        };
+        if !path.exists() {
+            anyhow::bail!(
+                "no v2 transfer proving key at {} — copy crates/tidex6-confidential/artifacts/transfer_v2_pk.bin there",
                 path.display()
             );
         }

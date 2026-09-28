@@ -27,6 +27,7 @@ use solana_rpc_client_api::config::{RpcAccountInfoConfig, RpcProgramAccountsConf
 use solana_rpc_client_api::filter::{Memcmp, RpcFilterType};
 use solana_transaction::Transaction;
 use tidex6_confidential::note_v2;
+use tidex6_confidential::transfer_v2::{self, TransferV2Witness};
 use tidex6_confidential::withdraw_v2::{self, WithdrawV2Witness};
 use tidex6_core::envelope::{self, FunderView, ReaderAddress};
 use tidex6_core::types::Secret;
@@ -602,6 +603,142 @@ pub fn withdraw(
     }
     ixs.push(ix);
     send(rpc, signer, &ixs)
+}
+
+// ── forwarding inside the pool ───────────────────────────────────────────
+
+/// A forward to seal and send: part of one of our notes to another owner.
+pub struct ForwardV2<'a> {
+    pub mint: Pubkey,
+    /// The recipient's reader address (their envelope) and owner key.
+    pub reader: &'a ReaderAddress,
+    pub owner_pk: [u8; 32],
+    /// Note units the recipient gets; the fee comes out of our note too.
+    pub amount: u64,
+    pub memo: &'a str,
+    /// The treasury's reader address: the fee note's envelope.
+    pub treasury: &'a ReaderAddress,
+}
+
+/// Forward part of `note` inside the pool, 1 → 3: the payment, our change,
+/// and the pool's fee — proved against the pool's own treasury key and
+/// floor. No token moves; the three envelopes follow by `append_memo`.
+#[allow(clippy::too_many_arguments)]
+pub fn forward(
+    rpc: &RpcClient,
+    signer: &Keypair,
+    proving_key: &ProvingKey<Bn254>,
+    leaves: &[LeafMemo],
+    note: &OpenNoteSol,
+    identity: &LocalIdentity,
+    f: &ForwardV2,
+) -> Result<Vec<String>> {
+    use solana_keypair::Signer;
+    let spending_key = identity
+        .spending_key()
+        .context("this identity has no spending key; v2 notes need one")?;
+    let info = pool_info(rpc, &f.mint)?;
+    let fee = info.fee_for(f.amount);
+    let change = note
+        .amount
+        .checked_sub(f.amount)
+        .and_then(|rest| rest.checked_sub(fee))
+        .with_context(|| {
+            format!(
+                "the note holds {} units; forwarding {} takes {fee} fee on top",
+                note.amount, f.amount
+            )
+        })?;
+
+    let zero = [0u8; 32];
+    let rho_pay = random_field()?;
+    let rho_change = random_field()?;
+    let rho_fee = random_field()?;
+    let core_pay = note_v2::core(fr(&f.owner_pk), fr(&rho_pay), fr(&zero));
+    let pay_env = envelope::build(f.reader, &rho_pay, &zero, f.amount, f.memo.as_bytes(), &[])
+        .context("seal the payment envelope")?;
+    let change_env = envelope::build(&identity.reader, &rho_change, &zero, change, b"change", &[])
+        .context("seal the change envelope")?;
+    let fee_env = envelope::build(f.treasury, &rho_fee, &zero, fee, b"fee", &[])
+        .context("seal the fee envelope")?;
+
+    let tree = build_tree(&leaves.iter().map(|l| l.leaf).collect::<Vec<_>>())?;
+    let path = tree
+        .proof(note.leaf_index)
+        .with_context(|| format!("leaf {}: merkle path", note.leaf_index))?;
+    let root = tree.root().to_bytes();
+    let witness = TransferV2Witness {
+        sk_spend: fr(spending_key),
+        rho_in: note.rho,
+        aux_in: note.aux,
+        amount_in: note.amount,
+        refund_in: note.refund,
+        path_siblings: std::array::from_fn(|i| fr(path.siblings[i].as_bytes())),
+        path_indices: std::array::from_fn(|i| (note.leaf_index >> i) & 1 == 1),
+        core_pay,
+        amount_pay: f.amount,
+        rho_change: fr(&rho_change),
+        aux_change: fr(&zero),
+        amount_change: change,
+        rho_fee: fr(&rho_fee),
+        amount_fee: fee,
+        merkle_root: fr(&root),
+        treasury_pk: fr(&info.treasury_owner_pk),
+        fee_floor: info.fee_floor,
+    };
+    let mut rng = rand::thread_rng();
+    let (proof, public) = crate::confidential::prover_runtime::without_tracing(|| {
+        transfer_v2::prove_ceremony(proving_key, &witness, &mut rng)
+    })
+    .map_err(|e| anyhow::anyhow!("leaf {}: prove: {e}", note.leaf_index))?;
+    let bytes = tidex6_circuits::solana_bytes::groth16_to_solana_bytes(&proof, &proving_key.vk)
+        .map_err(|e| anyhow::anyhow!("proof bytes: {e:?}"))?;
+    // Public inputs: [root, nf, leaf_pay, leaf_change, leaf_fee, treasury_pk, fee_floor].
+    let [nullifier, leaf_pay, leaf_change, leaf_fee] =
+        [public[1], public[2], public[3], public[4]].map(fr_to_word);
+
+    let payer = signer.pubkey();
+    let ix = Instruction {
+        program_id: program_id(),
+        accounts: tidex6_pool_v2::accounts::TransferNote {
+            pool: pool_pda(&f.mint),
+            nullifier: nullifier_pda(&nullifier),
+            memo_pay: memo_pda(&leaf_pay),
+            memo_change: memo_pda(&leaf_change),
+            memo_fee: memo_pda(&leaf_fee),
+            payer,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tidex6_pool_v2::instruction::TransferNote {
+            proof_a: bytes.proof_a,
+            proof_b: bytes.proof_b,
+            proof_c: bytes.proof_c,
+            merkle_root: root,
+            nullifier,
+            leaf_pay,
+            leaf_change,
+            leaf_fee,
+            memo_lens: [
+                pay_env.len() as u32,
+                change_env.len() as u32,
+                fee_env.len() as u32,
+            ],
+        }
+        .data(),
+    };
+    let budget =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(600_000);
+    let budget = Instruction {
+        program_id: budget.program_id,
+        accounts: Vec::new(),
+        data: budget.data,
+    };
+    let mut transactions = vec![send(rpc, signer, &[budget, ix])?];
+    transactions.extend(write_memo(rpc, signer, &leaf_pay, &pay_env)?);
+    transactions.extend(write_memo(rpc, signer, &leaf_change, &change_env)?);
+    transactions.extend(write_memo(rpc, signer, &leaf_fee, &fee_env)?);
+    Ok(transactions)
 }
 
 // ── refunds ──────────────────────────────────────────────────────────────

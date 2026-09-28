@@ -68,9 +68,9 @@ pub fn for_payment(key: &str) -> Option<&'static EvmPool> {
     if !own.is_withdraw_only {
         return Some(own);
     }
-    POOLS.iter().find(|p| {
-        !p.is_withdraw_only && p.key.strip_suffix("-v2").is_some_and(|base| base == key)
-    })
+    POOLS
+        .iter()
+        .find(|p| !p.is_withdraw_only && p.key.strip_suffix("-v2").is_some_and(|base| base == key))
 }
 
 /// Все пулы, в которые можно платить.
@@ -165,7 +165,16 @@ const fn v2(
 ) -> EvmPool {
     EvmPool {
         owner_keys,
-        ..row(key, name, chain_id, urls, registry, hidden_pool, token, CURRENT)
+        ..row(
+            key,
+            name,
+            chain_id,
+            urls,
+            registry,
+            hidden_pool,
+            token,
+            CURRENT,
+        )
     }
 }
 

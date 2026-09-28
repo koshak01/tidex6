@@ -733,8 +733,9 @@ impl LocalTools {
         Parameters(req): Parameters<EvmPoolReq>,
     ) -> Result<CallToolResult, McpError> {
         // Enabling is for receiving new payments: the network's current pool.
-        let pool = evm::pools::for_payment(req.pool.trim())
-            .ok_or_else(|| McpError::invalid_params(format!("unknown pool `{}`", req.pool), None))?;
+        let pool = evm::pools::for_payment(req.pool.trim()).ok_or_else(|| {
+            McpError::invalid_params(format!("unknown pool `{}`", req.pool), None)
+        })?;
         let signer = self.evm_signer()?;
         let reader = self.identity.reader.clone();
         let owner_pk = self.identity.owner_pk_v2();
@@ -774,8 +775,9 @@ impl LocalTools {
         Parameters(req): Parameters<EvmSendReq>,
     ) -> Result<CallToolResult, McpError> {
         // A network key pays into its current pool: the v2 one where it exists.
-        let pool = evm::pools::for_payment(req.pool.trim())
-            .ok_or_else(|| McpError::invalid_params(format!("unknown pool `{}`", req.pool), None))?;
+        let pool = evm::pools::for_payment(req.pool.trim()).ok_or_else(|| {
+            McpError::invalid_params(format!("unknown pool `{}`", req.pool), None)
+        })?;
         if pool.is_withdraw_only {
             return Err(McpError::invalid_params(
                 format!("{} is an earlier pool kept for withdrawals only", pool.key),
@@ -1397,6 +1399,79 @@ impl LocalTools {
             body.to_string(),
         )]))
     }
+
+    /// Solana pool v2: forward part of a waiting note to another wallet inside the pool.
+    #[tool(
+        description = "Solana v2 forward: pay part of a waiting v2 note to another wallet inside the pool (1 -> payment, change back to you, fee). No token leaves the pool, no amount on chain. Params: recipient, amount decimal, network, optional memo. Final JSON."
+    )]
+    async fn sol_v2_forward(
+        &self,
+        Parameters(req): Parameters<SolV2SendReq>,
+    ) -> Result<CallToolResult, McpError> {
+        let mint =
+            pool_v2::usdc_mint(matches!(req.network, NetworkArg::Mainnet)).ok_or_else(|| {
+                McpError::invalid_params(format!("no v2 pool on {} yet", req.network.name()), None)
+            })?;
+        let amount =
+            decimal_to_micro(&req.amount).map_err(|e| McpError::invalid_params(e, None))?;
+        let recipient: Pubkey = req.recipient.trim().parse().map_err(|_| {
+            McpError::invalid_params(format!("`{}` is not a Solana address", req.recipient), None)
+        })?;
+        let key_path = self
+            .config
+            .transfer_v2_proving_key()
+            .map_err(|e| McpError::invalid_params(format!("{e:#}"), None))?;
+        let rpc_url = self.config.rpc_for(req.network.to_net()).to_string();
+        let identity = Arc::clone(&self.identity);
+        let keypair = Arc::clone(&self.keypair);
+        let memo = req.memo.clone();
+        let txs = run_on_os_thread("sol_v2_forward", move || {
+            let rpc = RpcClient::new_with_timeout(rpc_url, std::time::Duration::from_secs(60));
+            let reader = tidex6_client::registry::lookup(&rpc, &recipient)?.ok_or_else(|| {
+                anyhow::anyhow!("recipient {recipient} has not published a reader key")
+            })?;
+            let owner_pk = pool_v2::lookup_owner_key(&rpc, &recipient)?.ok_or_else(|| {
+                anyhow::anyhow!("recipient {recipient} has not enabled v2 payments (no owner key)")
+            })?;
+            let leaves = pool_v2::leaves(&rpc, &mint)?;
+            let info = pool_v2::pool_info(&rpc, &mint)?;
+            let need = amount + info.fee_for(amount);
+            let (note, _) = pool_v2::my_notes(&rpc, &leaves, &identity)?
+                .into_iter()
+                .find(|(n, spent)| !spent && n.amount >= need)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("no waiting note holds {need} units (amount + fee)")
+                })?;
+            let pk = evm::receive::load_proving_key(&key_path)?;
+            let treasury = evm::send::treasury()?;
+            pool_v2::forward(
+                &rpc,
+                &keypair,
+                &pk,
+                &leaves,
+                &note,
+                &identity,
+                &pool_v2::ForwardV2 {
+                    mint,
+                    reader: &reader.address,
+                    owner_pk,
+                    amount,
+                    memo: &memo,
+                    treasury: &treasury,
+                },
+            )
+        })
+        .await?;
+        let body = serde_json::json!({
+            "ok": true, "done": true, "funds_moved": true, "status": "done",
+            "network": req.network.name(), "to": req.recipient,
+            "amount": micro_to_decimal(amount), "symbol": "USDC", "transactions": txs,
+            "message": "Forwarded inside the pool. Do not report delivered.",
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            body.to_string(),
+        )]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -1408,7 +1483,7 @@ impl ServerHandler for LocalTools {
         info.instructions = Some(
             "tidex6 local MCP = about|ceremony|send|payments|collect|audit|whoami, \
              EVM: evm_send|evm_payments|evm_collect|evm_enable|evm_refund with pool=<key>. \
-             Solana pool v2: sol_v2_enable|sol_v2_send|sol_v2_payments|sol_v2_collect|sol_v2_refund. \
+             Solana pool v2: sol_v2_enable|sol_v2_send|sol_v2_payments|sol_v2_collect|sol_v2_refund|sol_v2_forward. \
              about = version + custody T2. ceremony = CONTRIBUTE_URL with ?s= first (public setup). \
              payments = recipient list (read-only). collect only after user says yes. \
              audit = auditor view. Heavy send/collect on OS thread; RAYON=1."
