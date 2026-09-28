@@ -61,6 +61,18 @@ pub fn pool(key: &str) -> Option<&'static EvmPool> {
     POOLS.iter().find(|p| p.key == key)
 }
 
+/// Пул, в который уходит новый платёж по ключу `key`: сам пул, если он
+/// принимает платежи, иначе пул формата v2 той же сети (`<key>-v2`).
+pub fn for_payment(key: &str) -> Option<&'static EvmPool> {
+    let own = pool(key)?;
+    if !own.is_withdraw_only {
+        return Some(own);
+    }
+    POOLS.iter().find(|p| {
+        !p.is_withdraw_only && p.key.strip_suffix("-v2").is_some_and(|base| base == key)
+    })
+}
+
 /// Все пулы, в которые можно платить.
 pub fn payable() -> impl Iterator<Item = &'static EvmPool> {
     POOLS.iter().filter(|p| !p.is_withdraw_only)
@@ -139,6 +151,24 @@ const fn row(
     }
 }
 
+/// Строка пула формата v2: платёжный, со своим реестром ключей владельца.
+#[allow(clippy::too_many_arguments)]
+const fn v2(
+    key: &'static str,
+    name: &'static str,
+    chain_id: u64,
+    urls: (&'static str, &'static str, &'static str),
+    registry: &'static str,
+    hidden_pool: &'static str,
+    token: (&'static str, &'static str, u8),
+    owner_keys: &'static str,
+) -> EvmPool {
+    EvmPool {
+        owner_keys,
+        ..row(key, name, chain_id, urls, registry, hidden_pool, token, CURRENT)
+    }
+}
+
 const ARB: (&str, &str, &str) = (ARB_SEPOLIA_SEND, ARB_SEPOLIA_READ, ARB_SEPOLIA_EXPLORER);
 const RH: (&str, &str, &str) = (ROBINHOOD_SEND, ROBINHOOD_READ, ROBINHOOD_EXPLORER);
 const BASE: (&str, &str, &str) = (BASE_SEPOLIA_SEND, BASE_SEPOLIA_READ, BASE_SEPOLIA_EXPLORER);
@@ -149,9 +179,10 @@ const ARC_M: (&str, &str, &str) = (ARC_MAINNET_SEND, ARC_MAINNET_READ, ARC_MAINN
 /// Флаги `(has_deposit_with_fee, is_withdraw_only, is_mainnet)`.
 const CURRENT: (bool, bool, bool) = (true, false, false);
 const CURRENT_MAINNET: (bool, bool, bool) = (true, false, true);
-const THREE_STEP: (bool, bool, bool) = (false, false, false);
 const EARLIER: (bool, bool, bool) = (false, true, false);
 const EARLIER_MAINNET: (bool, bool, bool) = (false, true, true);
+/// A note-format v1 pool whose network has a v2 pool: withdrawals only.
+const SUPERSEDED: (bool, bool, bool) = (true, true, false);
 
 pub const POOLS: &[EvmPool] = &[
     row(
@@ -162,7 +193,7 @@ pub const POOLS: &[EvmPool] = &[
         ARB_SEPOLIA_REGISTRY,
         "0xf3393Da300A29499e96A963b5C52edd0f0125702",
         (ARB_SEPOLIA_USDC, "USDC", 6),
-        CURRENT,
+        SUPERSEDED,
     ),
     row(
         "arbitrum-sepolia-usdg",
@@ -172,7 +203,7 @@ pub const POOLS: &[EvmPool] = &[
         ARB_SEPOLIA_REGISTRY,
         "0xA7a415E9edA7Ff90bb0D33C6db7078f577C23155",
         (ARB_SEPOLIA_USDG, "USDG", 6),
-        CURRENT,
+        SUPERSEDED,
     ),
     row(
         "robinhood-testnet",
@@ -182,7 +213,7 @@ pub const POOLS: &[EvmPool] = &[
         ROBINHOOD_REGISTRY,
         "0x0AaB0D98f2a0Da6F2002dA8D3ddB314208341725",
         (ROBINHOOD_TSLA, "TSLA", 18),
-        CURRENT,
+        SUPERSEDED,
     ),
     row(
         "robinhood-usdg",
@@ -192,7 +223,7 @@ pub const POOLS: &[EvmPool] = &[
         ROBINHOOD_REGISTRY,
         "0x819c6Ea7E7AeA2Eb95D1926D520A76cD03c53acA",
         (ROBINHOOD_USDG, "USDG", 6),
-        CURRENT,
+        SUPERSEDED,
     ),
     row(
         "base-sepolia",
@@ -202,10 +233,8 @@ pub const POOLS: &[EvmPool] = &[
         BASE_SEPOLIA_REGISTRY,
         "0x17F6cb7C4De0dbFE18e37fdF4CE08DdA33b9DEf3",
         (BASE_SEPOLIA_USDC, "USDC", 6),
-        CURRENT,
+        SUPERSEDED,
     ),
-    // Пул с `depositWithFee` на HyperEVM ещё не задеплоен (не влез в быстрый
-    // блок); до тех пор платёж там — три шага.
     row(
         "hyperliquid-testnet",
         "Hyperliquid Testnet",
@@ -214,7 +243,7 @@ pub const POOLS: &[EvmPool] = &[
         HYPERLIQUID_REGISTRY,
         "0x9776E68B41CA42970b81e4D33cc0f5729F4D8D5f",
         (HYPERLIQUID_TUSDC, "tUSDC", 6),
-        THREE_STEP,
+        EARLIER,
     ),
     row(
         "arc-testnet",
@@ -224,7 +253,7 @@ pub const POOLS: &[EvmPool] = &[
         ARC_REGISTRY,
         "0xbAF576FFA109af38E2b2573b063e5A230eEf3070",
         (ARC_USDC, "USDC", 6),
-        CURRENT,
+        SUPERSEDED,
     ),
     row(
         "arc-mainnet",
@@ -236,14 +265,75 @@ pub const POOLS: &[EvmPool] = &[
         (ARC_USDC, "USDC", 6),
         CURRENT_MAINNET,
     ),
-    // Стенд формата v2 (ADR-022), 25.09.2026: лист считает пул, тратит только
-    // владелец, комиссия обязательная. Ключи — генезис церемонии v2 (ноль
-    // вкладов), только тестнет; на выкате v2 займёт место основного пула.
+    // Формат нот v2 (ADR-022): лист считает пул, тратит только владелец,
+    // комиссия обязательная. Ключи — генезис церемонии v2 (ноль вкладов),
+    // только тестнеты. Arc testnet — стенд 25.09, остальные — выкат 28.09;
+    // пулы v1 этих сетей остаются только на вывод.
+    v2(
+        "arbitrum-sepolia-v2",
+        "Arbitrum Sepolia",
+        421_614,
+        ARB,
+        ARB_SEPOLIA_REGISTRY,
+        "0x82933a3c830210b0bbea834184b7fb1a354aa655",
+        (ARB_SEPOLIA_USDC, "USDC", 6),
+        "0xc0681625B3332C9bBa11Fb5d4A1728aE1Db0BbF5",
+    ),
+    v2(
+        "arbitrum-sepolia-usdg-v2",
+        "Arbitrum Sepolia · USDG",
+        421_614,
+        ARB,
+        ARB_SEPOLIA_REGISTRY,
+        "0x14b337af941451cf90e08f3e6bfbde7515a09170",
+        (ARB_SEPOLIA_USDG, "USDG", 6),
+        "0xc0681625B3332C9bBa11Fb5d4A1728aE1Db0BbF5",
+    ),
+    v2(
+        "robinhood-testnet-v2",
+        "Robinhood Chain Testnet",
+        46_630,
+        RH,
+        ROBINHOOD_REGISTRY,
+        "0x0444764a212240b69d3ad81b9a77f34945d1b228",
+        (ROBINHOOD_TSLA, "TSLA", 18),
+        "0xa209aa91f3845661f9cc1bb72c6d83e557e5b28a",
+    ),
+    v2(
+        "robinhood-usdg-v2",
+        "Robinhood Chain · USDG",
+        46_630,
+        RH,
+        ROBINHOOD_REGISTRY,
+        "0x630f5bcd872201d296faf253b61a25536f40a039",
+        (ROBINHOOD_USDG, "USDG", 6),
+        "0xa209aa91f3845661f9cc1bb72c6d83e557e5b28a",
+    ),
+    v2(
+        "base-sepolia-v2",
+        "Base Sepolia",
+        84_532,
+        BASE,
+        BASE_SEPOLIA_REGISTRY,
+        "0x28855DBf155de429069AABc2020a613901d707d9",
+        (BASE_SEPOLIA_USDC, "USDC", 6),
+        "0x1c2beB781d478379924232424863df1821682f0A",
+    ),
+    v2(
+        "hyperliquid-testnet-v2",
+        "Hyperliquid Testnet",
+        998,
+        HL,
+        HYPERLIQUID_REGISTRY,
+        "0xE9182c3B0cdf5bFb8871aC162fa28A501a3Cfa82",
+        (HYPERLIQUID_TUSDC, "tUSDC", 6),
+        "0x28855DBf155de429069AABc2020a613901d707d9",
+    ),
     EvmPool {
         owner_keys: "0x6CEDF1b9877bd980cE0a90eDC5a1c5BEfb6C2B81",
         ..row(
             "arc-testnet-v2",
-            "Arc Testnet · v2",
+            "Arc Testnet",
             5_042_002,
             ARC_T,
             ARC_REGISTRY,

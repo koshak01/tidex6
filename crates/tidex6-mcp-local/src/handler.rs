@@ -732,7 +732,9 @@ impl LocalTools {
         &self,
         Parameters(req): Parameters<EvmPoolReq>,
     ) -> Result<CallToolResult, McpError> {
-        let pool = evm_pool(&req.pool)?;
+        // Enabling is for receiving new payments: the network's current pool.
+        let pool = evm::pools::for_payment(req.pool.trim())
+            .ok_or_else(|| McpError::invalid_params(format!("unknown pool `{}`", req.pool), None))?;
         let signer = self.evm_signer()?;
         let reader = self.identity.reader.clone();
         let owner_pk = self.identity.owner_pk_v2();
@@ -771,7 +773,9 @@ impl LocalTools {
         &self,
         Parameters(req): Parameters<EvmSendReq>,
     ) -> Result<CallToolResult, McpError> {
-        let pool = evm_pool(&req.pool)?;
+        // A network key pays into its current pool: the v2 one where it exists.
+        let pool = evm::pools::for_payment(req.pool.trim())
+            .ok_or_else(|| McpError::invalid_params(format!("unknown pool `{}`", req.pool), None))?;
         if pool.is_withdraw_only {
             return Err(McpError::invalid_params(
                 format!("{} is an earlier pool kept for withdrawals only", pool.key),
