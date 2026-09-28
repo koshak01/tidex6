@@ -46,15 +46,16 @@ use crate::pool::PrivatePool;
 
 /// ADR-011 reference constants for the tidex6-hosted relayer.
 ///
-/// The hot-wallet pubkey was generated 2026-04-24 as part of the
-/// Day 12 deploy. Fund at this address before the relayer starts
-/// processing real withdraws — the on-chain check rejects any tx
-/// whose `relayer` account does not match this pubkey, and the
-/// service's own policy rejects any request whose `relayer_base58`
-/// does not match the keypair it actually holds.
+/// The relayer's Solana hot wallet, as it reports itself at
+/// `GET /stats/` (checked 2026-09-28; the key from the 2026-04-24
+/// deploy, `ED1HHGK6…`, is no longer the one it holds). The proof
+/// commits to this pubkey, the on-chain check rejects a tx whose
+/// `relayer` account differs, and the service rejects a request whose
+/// `relayer_base58` is not the keypair it holds — so a stale value here
+/// fails every withdraw through `via_default_relayer`.
 pub const DEFAULT_RELAYER_URL: &str = "https://relayer.tidex6.com";
 pub const DEFAULT_RELAYER_PUBKEY_BASE58: Option<&str> =
-    Some("ED1HHGK6evjLyFCF9jWw8iXjAXfi2Xz4zaTHMcBNzaK9");
+    Some("ECWF47iUwVDwKuv2JRQ1EPUP8sGeM7QRYnjLp7kdk32k");
 
 /// Compute-budget for the withdraw tx. The Groth16 alt_bn128 verify is
 /// CU-heavy and the Solana default (200k/ix) is tight; explicit headroom
