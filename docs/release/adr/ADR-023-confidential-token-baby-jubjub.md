@@ -162,6 +162,18 @@ Token-to-token transfers outside the pool carry no fee in the first version.
    unwrap 384k. The two Stylus contracts that need two fragments do not
    activate on nitro-devnode (any image up to v3.11.4); they go to Arbitrum
    Sepolia, where the same tool deploys fragmented contracts.
+4c. **Arbitrum Sepolia, Stylus, 01.10.2026** (`3b76124`): token
+   `0x99af7410e670f213c7f98b14e26ef5c7a7565663` and its pool
+   `0xd235d2da64abcb39fb1855bd915f2fada1519d31` (two fragments each), verifiers
+   pubkey `0x3bec9b0fbf17d9db387e09740166828b51f509b7`, transfer
+   `0xc02e9126e4ab82f301e193d4ab0eb5c470f11864`, unwrap
+   `0x7ce65a7ae08188a4d4eecd383fb703c905d71b6b`, deposit
+   `0x5d11af6c942ffcd1f2fbd95ee4e17867911d5a23`, exit
+   `0x1773cd38ad2f2fb392cc2d1e3ca1dfd16be003cd`; wraps Circle USDC
+   `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`. The first deploy found that
+   `cargo stylus deploy` runs constructors through the `StylusDeployer`
+   factory, so the token takes the address allowed to call `setPool` as an
+   argument.
 5. Client: ElGamal key from the signature, encryption, openings in the
    envelope, WASM prover, Wrap / Transfer / Unwrap screens. **WASM prover
    done** (`tidex6-prover-wasm` 2.9.0); screens next.
