@@ -24,6 +24,8 @@ members = [
     "token-unwrap-verifier",
     "token-deposit-verifier",
     "token-exit-verifier",
+    "token-pool-v2",
+    "confidential-token",
 ]
 # No `default-members`: the reproducible build (`cargo stylus deploy` /
 # `verify`, stylus-tools 0.10.9) mounts the workspace root and runs a plain

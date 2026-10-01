@@ -947,6 +947,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-stylus-confidential-token"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
 name = "tidex6-stylus-hidden-pool"
 version = "0.1.0"
 dependencies = [
@@ -1054,6 +1064,16 @@ name = "tidex6-stylus-token-exit-verifier"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-token-pool-v2"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
  "stylus-sdk",
  "tidex6-stylus-common",
 ]
