@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+pub mod babyjubjub;
 pub mod field;
 pub mod groth16;
 pub mod poseidon;

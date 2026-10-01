@@ -145,6 +145,45 @@ pub fn add_mod(a: &Limbs, b: &Limbs) -> Limbs {
     }
 }
 
+/// `a - b mod p`. Inputs below `p`; when `a < b` the borrow wraps and `p` is
+/// added back.
+pub fn sub_mod(a: &Limbs, b: &Limbs) -> Limbs {
+    let mut out = ZERO;
+    let mut borrow = 0u64;
+    for i in 0..4 {
+        let (d, b1) = a[i].overflowing_sub(b[i]);
+        let (d, b2) = d.overflowing_sub(borrow);
+        out[i] = d;
+        borrow = (b1 | b2) as u64;
+    }
+    if borrow != 0 {
+        let mut carry = 0u64;
+        for i in 0..4 {
+            let (lo, c) = adc(out[i], P[i], carry);
+            out[i] = lo;
+            carry = c;
+        }
+    }
+    out
+}
+
+/// Inverse in Montgomery form: `a^(p-2)` by square-and-multiply (Fermat).
+/// `a` must not be zero; zero comes back as zero.
+pub fn mont_inv(a: &Limbs) -> Limbs {
+    // p - 2: the low limb of p is far above 2, so no borrow reaches limb 1.
+    let exponent: Limbs = [P[0] - 2, P[1], P[2], P[3]];
+    let mut result = to_mont(&ONE);
+    for limb in exponent.iter().rev() {
+        for bit in (0..64).rev() {
+            result = mont_mul(&result, &result);
+            if (limb >> bit) & 1 == 1 {
+                result = mont_mul(&result, a);
+            }
+        }
+    }
+    result
+}
+
 /// Plain value → Montgomery form.
 #[inline]
 pub fn to_mont(a: &Limbs) -> Limbs {
