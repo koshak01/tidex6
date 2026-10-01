@@ -142,8 +142,19 @@ Token-to-token transfers outside the pool carry no fee in the first version.
    `stylus/confidential-token`, `stylus/token-pool-v2` and the five
    `token-*-verifier` crates (keys exported from the same setup as the
    Solidity verifiers), 01.10.2026.
+4a. **Full round on a local chain, 01.10.2026** (nitro-devnode, Solidity
+   contracts, `script/TokenCircle.s.sol` replaying `export_token_circle`): two
+   registrations, wrap 1 000 000, a transfer of 250 000, a deposit of 300 000
+   plus a 100 000 fee note into the pool, the note back onto a balance as a
+   ciphertext, two unwraps. Final ERC-20 balances 550 000 / 350 000, custody
+   100 000 backing the fee note. Gas: register 415k, wrap 130k, transfer 501k,
+   depositToPool 3.24M (two Poseidon leaf insertions), withdrawToToken 383k,
+   unwrap 384k. The two Stylus contracts that need two fragments do not
+   activate on nitro-devnode (any image up to v3.11.4); they go to Arbitrum
+   Sepolia, where the same tool deploys fragmented contracts.
 5. Client: ElGamal key from the signature, encryption, openings in the
-   envelope, WASM prover, Wrap / Transfer / Unwrap screens.
+   envelope, WASM prover, Wrap / Transfer / Unwrap screens. **WASM prover
+   done** (`tidex6-prover-wasm` 2.9.0); screens next.
 6. Ceremony for the token circuits; keys into the verifiers.
 7. Live runs on Arbitrum Sepolia and Robinhood (Stylus), Base (Solidity).
 
