@@ -1,11 +1,22 @@
-//! Схема вывода из пула на конфиденциальный баланс получателя.
+//! Схема вывода из пула v2 на конфиденциальный баланс получателя (ADR-023).
 //!
-//! Граница «пул → токен» без числа: нота гасится, а получателю на pending
-//! ложится шифротекст `(C_m, D_r)` на его ключ. Никакой публичной суммы —
-//! в отличие от `crate::withdraw`, где выплата в открытый ERC-20 обязана
-//! назвать число. Получатель читает сумму из конверта.
+//! Граница «пул → токен» без числа: нота v2 гасится её владельцем, а
+//! получателю на pending ложится шифротекст `(C_m, D_r)` на его ключ. В
+//! отличие от `withdraw_v2`, где выплата в открытый ERC-20 обязана назвать
+//! число, здесь его нет. Получатель читает сумму из конверта.
 //!
-//! Публичные входы: `[merkle_root, nullifier_hash, P_r.x, P_r.y, C_m.x, C_m.y,
+//! Доказывает то же, что `withdraw_v2` для ноты, и вместо публичной суммы:
+//!   1. owner_pk = H(D_OWNER, sk) — тратит владелец;
+//!   2. лист H(H(core, amount), refund) лежит в дереве с корнем `merkle_root`;
+//!   3. nf = H(H(D_NF, rho), pos) — один на оба пути траты ноты;
+//!   4. 0 ≤ amount < 2^64;
+//!   5. `C_m = amount·G + r·H`, `D_r = r·P_r` — та же сумма зашифрована
+//!      получателю.
+//!
+//! Куда зачислить, контракт решает по `P_r`: ключ зарегистрирован за счётом
+//! получателя, подменить его без нового доказательства нельзя.
+//!
+//! Публичные входы: `[merkle_root, nullifier, P_r.x, P_r.y, C_m.x, C_m.y,
 //! D_r.x, D_r.y]` — 8.
 
 use ark_bn254::{Bn254, Fr};
@@ -20,22 +31,26 @@ use ark_std::rand::{CryptoRng, RngCore};
 
 use super::elgamal::{self, Ciphertext, PublicKey, point_inputs};
 use super::gadget;
+use crate::note_v2::{self, core_var, leaf_var, nullifier_var, owner_pk_var, position_var};
 use crate::withdraw::POOL_TREE_DEPTH;
+use crate::withdraw_v2::{enforce_membership, path_witness};
 
 pub const EXIT_NR_PUBLIC_INPUTS: usize = 8;
 
 #[derive(Clone, Default)]
 pub struct WithdrawToTokenCircuit {
     // приватные свидетели
-    pub note_secret: Option<Fr>,
-    pub note_nullifier: Option<Fr>,
+    pub sk_spend: Option<Fr>,
+    pub rho: Option<Fr>,
+    pub aux: Option<Fr>,
     pub amount: Option<u64>,
+    pub refund: Option<Fr>,
     pub path_siblings: Option<[Fr; POOL_TREE_DEPTH]>,
     pub path_indices: Option<[bool; POOL_TREE_DEPTH]>,
     pub opening: Option<BjjFr>,
     // публичные входы
     pub merkle_root: Option<Fr>,
-    pub nullifier_hash: Option<Fr>,
+    pub nullifier: Option<Fr>,
     pub recipient_key: Option<EdwardsAffine>,
     pub amount_commitment: Option<EdwardsAffine>,
     pub recipient_handle: Option<EdwardsAffine>,
@@ -44,24 +59,35 @@ pub struct WithdrawToTokenCircuit {
 impl ConstraintSynthesizer<Fr> for WithdrawToTokenCircuit {
     fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
         let missing = || SynthesisError::AssignmentMissing;
+        let witness =
+            |v: Option<Fr>| FpVar::<Fr>::new_witness(cs.clone(), || v.ok_or_else(missing));
+
+        // ── Публичные входы (порядок load-bearing) ───────────────────
         let merkle_root = FpVar::new_input(cs.clone(), || self.merkle_root.ok_or_else(missing))?;
-        let nullifier_hash =
-            FpVar::new_input(cs.clone(), || self.nullifier_hash.ok_or_else(missing))?;
+        let nullifier = FpVar::new_input(cs.clone(), || self.nullifier.ok_or_else(missing))?;
         let recipient_key = gadget::point_input(cs.clone(), self.recipient_key)?;
         let amount_commitment = gadget::point_input(cs.clone(), self.amount_commitment)?;
         let recipient_handle = gadget::point_input(cs.clone(), self.recipient_handle)?;
 
-        let note_secret = FpVar::new_witness(cs.clone(), || self.note_secret.ok_or_else(missing))?;
-        let note_nullifier =
-            FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
+        // ── Свидетели ────────────────────────────────────────────────
+        let sk = witness(self.sk_spend)?;
+        let rho = witness(self.rho)?;
+        let aux = witness(self.aux)?;
+        let refund = witness(self.refund)?;
         let (amount, amount_bits) = gadget::amount_witness(cs.clone(), self.amount)?;
-        let (siblings, index_bits) =
-            gadget::merkle_witness(cs.clone(), self.path_siblings, self.path_indices)?;
+        let (siblings, bits) = path_witness(cs.clone(), self.path_siblings, self.path_indices)?;
         let opening_bits = gadget::scalar_witness(cs.clone(), self.opening)?;
 
-        let leaf = gadget::note_commitment(cs.clone(), &note_secret, &note_nullifier, &amount)?;
-        gadget::nullifier_hash(cs.clone(), &note_nullifier)?.enforce_equal(&nullifier_hash)?;
-        gadget::merkle_root(cs, leaf, &siblings, &index_bits)?.enforce_equal(&merkle_root)?;
+        // 1–2. Лист владельца в дереве.
+        let owner_pk = owner_pk_var(cs.clone(), &sk)?;
+        let core = core_var(cs.clone(), &owner_pk, &rho, &aux)?;
+        let leaf = leaf_var(cs.clone(), &core, &amount, &refund)?;
+        enforce_membership(cs.clone(), leaf, &siblings, &bits, &merkle_root)?;
+
+        // 3. Nullifier от позиции, которую назначил пул.
+        nullifier_var(cs, &rho, &position_var(&bits))?.enforce_equal(&nullifier)?;
+
+        // 4–5. Та же сумма — получателю шифротекстом.
         gadget::commitment(&amount_bits, &opening_bits)?.enforce_equal(&amount_commitment)?;
         gadget::mul(&recipient_key, &opening_bits)?.enforce_equal(&recipient_handle)
     }
@@ -74,9 +100,12 @@ pub fn setup<R: RngCore + CryptoRng>(
 }
 
 pub struct WithdrawToTokenWitness {
-    pub note_secret: Fr,
-    pub note_nullifier: Fr,
+    pub sk_spend: Fr,
+    pub rho: Fr,
+    pub aux: Fr,
     pub amount: u64,
+    /// Метка возврата листа, `0` — нота без возврата.
+    pub refund: Fr,
     pub path_siblings: [Fr; POOL_TREE_DEPTH],
     pub path_indices: [bool; POOL_TREE_DEPTH],
     pub merkle_root: Fr,
@@ -84,9 +113,19 @@ pub struct WithdrawToTokenWitness {
     pub recipient: PublicKey,
 }
 
+impl WithdrawToTokenWitness {
+    /// Позиция листа — из битов пути.
+    pub fn position(&self) -> u64 {
+        self.path_indices
+            .iter()
+            .enumerate()
+            .fold(0u64, |acc, (i, bit)| acc | (u64::from(*bit) << i))
+    }
+}
+
 pub struct WithdrawToTokenPublic {
     pub merkle_root: Fr,
-    pub nullifier_hash: Fr,
+    pub nullifier: Fr,
     pub recipient_key: EdwardsAffine,
     /// Шифротекст `(C_m, D_r)`, который контракт кладёт получателю в pending.
     pub credited: Ciphertext,
@@ -97,23 +136,14 @@ impl WithdrawToTokenPublic {
         let [px, py] = point_inputs(&self.recipient_key);
         let [cx, cy] = point_inputs(&self.credited.commitment);
         let [dx, dy] = point_inputs(&self.credited.handle);
-        [
-            self.merkle_root,
-            self.nullifier_hash,
-            px,
-            py,
-            cx,
-            cy,
-            dx,
-            dy,
-        ]
+        [self.merkle_root, self.nullifier, px, py, cx, cy, dx, dy]
     }
 }
 
 pub fn public_part(w: &WithdrawToTokenWitness) -> WithdrawToTokenPublic {
     WithdrawToTokenPublic {
         merkle_root: w.merkle_root,
-        nullifier_hash: crate::withdraw::nullifier_hash(w.note_nullifier),
+        nullifier: note_v2::nullifier(w.rho, w.position()),
         recipient_key: w.recipient.0,
         credited: elgamal::encrypt(&w.recipient, w.amount, w.opening),
     }
@@ -126,14 +156,16 @@ pub fn prove<R: RngCore + CryptoRng>(
 ) -> Result<(Proof<Bn254>, WithdrawToTokenPublic), SynthesisError> {
     let public = public_part(w);
     let circuit = WithdrawToTokenCircuit {
-        note_secret: Some(w.note_secret),
-        note_nullifier: Some(w.note_nullifier),
+        sk_spend: Some(w.sk_spend),
+        rho: Some(w.rho),
+        aux: Some(w.aux),
         amount: Some(w.amount),
+        refund: Some(w.refund),
         path_siblings: Some(w.path_siblings),
         path_indices: Some(w.path_indices),
         opening: Some(w.opening),
         merkle_root: Some(public.merkle_root),
-        nullifier_hash: Some(public.nullifier_hash),
+        nullifier: Some(public.nullifier),
         recipient_key: Some(public.recipient_key),
         amount_commitment: Some(public.credited.commitment),
         recipient_handle: Some(public.credited.handle),

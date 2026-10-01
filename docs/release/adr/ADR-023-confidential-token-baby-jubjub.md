@@ -78,6 +78,16 @@ plain u64-limb arithmetic like our Poseidon.
 
 Plain `withdraw_v2` and `transfer_v2` stay as they are.
 
+### 4a. Curve form
+
+`ark-ed-on-bn254` writes Baby Jubjub as `x² + y² = 1 + d'·x²y²` with
+`d' = 168696/168700`, the isomorphic image of the EIP-2494 form
+(`a = 168700, d = 168696`, map `x' = √a·x`). Checked on 01.10.2026: the
+arkworks generator is in the prime-order subgroup, and EIP-2494 `Base8` maps
+onto the curve and into the same subgroup. Our canonical coordinates are the
+arkworks ones; contracts add points with `a = 1, d = d'`. Interoperability with
+iden3 tooling, if ever needed, is a coordinate map, not a different curve.
+
 ### 5. Ceremony
 
 The token circuits get **their own** trusted-setup ceremony once they are
@@ -92,10 +102,15 @@ Token-to-token transfers outside the pool carry no fee in the first version.
 
 ## Order of work
 
-1. Baby Jubjub and twisted ElGamal in Rust (arkworks gadgets plus native code),
-   checked against the circom/iden3 reference vectors byte by byte.
-2. `TokenTransfer` circuit and its tests; then `DepositFromToken`,
-   `WithdrawToToken`.
+1. Baby Jubjub and twisted ElGamal in Rust (arkworks gadgets plus native code).
+   **Done** (`crates/tidex6-confidential/src/token/elgamal.rs`, `gadget.rs`,
+   since 15.09.2026), curve form checked (§4a).
+2. Circuits. **Done:** `PubkeyValidity`, `TokenTransfer`, `TokenUnwrap`
+   (22.09); `DepositFromToken` and `WithdrawToToken` moved to note format v2 on
+   01.10.2026. `token_selftest` proves and verifies each and rejects a tampered
+   commitment, an overspend, a fee below the floor, and a spend with someone
+   else's key. Sizes: 3.5k / 18.9k / 7.2k / 14.3k / 11.9k constraints, proofs
+   0.05–0.25 s natively.
 3. Baby Jubjub point addition for Solidity and Stylus, cross-checked with the
    Rust code.
 4. Token contract on both stacks; pool v2 entry points `depositFromToken` and

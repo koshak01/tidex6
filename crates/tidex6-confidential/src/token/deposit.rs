@@ -1,18 +1,30 @@
-//! Схема депозита в пул с конфиденциального баланса.
+//! Схема депозита в пул v2 с конфиденциального баланса (ADR-023).
 //!
-//! Граница «токен → пул» без числа: контракт токена списывает шифротекст
-//! `(C_m, D_s)`, пул получает лист `Poseidon(secret, nullifier, m)`. Схема
-//! доказывает, что за обоими стоит одна и та же сумма `m`, что она была на
-//! балансе, и что ключ у отправителя есть.
+//! Граница «токен → пул» без числа. Контракт токена списывает шифротекст
+//! `(C_d, D_s)` суммы `платёж + комиссия`, пул добавляет два листа v2: платёж
+//! получателю и ноту комиссии казне. Схема доказывает:
 //!
-//! Публичные входы: `[P_s, C_a, D_a, C_m, D_s]` по две координаты и
-//! `commitment` — 11 элементов.
+//!   1. ключ отправителя его (`s·P_s == H`), баланс расшифровывается в `b`;
+//!   2. списание шифрует `total = pay + fee`, остаток `b − total ≥ 0`;
+//!   3. лист платежа `H(H(core_pay, pay), 0)` — ядро получателя считает
+//!      отправитель, как в `transfer_v2`;
+//!   4. лист комиссии `H(H(core(treasury_pk, rho_fee, 0), fee), 0)`;
+//!   5. `fee·100 ≥ pay` и `fee ≥ fee_floor` — та же политика, что у пула;
+//!   6. все суммы < 2^64.
+//!
+//! Возврата у таких нот нет: пул пересчитывает лист возврата из открытой
+//! суммы, а здесь её нет на цепи. Возврат через схему — отдельный шаг.
+//!
+//! Публичные входы (порядок load-bearing):
+//!   [P_s, C_a, D_a, C_d, D_s] по две координаты,
+//!   commitment_pay, commitment_fee, treasury_pk, fee_floor — всего 14.
 
 use ark_bn254::{Bn254, Fr};
 use ark_ed_on_bn254::{EdwardsAffine, Fr as BjjFr};
 use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::eq::EqGadget;
+use ark_r1cs_std::fields::FieldVar;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_snark::SNARK;
@@ -21,51 +33,71 @@ use ark_std::rand::{CryptoRng, RngCore};
 use super::elgamal::{self, Ciphertext, SecretKey, point_inputs};
 use super::gadget;
 use crate::bytes::fr_from_u64;
+use crate::note_v2::{self, core_var, leaf_var};
+use crate::transfer_v2::{FEE_GAP_BITS, FEE_PERCENT_DIVISOR, enforce_bits};
 
-pub const DEPOSIT_NR_PUBLIC_INPUTS: usize = 11;
+pub const DEPOSIT_NR_PUBLIC_INPUTS: usize = 14;
 
 #[derive(Clone, Default)]
 pub struct DepositFromTokenCircuit {
     // приватные свидетели
     pub secret: Option<BjjFr>,
     pub balance: Option<u64>,
-    pub amount: Option<u64>,
+    pub amount_pay: Option<u64>,
+    pub amount_fee: Option<u64>,
     pub opening: Option<BjjFr>,
-    pub note_secret: Option<Fr>,
-    pub note_nullifier: Option<Fr>,
+    pub core_pay: Option<Fr>,
+    pub rho_fee: Option<Fr>,
     // публичные входы
     pub sender_key: Option<EdwardsAffine>,
     pub balance_commitment: Option<EdwardsAffine>,
     pub balance_handle: Option<EdwardsAffine>,
-    pub amount_commitment: Option<EdwardsAffine>,
-    pub sender_handle: Option<EdwardsAffine>,
-    pub note_commitment: Option<Fr>,
+    pub debit_commitment: Option<EdwardsAffine>,
+    pub debit_handle: Option<EdwardsAffine>,
+    pub commitment_pay: Option<Fr>,
+    pub commitment_fee: Option<Fr>,
+    pub treasury_pk: Option<Fr>,
+    pub fee_floor: Option<Fr>,
 }
 
 impl ConstraintSynthesizer<Fr> for DepositFromTokenCircuit {
     fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
         let missing = || SynthesisError::AssignmentMissing;
+        let input = |v: Option<Fr>| FpVar::<Fr>::new_input(cs.clone(), || v.ok_or_else(missing));
+        let witness =
+            |v: Option<Fr>| FpVar::<Fr>::new_witness(cs.clone(), || v.ok_or_else(missing));
+
+        // ── Публичные входы (порядок load-bearing) ───────────────────
         let sender_key = gadget::point_input(cs.clone(), self.sender_key)?;
         let balance_commitment = gadget::point_input(cs.clone(), self.balance_commitment)?;
         let balance_handle = gadget::point_input(cs.clone(), self.balance_handle)?;
-        let amount_commitment = gadget::point_input(cs.clone(), self.amount_commitment)?;
-        let sender_handle = gadget::point_input(cs.clone(), self.sender_handle)?;
-        let note_commitment =
-            FpVar::new_input(cs.clone(), || self.note_commitment.ok_or_else(missing))?;
+        let debit_commitment = gadget::point_input(cs.clone(), self.debit_commitment)?;
+        let debit_handle = gadget::point_input(cs.clone(), self.debit_handle)?;
+        let commitment_pay = input(self.commitment_pay)?;
+        let commitment_fee = input(self.commitment_fee)?;
+        let treasury_pk = input(self.treasury_pk)?;
+        let fee_floor = input(self.fee_floor)?;
 
+        // ── Свидетели ────────────────────────────────────────────────
         let secret_bits = gadget::scalar_witness(cs.clone(), self.secret)?;
         let (balance, balance_bits) = gadget::amount_witness(cs.clone(), self.balance)?;
-        let (amount, amount_bits) = gadget::amount_witness(cs.clone(), self.amount)?;
-        let remaining_value = match (self.balance, self.amount) {
-            (Some(b), Some(m)) => Some(b.checked_sub(m).ok_or(SynthesisError::Unsatisfiable)?),
+        let (pay, _) = gadget::amount_witness(cs.clone(), self.amount_pay)?;
+        let (fee, _) = gadget::amount_witness(cs.clone(), self.amount_fee)?;
+        let total_value = match (self.amount_pay, self.amount_fee) {
+            (Some(p), Some(f)) => Some(p.checked_add(f).ok_or(SynthesisError::Unsatisfiable)?),
+            _ => None,
+        };
+        let (total, total_bits) = gadget::amount_witness(cs.clone(), total_value)?;
+        let remaining_value = match (self.balance, total_value) {
+            (Some(b), Some(t)) => Some(b.checked_sub(t).ok_or(SynthesisError::Unsatisfiable)?),
             _ => None,
         };
         let (remaining, _) = gadget::amount_witness(cs.clone(), remaining_value)?;
         let opening_bits = gadget::scalar_witness(cs.clone(), self.opening)?;
-        let note_secret = FpVar::new_witness(cs.clone(), || self.note_secret.ok_or_else(missing))?;
-        let note_nullifier =
-            FpVar::new_witness(cs.clone(), || self.note_nullifier.ok_or_else(missing))?;
+        let core_pay = witness(self.core_pay)?;
+        let rho_fee = witness(self.rho_fee)?;
 
+        // 1. Ключ и баланс.
         gadget::enforce_public_key(&secret_bits, &sender_key)?;
         gadget::enforce_balance(
             &secret_bits,
@@ -73,12 +105,37 @@ impl ConstraintSynthesizer<Fr> for DepositFromTokenCircuit {
             &balance_handle,
             &balance_bits,
         )?;
-        balance.enforce_equal(&(remaining + &amount))?;
-        gadget::commitment(&amount_bits, &opening_bits)?.enforce_equal(&amount_commitment)?;
-        gadget::mul(&sender_key, &opening_bits)?.enforce_equal(&sender_handle)?;
-        // Та же сумма — в ноте пула.
-        gadget::note_commitment(cs, &note_secret, &note_nullifier, &amount)?
-            .enforce_equal(&note_commitment)
+        // 2. Списание — ровно платёж с комиссией, остаток неотрицателен.
+        total.enforce_equal(&(&pay + &fee))?;
+        balance.enforce_equal(&(&remaining + &total))?;
+        gadget::commitment(&total_bits, &opening_bits)?.enforce_equal(&debit_commitment)?;
+        gadget::mul(&sender_key, &opening_bits)?.enforce_equal(&debit_handle)?;
+
+        // 3–4. Листы пула v2: платёж и комиссия, без возврата.
+        let no_refund = FpVar::<Fr>::zero();
+        leaf_var(cs.clone(), &core_pay, &pay, &no_refund)?.enforce_equal(&commitment_pay)?;
+        let core_fee = core_var(cs.clone(), &treasury_pk, &rho_fee, &FpVar::zero())?;
+        leaf_var(cs.clone(), &core_fee, &fee, &no_refund)?.enforce_equal(&commitment_fee)?;
+
+        // 5. Комиссия не меньше 1% платежа и не меньше минимума.
+        let hundred = FpVar::constant(fr_from_u64(FEE_PERCENT_DIVISOR));
+        let gap_percent_value = match (self.amount_fee, self.amount_pay) {
+            (Some(f), Some(p)) => {
+                Some(fr_from_u64(f) * fr_from_u64(FEE_PERCENT_DIVISOR) - fr_from_u64(p))
+            }
+            _ => None,
+        };
+        enforce_bits(
+            cs.clone(),
+            gap_percent_value,
+            &(&fee * &hundred - &pay),
+            FEE_GAP_BITS,
+        )?;
+        let gap_floor_value = match (self.amount_fee, self.fee_floor) {
+            (Some(f), Some(m)) => Some(fr_from_u64(f) - m),
+            _ => None,
+        };
+        enforce_bits(cs, gap_floor_value, &(&fee - &fee_floor), 64)
     }
 }
 
@@ -92,18 +149,26 @@ pub struct DepositFromTokenWitness {
     pub secret: SecretKey,
     pub balance: u64,
     pub available: Ciphertext,
-    pub amount: u64,
+    pub amount_pay: u64,
+    pub amount_fee: u64,
     pub opening: BjjFr,
-    pub note_secret: Fr,
-    pub note_nullifier: Fr,
+    /// Ядро ноты получателя: `core(owner_pk получателя, rho, aux)`.
+    pub core_pay: Fr,
+    pub rho_fee: Fr,
+    /// Ключ казны и минимум комиссии — константы пула.
+    pub treasury_pk: Fr,
+    pub fee_floor: u64,
 }
 
 pub struct DepositFromTokenPublic {
     pub sender_key: EdwardsAffine,
     pub available: Ciphertext,
-    /// Списываемый шифротекст `(C_m, D_s)`.
-    pub spent: Ciphertext,
-    pub note_commitment: Fr,
+    /// Списываемый шифротекст суммы `pay + fee`.
+    pub debit: Ciphertext,
+    pub commitment_pay: Fr,
+    pub commitment_fee: Fr,
+    pub treasury_pk: Fr,
+    pub fee_floor: Fr,
 }
 
 impl DepositFromTokenPublic {
@@ -112,8 +177,8 @@ impl DepositFromTokenPublic {
             self.sender_key,
             self.available.commitment,
             self.available.handle,
-            self.spent.commitment,
-            self.spent.handle,
+            self.debit.commitment,
+            self.debit.handle,
         ];
         let mut out = [Fr::from(0u64); DEPOSIT_NR_PUBLIC_INPUTS];
         for (i, point) in points.iter().enumerate() {
@@ -121,7 +186,10 @@ impl DepositFromTokenPublic {
             out[2 * i] = x;
             out[2 * i + 1] = y;
         }
-        out[10] = self.note_commitment;
+        out[10] = self.commitment_pay;
+        out[11] = self.commitment_fee;
+        out[12] = self.treasury_pk;
+        out[13] = self.fee_floor;
         out
     }
 }
@@ -130,15 +198,20 @@ pub fn public_part(
     w: &DepositFromTokenWitness,
 ) -> Result<DepositFromTokenPublic, elgamal::ElGamalError> {
     let sender = w.secret.public_key()?;
+    let total = w
+        .amount_pay
+        .checked_add(w.amount_fee)
+        .ok_or(elgamal::ElGamalError::AmountTooLarge)?;
+    let no_refund = Fr::from(0u64);
+    let core_fee = note_v2::core(w.treasury_pk, w.rho_fee, Fr::from(0u64));
     Ok(DepositFromTokenPublic {
         sender_key: sender.0,
         available: w.available,
-        spent: elgamal::encrypt(&sender, w.amount, w.opening),
-        note_commitment: crate::withdraw::note_commitment(
-            w.note_secret,
-            w.note_nullifier,
-            fr_from_u64(w.amount),
-        ),
+        debit: elgamal::encrypt(&sender, total, w.opening),
+        commitment_pay: note_v2::leaf(note_v2::body(w.core_pay, w.amount_pay), no_refund),
+        commitment_fee: note_v2::leaf(note_v2::body(core_fee, w.amount_fee), no_refund),
+        treasury_pk: w.treasury_pk,
+        fee_floor: fr_from_u64(w.fee_floor),
     })
 }
 
@@ -151,16 +224,20 @@ pub fn prove<R: RngCore + CryptoRng>(
     let circuit = DepositFromTokenCircuit {
         secret: Some(w.secret.0),
         balance: Some(w.balance),
-        amount: Some(w.amount),
+        amount_pay: Some(w.amount_pay),
+        amount_fee: Some(w.amount_fee),
         opening: Some(w.opening),
-        note_secret: Some(w.note_secret),
-        note_nullifier: Some(w.note_nullifier),
+        core_pay: Some(w.core_pay),
+        rho_fee: Some(w.rho_fee),
         sender_key: Some(public.sender_key),
         balance_commitment: Some(public.available.commitment),
         balance_handle: Some(public.available.handle),
-        amount_commitment: Some(public.spent.commitment),
-        sender_handle: Some(public.spent.handle),
-        note_commitment: Some(public.note_commitment),
+        debit_commitment: Some(public.debit.commitment),
+        debit_handle: Some(public.debit.handle),
+        commitment_pay: Some(public.commitment_pay),
+        commitment_fee: Some(public.commitment_fee),
+        treasury_pk: Some(public.treasury_pk),
+        fee_floor: Some(public.fee_floor),
     };
     let proof = Groth16::<Bn254>::prove(pk, circuit, rng)?;
     Ok((proof, public))

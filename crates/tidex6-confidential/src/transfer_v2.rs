@@ -48,7 +48,7 @@ pub const FEE_PERCENT_DIVISOR: u64 = 100;
 /// Разрядность проверки `fee·100 − amount_pay ≥ 0`: обе суммы меньше 2^64,
 /// значит честная разность меньше 2^71. Отрицательная в поле становится
 /// числом около 2^254 и в 72 бита не ляжет.
-const FEE_GAP_BITS: usize = 72;
+pub(crate) const FEE_GAP_BITS: usize = 72;
 
 /// Свидетели + публичные входы. `None` на setup.
 #[derive(Clone, Default)]
@@ -158,7 +158,7 @@ impl ConstraintSynthesizer<Fr> for TransferV2Circuit {
 }
 
 /// `0 ≤ value < 2^bits` через битовое разложение.
-fn enforce_bits(
+pub(crate) fn enforce_bits(
     cs: ConstraintSystemRef<Fr>,
     value: Option<Fr>,
     var: &FpVar<Fr>,
