@@ -9,7 +9,7 @@
 //! | `pubkey`   | 2             | the registered point is a valid key |
 //! | `transfer` | 18            | a balance moved; no amount anywhere |
 //! | `unwrap`   | 7             | an amount left for the open ERC-20 |
-//! | `deposit`  | 11            | a balance became a pool note |
+//! | `deposit`  | 14            | a balance became two v2 pool notes (payment, fee) |
 //! | `exit`     | 8             | a pool note became a balance |
 //!
 //! All five run on the DEVELOPMENT setup: the public ceremony (ADR-017) is

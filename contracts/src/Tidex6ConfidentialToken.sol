@@ -13,11 +13,22 @@ interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
-/// @notice What the shielded pool must offer for a balance to become a note.
-///         Implemented by Pool v3; until it is deployed, `pool` stays unset
-///         and `depositToPool` reverts instead of pretending to work.
+/// @notice What the shielded pool must offer for a balance to become a note
+///         (`Tidex6TokenPoolV2`). Until a pool is set, `depositToPool` reverts
+///         instead of pretending to work.
 interface IConfidentialPoolBridge {
-    function depositFromToken(uint256 commitment, bytes calldata envelope) external;
+    function depositFromToken(
+        uint256 commitmentPay,
+        uint256 commitmentFee,
+        bytes calldata payEnvelope,
+        bytes calldata feeEnvelope
+    ) external;
+
+    /// The treasury key every fee note is filed for.
+    function treasuryOwnerPk() external view returns (uint256);
+
+    /// The smallest fee the pool accepts.
+    function feeFloor() external view returns (uint256);
 }
 
 /// @title Confidential wrapper over an ERC-20: balances as ciphertexts
@@ -39,6 +50,10 @@ interface IConfidentialPoolBridge {
 ///           public number anywhere.
 ///         - `creditPending` is the way back from the pool, callable only by
 ///           the pool itself.
+///         - `payOut` lets the pool pay a public withdrawal from the ERC-20
+///           held here: this contract is the custody for the pool's notes as
+///           well as for the balances, which is why value can cross between
+///           them without an ERC-20 transfer that would show the amount.
 ///
 /// @dev Ordering. Incoming value lands in `pending`, not in `available`, and
 ///      the owner moves it across with `applyPending`. Without that split,
@@ -149,6 +164,7 @@ contract Tidex6ConfidentialToken {
     error PoolAlreadySet();
     error OnlyPool();
     error OnlyDeployer();
+    error FeePolicyMismatch();
 
     constructor(
         IERC20 token_,
@@ -300,26 +316,39 @@ contract Tidex6ConfidentialToken {
     /// @notice Turn part of a confidential balance into a shielded-pool note.
     ///         The only operation here with no public number and no public
     ///         recipient.
-    /// @param input the circuit's eleven public inputs: sender key, sender
-    ///        available `(C, D)`, the spent ciphertext `(C_m, D_s)`, and the
-    ///        note commitment
-    /// @param envelope sealed note material for whoever the sender named
-    /// @dev The circuit is what ties the two worlds together: it proves that
-    ///      the amount inside the ElGamal ciphertext being debited is the same
-    ///      amount inside the Poseidon note commitment. Neither number is
-    ///      written down anywhere.
+    /// @param input the circuit's fourteen public inputs: sender key, sender
+    ///        available `(C, D)`, the debited ciphertext `(C_d, D_s)` of
+    ///        payment plus fee, the payment and fee leaves, the treasury key
+    ///        and the fee floor
+    /// @param payEnvelope sealed note material for the recipient
+    /// @param feeEnvelope sealed for the treasury's reader key
+    /// @dev The circuit ties the two worlds together: the amount inside the
+    ///      debited ElGamal ciphertext is the payment plus a fee that meets the
+    ///      pool's policy, and both pool leaves carry exactly those amounts.
+    ///      Neither number is written down anywhere. The treasury key and the
+    ///      floor the proof used must be the pool's own.
     function depositToPool(
         uint256[2] calldata proofA,
         uint256[2][2] calldata proofB,
         uint256[2] calldata proofC,
-        uint256[11] calldata input,
-        bytes calldata envelope
+        uint256[14] calldata input,
+        bytes calldata payEnvelope,
+        bytes calldata feeEnvelope
     ) external {
         if (pool == address(0)) revert PoolNotSet();
         Account storage sender = _depositChecks(input);
         _verifyDeposit(proofA, proofB, proofC, input);
         _applyDeposit(sender, input);
-        _handToPool(input, envelope);
+        _handToPool(input, payEnvelope, feeEnvelope);
+    }
+
+    /// @notice Pay a public withdrawal from the pool's notes in the open ERC-20.
+    /// @dev Pool only. The pool verified the withdraw proof and spent the
+    ///      note; the ERC-20 backing it has been here since the value was
+    ///      wrapped.
+    function payOut(address to, uint256 amount) external {
+        if (msg.sender != pool) revert OnlyPool();
+        if (!token.transfer(to, amount)) revert TransferFailed();
     }
 
     /// @notice Credit a confidential balance on the way out of the pool.
@@ -471,10 +500,15 @@ contract Tidex6ConfidentialToken {
         _debit(account, Cipher(BJJ.mulG(amount), BJJ.identity()));
     }
 
-    /// Field range and sender freshness for `depositToPool`.
-    function _depositChecks(uint256[11] calldata input) private view returns (Account storage sender) {
-        for (uint256 i = 0; i < 11; ++i) {
+    /// Field range, sender freshness and the pool's fee policy for
+    /// `depositToPool`.
+    function _depositChecks(uint256[14] calldata input) private view returns (Account storage sender) {
+        for (uint256 i = 0; i < 14; ++i) {
             _requireField(input[i]);
+        }
+        IConfidentialPoolBridge bridge = IConfidentialPoolBridge(pool);
+        if (input[12] != bridge.treasuryOwnerPk() || input[13] != bridge.feeFloor()) {
+            revert FeePolicyMismatch();
         }
         sender = _accountByKey(input[0], input[1]);
         _requireAvailable(sender, input[2], input[3], input[4], input[5]);
@@ -485,14 +519,14 @@ contract Tidex6ConfidentialToken {
         uint256[2] calldata proofA,
         uint256[2][2] calldata proofB,
         uint256[2] calldata proofC,
-        uint256[11] calldata input
+        uint256[14] calldata input
     ) private {
         _consumeProof(keccak256(abi.encodePacked(proofA, proofB, proofC, input)));
         if (!depositVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
     }
 
-    /// Debit the spent ciphertext `(C_m, D_s)`.
-    function _applyDeposit(Account storage sender, uint256[11] calldata input) private {
+    /// Debit the ciphertext of payment plus fee, `(C_d, D_s)`.
+    function _applyDeposit(Account storage sender, uint256[14] calldata input) private {
         _debit(sender, Cipher(BJJ.Point(input[6], input[7]), BJJ.Point(input[8], input[9])));
     }
 
@@ -501,9 +535,11 @@ contract Tidex6ConfidentialToken {
     /// Last in `depositToPool` on purpose: it is the only external call with
     /// state-changing effects on another contract, and every check and debit
     /// here has already happened.
-    function _handToPool(uint256[11] calldata input, bytes calldata envelope) private {
+    function _handToPool(uint256[14] calldata input, bytes calldata payEnvelope, bytes calldata feeEnvelope)
+        private
+    {
         emit DepositedToPool(keccak256(abi.encodePacked(input[0], input[1])), input[10]);
-        IConfidentialPoolBridge(pool).depositFromToken(input[10], envelope);
+        IConfidentialPoolBridge(pool).depositFromToken(input[10], input[11], payEnvelope, feeEnvelope);
     }
 
     /// Credit a ciphertext handed over by the pool.

@@ -64,6 +64,27 @@ building against `available`. The contract only **adds** ciphertexts and never
 multiplies points by scalars: on Solidity that is a few `mulmod`s, on Stylus
 plain u64-limb arithmetic like our Poseidon.
 
+### 3a. Custody: the token holds the ERC-20 for the pool too
+
+A pool that accepts value from an encrypted balance cannot receive an ERC-20
+transfer for it: the transfer would print the amount. So the pool for a
+confidential token (`Tidex6TokenPoolV2`) holds **no** ERC-20. Every unit of
+the underlying sits in the token contract and backs both the encrypted
+balances and the pool's notes. Crossing between them moves no tokens:
+
+- `depositToPool` (token) verifies `DepositFromToken`, debits the ciphertext of
+  payment plus fee, checks that the proof used the pool's treasury key and fee
+  floor, and calls the pool's `depositFromToken`, which files the two leaves.
+- `withdrawToToken` (pool) verifies `WithdrawToToken`, spends the nullifier and
+  calls the token's `creditPending`.
+- A public `withdraw` (pool, `withdraw_v2` proof) is paid by the token's
+  `payOut` from the same custody.
+
+Plain v2 pools (open deposits, refunds) stay as they are; a token pool is a
+separate deployment per confidential token. Notes there have no refund: the
+refund path rebuilds the leaf from a public amount, and these notes never had
+one.
+
 ### 4. Circuits (Groth16, BN254, browser prover)
 
 1. `TokenTransfer`: knowledge of the sender's key; new available = old − m;
@@ -111,10 +132,12 @@ Token-to-token transfers outside the pool carry no fee in the first version.
    commitment, an overspend, a fee below the floor, and a spend with someone
    else's key. Sizes: 3.5k / 18.9k / 7.2k / 14.3k / 11.9k constraints, proofs
    0.05–0.25 s natively.
-3. Baby Jubjub point addition for Solidity and Stylus, cross-checked with the
-   Rust code.
-4. Token contract on both stacks; pool v2 entry points `depositFromToken` and
-   `withdrawToToken`.
+3. Baby Jubjub point addition for Solidity and Stylus. **Solidity done**
+   (`BabyJubjub.sol`, generated constants, 17.09); Stylus next.
+4. Token contract on both stacks; token pool with `depositFromToken` and
+   `withdrawToToken`. **Solidity:** `Tidex6ConfidentialToken.sol` (17.09) moved
+   to the v2 deposit and given `payOut`; `Tidex6TokenPoolV2.sol` written
+   01.10.2026. Stylus next.
 5. Client: ElGamal key from the signature, encryption, openings in the
    envelope, WASM prover, Wrap / Transfer / Unwrap screens.
 6. Ceremony for the token circuits; keys into the verifiers.
