@@ -29,7 +29,7 @@ import {IWithdrawVerifierV2, ITransferVerifierV2} from "../src/Tidex6HiddenPoolV
 /// @dev Alice is the devnode's prefunded key; Bob is derived here and funded
 ///      by Alice. Development verifying keys only.
 contract TokenCircle is Script {
-    uint256 internal constant ALICE_PK = 0xb6b15c8cb491557369f3c7d2c287b053eb229daa9c22138887752191c9a8e98c;
+    uint256 internal constant ALICE_PK = 0xb6b15c8cb491557369f3c7d2c287b053eb229daa9c22138887752191c9520659;
 
     string internal json;
 
