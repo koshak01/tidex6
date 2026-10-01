@@ -133,11 +133,15 @@ Token-to-token transfers outside the pool carry no fee in the first version.
    else's key. Sizes: 3.5k / 18.9k / 7.2k / 14.3k / 11.9k constraints, proofs
    0.05–0.25 s natively.
 3. Baby Jubjub point addition for Solidity and Stylus. **Solidity done**
-   (`BabyJubjub.sol`, generated constants, 17.09); Stylus next.
+   (`BabyJubjub.sol`, generated constants, 17.09). **Stylus done** 01.10.2026
+   (`stylus/common/src/babyjubjub.rs`), matched an independent reference.
 4. Token contract on both stacks; token pool with `depositFromToken` and
    `withdrawToToken`. **Solidity:** `Tidex6ConfidentialToken.sol` (17.09) moved
    to the v2 deposit and given `payOut`; `Tidex6TokenPoolV2.sol` written
-   01.10.2026. Stylus next.
+   01.10.2026, `forge build` clean, 76/76 existing tests green. **Stylus:**
+   `stylus/confidential-token`, `stylus/token-pool-v2` and the five
+   `token-*-verifier` crates (keys exported from the same setup as the
+   Solidity verifiers), 01.10.2026.
 5. Client: ElGamal key from the signature, encryption, openings in the
    envelope, WASM prover, Wrap / Transfer / Unwrap screens.
 6. Ceremony for the token circuits; keys into the verifiers.
