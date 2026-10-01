@@ -19,6 +19,11 @@ members = [
     "owner-keys",
     "hidden-withdraw-verifier-v2",
     "hidden-transfer-verifier-v2",
+    "token-pubkey-verifier",
+    "token-transfer-verifier",
+    "token-unwrap-verifier",
+    "token-deposit-verifier",
+    "token-exit-verifier",
 ]
 # No `default-members`: the reproducible build (`cargo stylus deploy` /
 # `verify`, stylus-tools 0.10.9) mounts the workspace root and runs a plain

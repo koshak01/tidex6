@@ -1041,6 +1041,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidex6-stylus-token-deposit-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-token-exit-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-token-pubkey-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-token-transfer-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
+name = "tidex6-stylus-token-unwrap-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "stylus-sdk",
+ "tidex6-stylus-common",
+]
+
+[[package]]
 name = "tidex6-stylus-verifier"
 version = "0.1.0"
 dependencies = [

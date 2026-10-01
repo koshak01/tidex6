@@ -21,6 +21,7 @@
 //!
 //! ```text
 //! contracts/src/Tidex6Token<Name>Verifier.sol
+//! stylus/token-<name>-verifier/src/vk.rs
 //! crates/tidex6-confidential/artifacts/token_<name>_pk.bin
 //! ```
 //!
@@ -59,7 +60,7 @@ use ark_ed_on_bn254::{EdwardsConfig, Fq as BjjBase, Fr as BjjFr};
 use ark_ff::PrimeField;
 
 use tidex6_circuits::ceremony::find_workspace_root;
-use tidex6_circuits::evm_solidity::render_solidity_verifier_named;
+use tidex6_circuits::evm_solidity::{render_solidity_verifier_named, render_stylus_vk};
 use tidex6_confidential::token::elgamal;
 use tidex6_confidential::token::{deposit, exit, pubkey, transfer, unwrap};
 
@@ -93,6 +94,8 @@ struct Emitted {
     file_stem: &'static str,
     /// How many public inputs the circuit is declared to take.
     declared_inputs: usize,
+    /// Stylus crate directory under `stylus/` that embeds the same key.
+    stylus_crate: &'static str,
 }
 
 /// Write one verifier and its proving key.
@@ -128,6 +131,14 @@ fn emit(root: &Path, pk: &ProvingKey<Bn254>, vk: &VerifyingKey<Bn254>, meta: &Em
         public_inputs,
         solidity_path.display()
     );
+
+    let stylus_path = root.join(format!("stylus/{}/src/vk.rs", meta.stylus_crate));
+    fs::write(
+        &stylus_path,
+        render_stylus_vk(vk, DEV_HEADER.trim_end_matches('\n')),
+    )
+    .expect("write Stylus vk.rs");
+    println!("  stylus key: {}", stylus_path.display());
 
     let dir = root.join("crates/tidex6-confidential/artifacts");
     fs::create_dir_all(&dir).expect("create artifacts dir");
@@ -235,6 +246,7 @@ fn main() {
             circuit_label: "confidential-token public-key validity circuit",
             file_stem: "pubkey",
             declared_inputs: pubkey::PUBKEY_NR_PUBLIC_INPUTS,
+            stylus_crate: "token-pubkey-verifier",
         },
     );
 
@@ -249,6 +261,7 @@ fn main() {
             circuit_label: "confidential-token transfer circuit",
             file_stem: "transfer",
             declared_inputs: transfer::TRANSFER_NR_PUBLIC_INPUTS,
+            stylus_crate: "token-transfer-verifier",
         },
     );
 
@@ -263,6 +276,7 @@ fn main() {
             circuit_label: "confidential-token unwrap circuit",
             file_stem: "unwrap",
             declared_inputs: unwrap::UNWRAP_NR_PUBLIC_INPUTS,
+            stylus_crate: "token-unwrap-verifier",
         },
     );
 
@@ -277,6 +291,7 @@ fn main() {
             circuit_label: "confidential-token deposit-to-pool circuit",
             file_stem: "deposit",
             declared_inputs: deposit::DEPOSIT_NR_PUBLIC_INPUTS,
+            stylus_crate: "token-deposit-verifier",
         },
     );
 
@@ -291,6 +306,7 @@ fn main() {
             circuit_label: "confidential-token pool-exit circuit",
             file_stem: "exit",
             declared_inputs: exit::EXIT_NR_PUBLIC_INPUTS,
+            stylus_crate: "token-exit-verifier",
         },
     );
 }
