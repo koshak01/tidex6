@@ -39,6 +39,10 @@ contract TokenCircle is Script {
         address alice = vm.addr(ALICE_PK);
         address bob = vm.addr(bobPk);
         uint64 wrapped = uint64(vm.parseJsonUint(json, ".wrapped"));
+        // The proofs bind each registration to an address; check that the
+        // keys here are the ones the proofs were made for.
+        require(alice == vm.parseJsonAddress(json, ".aliceAddress"), "alice address");
+        require(bob == vm.parseJsonAddress(json, ".bobAddress"), "bob address");
 
         // ── deploy ───────────────────────────────────────────────────
         vm.startBroadcast(ALICE_PK);

@@ -17,7 +17,7 @@ pragma solidity ^0.8.20;
 /// @notice Verifies BN254 Groth16 proofs produced by the tidex6 browser
 ///         prover. Generated from the verifying key — do not edit by hand;
 ///         regenerate with the exporter named in the header.
-/// @dev Public inputs: 2
+/// @dev Public inputs: 4
 contract Tidex6TokenPubkeyVerifier {
     // Base field modulus.
     uint256 constant q =
@@ -45,14 +45,20 @@ contract Tidex6TokenPubkeyVerifier {
     uint256 constant deltay1 = 10864777115067762553148331907591701985194201865816545969701094215436697515276;
     uint256 constant deltay2 = 6817090161164484406492694016368556299424224441797312116364309305081510557965;
 
-    uint256 constant IC0x = 7043817785586036167669310849720189323305050869760553190132704230549958592119;
-    uint256 constant IC0y = 3321394125253704289142318475953157548650081593274151070552676646505023499266;
+    uint256 constant IC0x = 12335876343217589129253180183910031100346696810364910467495463786314015994459;
+    uint256 constant IC0y = 21665662108092907012939155768322792633224282005821346326509651948634076562105;
 
-    uint256 constant IC1x = 12382363034646767777092353912489631125494081826307606556957158123650317957538;
-    uint256 constant IC1y = 12284579331532057393739630120708680315583133408916472347464388092188341145116;
+    uint256 constant IC1x = 20122904746203086544722253239011365077358916002569359087600009736174578350948;
+    uint256 constant IC1y = 11720564623596372151183314431949386794120088051426120890485455891704454740914;
 
-    uint256 constant IC2x = 17333966449713707082614865098873603794258277869202899102582512599431018836167;
-    uint256 constant IC2y = 17501252341850187926384830100666904514186938675833691893515056668062522946633;
+    uint256 constant IC2x = 8773348486698517764254132517313842775668117525045467434193434983227470395916;
+    uint256 constant IC2y = 20438565713591786749846371888830065511305649673116527426749666446439906089801;
+
+    uint256 constant IC3x = 4167391981942117441815687069508274014224952079871343152113061612096178547286;
+    uint256 constant IC3y = 11519800047052575260768304007527886437268227815009785876801901131414347464043;
+
+    uint256 constant IC4x = 13080389862394297785339084088792533532608996946293563822287932849405288203291;
+    uint256 constant IC4y = 21704322684554413570488138484364060521639498357038147841534512330583173180444;
 
     uint16 constant pVk = 0;
     uint16 constant pPairing = 128;
@@ -63,13 +69,13 @@ contract Tidex6TokenPubkeyVerifier {
     /// @param _pA Proof element A.
     /// @param _pB Proof element B, in EVM pairing order.
     /// @param _pC Proof element C.
-    /// @param _pubSignals The 2 public inputs.
+    /// @param _pubSignals The 4 public inputs.
     /// @return True when the proof is valid for these inputs.
     function verifyProof(
         uint[2] calldata _pA,
         uint[2][2] calldata _pB,
         uint[2] calldata _pC,
-        uint[2] calldata _pubSignals
+        uint[4] calldata _pubSignals
     ) public view returns (bool) {
         assembly {
             function checkField(v) {
@@ -113,6 +119,8 @@ contract Tidex6TokenPubkeyVerifier {
                 // Accumulate the public-input commitment.
                 g1MulAccC(_pVk, IC1x, IC1y, calldataload(add(pubSignals, 0)))
                 g1MulAccC(_pVk, IC2x, IC2y, calldataload(add(pubSignals, 32)))
+                g1MulAccC(_pVk, IC3x, IC3y, calldataload(add(pubSignals, 64)))
+                g1MulAccC(_pVk, IC4x, IC4y, calldataload(add(pubSignals, 96)))
 
                 // -A
                 mstore(_pPairing, calldataload(pA))
@@ -175,6 +183,8 @@ contract Tidex6TokenPubkeyVerifier {
             // Reject public inputs outside the scalar field.
             checkField(calldataload(add(_pubSignals, 0)))
             checkField(calldataload(add(_pubSignals, 32)))
+            checkField(calldataload(add(_pubSignals, 64)))
+            checkField(calldataload(add(_pubSignals, 96)))
 
             let isValid := checkPairing(_pA, _pB, _pC, _pubSignals, pMem)
 

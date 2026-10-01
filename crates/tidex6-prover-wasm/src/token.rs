@@ -24,7 +24,8 @@ use tidex6_confidential::token::{deposit, exit, pubkey, transfer, unwrap};
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    field, groth16_proof_to_evm_bytes, hidden_merkle_path, proving_key_from, uint8array_to_vec,
+    field, groth16_proof_to_evm_bytes, hidden_merkle_path, proving_key_from, to_field_bytes,
+    uint8array_to_vec,
 };
 
 /// A confidential-token key derived from the wallet signature.
@@ -181,18 +182,22 @@ pub fn token_key_from_signature(signature: &[u8]) -> Result<TokenKey, JsError> {
     })
 }
 
-/// Registration proof: the key is `s⁻¹·H` for a secret this tab knows.
+/// Registration proof: the key is `s⁻¹·H` for a secret this tab knows, bound
+/// to `owner` — the registering address as a 32-byte word (EVM address
+/// left-padded with zeros).
 #[wasm_bindgen(js_name = tokenProvePubkey)]
 pub fn token_prove_pubkey(
     secret: &Uint8Array,
+    owner: &Uint8Array,
     proving_key: &Uint8Array,
 ) -> Result<TokenProof, JsError> {
     let secret = secret_from(secret)?;
     let public = secret
         .public_key()
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let owner = to_field_bytes(owner, "owner")?;
     let pk = proving_key_from(proving_key)?;
-    let (proof, inputs) = pubkey::prove(&pk, &secret, &public, &mut rand::thread_rng())
+    let (proof, inputs) = pubkey::prove(&pk, &secret, &public, &owner, &mut rand::thread_rng())
         .map_err(|e| js("pubkey proof")(e.to_string()))?;
     finish(&pk, proof, &inputs, [0u8; 32])
 }

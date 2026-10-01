@@ -109,6 +109,16 @@ onto the curve and into the same subgroup. Our canonical coordinates are the
 arkworks ones; contracts add points with `a = 1, d = d'`. Interoperability with
 iden3 tooling, if ever needed, is a coordinate map, not a different curve.
 
+### 4b. Registration is bound to the caller
+
+The key-validity proof takes the registering address as a public input
+(`[P.x, P.y, owner_hi, owner_lo]`), and the contract supplies `msg.sender`.
+Found in the review of 01.10.2026: without it, a registration copied from the
+mempool and sent first from another address would claim the key for that
+address. The owner's key is derived from their wallet and cannot change, so
+they would be locked out of it for good, and every payment to that key would
+land on an account nobody can spend.
+
 ### 5. Ceremony
 
 The token circuits get **their own** trusted-setup ceremony once they are

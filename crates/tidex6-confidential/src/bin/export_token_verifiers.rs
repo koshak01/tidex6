@@ -6,7 +6,7 @@
 //!
 //! | circuit    | public inputs | what the contract learns |
 //! |------------|---------------|--------------------------|
-//! | `pubkey`   | 2             | the registered point is a valid key |
+//! | `pubkey`   | 4             | the registered point is a valid key, for this caller |
 //! | `transfer` | 18            | a balance moved; no amount anywhere |
 //! | `unwrap`   | 7             | an amount left for the open ERC-20 |
 //! | `deposit`  | 14            | a balance became two v2 pool notes (payment, fee) |

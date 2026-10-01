@@ -87,11 +87,20 @@ fn main() {
     let (pk_key, vk_key) = pubkey::setup(&mut rng).expect("setup");
     println!("  setup {:?}", t.elapsed());
     let t = Instant::now();
-    let (proof, public) = pubkey::prove(&pk_key, &alice, &alice_pk, &mut rng).expect("prove");
+    let owner = [0x11u8; 32];
+    let (proof, public) =
+        pubkey::prove(&pk_key, &alice, &alice_pk, &owner, &mut rng).expect("prove");
     println!("  prove {:?}", t.elapsed());
-    let ok = pubkey::verify(&pubkey::prepare_vk(&vk_key), &proof, &public).expect("verify");
+    let prepared_key = pubkey::prepare_vk(&vk_key);
+    let ok = pubkey::verify(&prepared_key, &proof, &public).expect("verify");
     println!("  verify: {ok}");
     assert!(ok);
+    // The same proof submitted for another address must not verify.
+    let mut stolen = public;
+    stolen[3] += Fr::from(1u64);
+    let bad = pubkey::verify(&prepared_key, &proof, &stolen).expect("verify");
+    println!("  verify for another owner: {bad}");
+    assert!(!bad);
 
     // ── transfer circuit ─────────────────────────────────────────────
     let (n, inputs) = count_constraints(TokenTransferCircuit::default());

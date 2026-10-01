@@ -47,6 +47,38 @@ use tidex6_core::types::Commitment;
 
 const FEE_FLOOR: u64 = 100_000;
 
+/// Who registers each key, as `TokenCircle.s.sol` derives them: Alice is the
+/// devnode's prefunded key, Bob `keccak256("tidex6 token circle: bob")`. The
+/// script checks `vm.addr` against these before the first call, so a drift
+/// shows up as one clear failure instead of an invalid proof.
+const ALICE_ADDRESS: [u8; 20] = hex20("3f1eae7d46d88f08fc2f8ed27fcb2ab183eb2d0e");
+const BOB_ADDRESS: [u8; 20] = hex20("6820a6fdafafd445f5f558fcccb18c95dc471032");
+
+const fn hex20(text: &str) -> [u8; 20] {
+    let bytes = text.as_bytes();
+    let mut out = [0u8; 20];
+    let mut i = 0;
+    while i < 20 {
+        out[i] = nibble(bytes[2 * i]) << 4 | nibble(bytes[2 * i + 1]);
+        i += 1;
+    }
+    out
+}
+
+const fn nibble(c: u8) -> u8 {
+    match c {
+        b'0'..=b'9' => c - b'0',
+        _ => c - b'a' + 10,
+    }
+}
+
+/// An EVM address as the 32-byte word the circuits take.
+fn word(address: [u8; 20]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[12..].copy_from_slice(&address);
+    out
+}
+
 fn hex(f: &Fr) -> String {
     let mut out = String::from("0x");
     for b in fr_to_be_bytes(*f) {
@@ -110,9 +142,17 @@ fn main() {
     let pk_exit = load_pk(&root, "exit");
 
     // 1. Registration.
-    let (p, i) = pubkey::prove(&pk_pubkey, &alice, &alice_pk, &mut rng).expect("alice pubkey");
+    let (p, i) = pubkey::prove(
+        &pk_pubkey,
+        &alice,
+        &alice_pk,
+        &word(ALICE_ADDRESS),
+        &mut rng,
+    )
+    .expect("alice pubkey");
     let register_alice = step(&p, &i);
-    let (p, i) = pubkey::prove(&pk_pubkey, &bob, &bob_pk, &mut rng).expect("bob pubkey");
+    let (p, i) =
+        pubkey::prove(&pk_pubkey, &bob, &bob_pk, &word(BOB_ADDRESS), &mut rng).expect("bob pubkey");
     let register_bob = step(&p, &i);
 
     // 2. Wrap + applyPending: available = O + (m·G, O).
@@ -238,12 +278,20 @@ fn main() {
 
     let json = format!(
         "{{\n  \"wrapped\": {wrapped},\n  \"feeFloor\": {FEE_FLOOR},\n  \"treasuryPk\": \"{}\",\n  \
-         \"aliceKey\": {},\n  \"bobKey\": {},\n  \"poolRootAfterDeposit\": \"{}\",\n  \
+         \"aliceAddress\": \"0x{}\",\n  \"bobAddress\": \"0x{}\",\n  \"aliceKey\": {},\n  \"bobKey\": {},\n  \"poolRootAfterDeposit\": \"{}\",\n  \
          \"bobUnwraps\": {bob_balance},\n  \"aliceUnwraps\": {alice_balance},\n  \
          \"registerAlice\": {register_alice},\n  \"registerBob\": {register_bob},\n  \
          \"transfer\": {transfer_step},\n  \"deposit\": {deposit_step},\n  \"exit\": {exit_step},\n  \
          \"unwrapBob\": {unwrap_bob},\n  \"unwrapAlice\": {unwrap_alice}\n}}\n",
         hex(&treasury_pk),
+        ALICE_ADDRESS
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+        BOB_ADDRESS
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
         point_json(&alice_pk.0),
         point_json(&bob_pk.0),
         hex(&merkle_root),

@@ -174,8 +174,13 @@ impl Tidex6ConfidentialToken {
         if self.key_owner.get(key_hash) != Address::ZERO {
             return Err(TokenError::KeyTaken(KeyTaken {}));
         }
+        // Bound to the caller: a proof copied from the mempool and sent from
+        // another address does not verify, so nobody can claim a key first.
+        let word = U256::from_be_slice(owner.as_slice());
+        let mask = (U256::from(1) << 128) - U256::from(1);
+        let input = [key[0], key[1], word >> 128, word & mask];
         let verifier = self.pubkey_verifier.get();
-        if !self.verify(verifier, SEL_VERIFY_2, &proof_a, &proof_b, &proof_c, &key) {
+        if !self.verify(verifier, SEL_VERIFY_4, &proof_a, &proof_b, &proof_c, &input) {
             return Err(TokenError::InvalidProof(InvalidProof {}));
         }
         let identity = babyjubjub::identity();
@@ -466,12 +471,12 @@ const SEL_TREASURY_OWNER_PK: [u8; 4] = stylus_sdk::function_selector!("treasuryO
 const SEL_FEE_FLOOR: [u8; 4] = stylus_sdk::function_selector!("feeFloor");
 const SEL_DEPOSIT_FROM_TOKEN: [u8; 4] =
     stylus_sdk::function_selector!("depositFromToken", U256, U256, Bytes, Bytes);
-const SEL_VERIFY_2: [u8; 4] = stylus_sdk::function_selector!(
+const SEL_VERIFY_4: [u8; 4] = stylus_sdk::function_selector!(
     "verifyProof",
     [U256; 2],
     [[U256; 2]; 2],
     [U256; 2],
-    [U256; 2]
+    [U256; 4]
 );
 const SEL_VERIFY_7: [u8; 4] = stylus_sdk::function_selector!(
     "verifyProof",

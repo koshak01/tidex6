@@ -195,7 +195,11 @@ contract Tidex6ConfidentialToken {
     /// @dev The proof is what makes this safe: it shows `s*P == H` for a
     ///      secret the caller knows, so `P` is on the curve, in the
     ///      prime-order subgroup, and actually owned. A point registered
-    ///      without it could be unspendable, or someone else's.
+    ///      without it could be unspendable, or someone else's. The proof is
+    ///      also bound to `msg.sender`: copied from the mempool and submitted
+    ///      from another address, it does not verify — otherwise anyone could
+    ///      claim a key first, and the owner, whose key is derived from their
+    ///      wallet and cannot change, would be locked out of it for good.
     function register(
         uint256[2] calldata key,
         uint256[2] calldata proofA,
@@ -210,7 +214,9 @@ contract Tidex6ConfidentialToken {
         bytes32 keyHash = keccak256(abi.encodePacked(key[0], key[1]));
         if (keyOwner[keyHash] != address(0)) revert KeyTaken();
 
-        if (!pubkeyVerifier.verifyProof(proofA, proofB, proofC, key)) revert InvalidProof();
+        uint256 owner = uint256(uint160(msg.sender));
+        uint256[4] memory input = [key[0], key[1], owner >> 128, owner & type(uint128).max];
+        if (!pubkeyVerifier.verifyProof(proofA, proofB, proofC, input)) revert InvalidProof();
 
         account.key = BJJ.Point(key[0], key[1]);
         account.available = _emptyCipher();
