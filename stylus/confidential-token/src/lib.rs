@@ -125,7 +125,13 @@ pub struct Tidex6ConfidentialToken {
 
 #[public]
 impl Tidex6ConfidentialToken {
+    /// `deployer` is the address allowed to name the pool once. It is an
+    /// argument rather than `msg_sender()`: `cargo stylus deploy` runs the
+    /// constructor through the `StylusDeployer` factory, so the sender here
+    /// is the factory, and a deployer taken from it could never call
+    /// `setPool`.
     #[constructor]
+    #[allow(clippy::too_many_arguments)]
     pub fn constructor(
         &mut self,
         token: Address,
@@ -133,13 +139,13 @@ impl Tidex6ConfidentialToken {
         transfer_verifier: Address,
         unwrap_verifier: Address,
         deposit_verifier: Address,
+        deployer: Address,
     ) {
         self.token.set(token);
         self.pubkey_verifier.set(pubkey_verifier);
         self.transfer_verifier.set(transfer_verifier);
         self.unwrap_verifier.set(unwrap_verifier);
         self.deposit_verifier.set(deposit_verifier);
-        let deployer = self.vm().msg_sender();
         self.deployer.set(deployer);
     }
 
