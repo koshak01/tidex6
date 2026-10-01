@@ -1,7 +1,7 @@
 [package]
 name = "tidex6-prover-wasm"
 description = "Browser-side Groth16 proving for the tidex6 withdraw circuit. Compiled to WebAssembly via wasm-pack so the user's secret/nullifier never leave their machine. Excluded from the workspace because it targets wasm32-unknown-unknown and pulls in browser-only crates (getrandom/js, wasm-bindgen)."
-version = "2.8.0"
+version = "2.9.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -25,6 +25,9 @@ ark-bn254 = "0.5"
 ark-groth16 = "0.5"
 ark-ff = "0.5"
 ark-serialize = "0.5"
+# Confidential token (ADR-023): Baby Jubjub points and self-verification.
+ark-ed-on-bn254 = "0.5"
+ark-snark = "0.5"
 
 wasm-bindgen = "0.2"
 js-sys = "0.3"

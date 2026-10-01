@@ -95,6 +95,33 @@ pub const SIGNATURE_LEN_SECP256K1: usize = 65;
 
 const DOMAIN_SPEND: &[u8] = b"tidex6/identity/v1/spend";
 const DOMAIN_MLKEM: &[u8] = b"tidex6/identity/v1/mlkem";
+const DOMAIN_ELGAMAL: &[u8] = b"tidex6/identity/v1/elgamal";
+
+/// Seed of the confidential-token ElGamal key (ADR-023), from the same wallet
+/// signature as the rest of the identity.
+///
+/// A separate domain, like every other key here: the ElGamal secret tells
+/// nothing about the spending key or the ML-KEM secret, and none of those
+/// changes because this one exists. The token crate reduces the 64 bytes to a
+/// Baby Jubjub scalar — 512 bits into a 251-bit order, so the bias is
+/// negligible.
+///
+/// # Параметры
+/// * `signature` — the wallet's signature over [`IDENTITY_MESSAGE`], unchanged
+///
+/// # Возвращает
+/// * `Result<[u8; 64], IdentityError>` — the seed, or a length error
+pub fn elgamal_seed(signature: &[u8]) -> Result<[u8; 64], IdentityError> {
+    if signature.len() != SIGNATURE_LEN && signature.len() != SIGNATURE_LEN_SECP256K1 {
+        return Err(IdentityError::BadSignatureLength {
+            got: signature.len(),
+        });
+    }
+    let mut hasher = Sha512::new();
+    hasher.update(DOMAIN_ELGAMAL);
+    hasher.update(signature);
+    Ok(hasher.finalize().into())
+}
 
 /// A complete tidex6 identity: what to spend with, what to read with, and the
 /// address to hand out.

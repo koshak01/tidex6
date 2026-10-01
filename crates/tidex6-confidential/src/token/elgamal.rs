@@ -96,6 +96,17 @@ impl SecretKey {
         }
     }
 
+    /// Ключ из 64-байтного зерна (`tidex6_core::identity::elgamal_seed`):
+    /// зерно сводится по модулю порядка подгруппы. Ноль отвергается — у него
+    /// нет обратного, и открытый ключ не определён.
+    pub fn from_seed(seed: &[u8; 64]) -> Result<Self, ElGamalError> {
+        let s = BjjFr::from_le_bytes_mod_order(seed);
+        if s.is_zero() {
+            return Err(ElGamalError::ZeroSecret);
+        }
+        Ok(Self(s))
+    }
+
     /// `P = s⁻¹·H`.
     pub fn public_key(&self) -> Result<PublicKey, ElGamalError> {
         let inverse = self.0.inverse().ok_or(ElGamalError::ZeroSecret)?;

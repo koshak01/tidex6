@@ -37,6 +37,8 @@ use tidex6_core::poseidon;
 use tidex6_core::pqc::PqcSecretKey;
 use wasm_bindgen::prelude::*;
 
+mod token;
+
 const DEPTH: usize = 20;
 const FIELD_BYTES: usize = 32;
 const PROOF_A_BYTES: usize = 64;

@@ -1405,12 +1405,14 @@ dependencies = [
 
 [[package]]
 name = "tidex6-prover-wasm"
-version = "2.8.0"
+version = "2.9.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "ark-ed-on-bn254",
  "ark-ff 0.5.0",
  "ark-groth16",
  "ark-serialize 0.5.0",
+ "ark-snark",
  "console_error_panic_hook",
  "getrandom 0.2.17",
  "getrandom 0.4.2",
