@@ -15,8 +15,16 @@
 //! ```
 //!
 //! Writes `contracts/script/token_circle.json`; `contracts/script/TokenCircle.s.sol`
-//! deploys the Solidity contracts and replays it. Proving keys are the
-//! development ones in `artifacts/` — run `export_token_verifiers` first, the
+//! deploys the Solidity contracts and replays it.
+//!
+//! For a live network, where the token and its pool already exist, three
+//! variables override the local defaults:
+//!
+//! - `CIRCLE_ALICE` — Alice's address (the key that will run the script);
+//! - `CIRCLE_TREASURY_PK` — the pool's `treasuryOwnerPk()`, decimal;
+//! - `CIRCLE_OUT` — the file name under `contracts/script/`.
+//!
+//! Proving keys are the development ones in `artifacts/` — run `export_token_verifiers` first, the
 //! verifiers and the keys must come from the same setup.
 //!
 //! ```text
@@ -47,29 +55,22 @@ use tidex6_core::types::Commitment;
 
 const FEE_FLOOR: u64 = 100_000;
 
-/// Who registers each key, as `TokenCircle.s.sol` derives them: Alice is the
-/// devnode's prefunded key, Bob `keccak256("tidex6 token circle: bob")`. The
-/// script checks `vm.addr` against these before the first call, so a drift
-/// shows up as one clear failure instead of an invalid proof.
-const ALICE_ADDRESS: [u8; 20] = hex20("3f1eae7d46d88f08fc2f8ed27fcb2ab183eb2d0e");
-const BOB_ADDRESS: [u8; 20] = hex20("6820a6fdafafd445f5f558fcccb18c95dc471032");
+/// Who registers each key, as `TokenCircle.s.sol` derives them: on the local
+/// chain Alice is the devnode's prefunded key; Bob is always
+/// `keccak256("tidex6 token circle: bob")`. The script checks `vm.addr`
+/// against these before the first call, so a drift shows up as one clear
+/// failure instead of an invalid proof.
+const DEVNODE_ALICE: &str = "3f1eae7d46d88f08fc2f8ed27fcb2ab183eb2d0e";
+const BOB_ADDRESS: &str = "6820a6fdafafd445f5f558fcccb18c95dc471032";
 
-const fn hex20(text: &str) -> [u8; 20] {
-    let bytes = text.as_bytes();
+fn address(text: &str) -> [u8; 20] {
+    let hex = text.trim_start_matches("0x").to_ascii_lowercase();
+    assert_eq!(hex.len(), 40, "address must be 20 bytes: {text}");
     let mut out = [0u8; 20];
-    let mut i = 0;
-    while i < 20 {
-        out[i] = nibble(bytes[2 * i]) << 4 | nibble(bytes[2 * i + 1]);
-        i += 1;
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex address");
     }
     out
-}
-
-const fn nibble(c: u8) -> u8 {
-    match c {
-        b'0'..=b'9' => c - b'0',
-        _ => c - b'a' + 10,
-    }
 }
 
 /// An EVM address as the 32-byte word the circuits take.
@@ -128,6 +129,9 @@ fn empty() -> Ciphertext {
 
 fn main() {
     let root = find_workspace_root();
+    let alice_address =
+        address(&std::env::var("CIRCLE_ALICE").unwrap_or_else(|_| DEVNODE_ALICE.to_string()));
+    let bob_address = address(BOB_ADDRESS);
     let mut rng = StdRng::seed_from_u64(0x7469_6465_7836_4369); // "tidex6Ci"
 
     let alice = SecretKey::from_seed(&[0x11; 64]).expect("alice key");
@@ -146,13 +150,13 @@ fn main() {
         &pk_pubkey,
         &alice,
         &alice_pk,
-        &word(ALICE_ADDRESS),
+        &word(alice_address),
         &mut rng,
     )
     .expect("alice pubkey");
     let register_alice = step(&p, &i);
     let (p, i) =
-        pubkey::prove(&pk_pubkey, &bob, &bob_pk, &word(BOB_ADDRESS), &mut rng).expect("bob pubkey");
+        pubkey::prove(&pk_pubkey, &bob, &bob_pk, &word(bob_address), &mut rng).expect("bob pubkey");
     let register_bob = step(&p, &i);
 
     // 2. Wrap + applyPending: available = O + (m·G, O).
@@ -194,7 +198,12 @@ fn main() {
     let rho = Fr::from(0x0e40_u64);
     let aux = Fr::from(0x0a0a_u64);
     let core_pay = note_v2::core(note_v2::owner_pk(bob_spend), rho, aux);
-    let treasury_pk = note_v2::owner_pk(Fr::from(0x7ea5_u64));
+    let treasury_pk = match std::env::var("CIRCLE_TREASURY_PK") {
+        Ok(decimal) => decimal
+            .parse::<Fr>()
+            .unwrap_or_else(|_| panic!("CIRCLE_TREASURY_PK: decimal field element")),
+        Err(_) => note_v2::owner_pk(Fr::from(0x7ea5_u64)),
+    };
     let pay = 300_000u64;
     let fee = fee_for(pay, FEE_FLOOR);
     let w = deposit::DepositFromTokenWitness {
@@ -284,11 +293,11 @@ fn main() {
          \"transfer\": {transfer_step},\n  \"deposit\": {deposit_step},\n  \"exit\": {exit_step},\n  \
          \"unwrapBob\": {unwrap_bob},\n  \"unwrapAlice\": {unwrap_alice}\n}}\n",
         hex(&treasury_pk),
-        ALICE_ADDRESS
+        alice_address
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>(),
-        BOB_ADDRESS
+        bob_address
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>(),
@@ -298,7 +307,8 @@ fn main() {
     );
     let dir = root.join("contracts/script");
     fs::create_dir_all(&dir).expect("script dir");
-    let path = dir.join("token_circle.json");
+    let name = std::env::var("CIRCLE_OUT").unwrap_or_else(|_| "token_circle.json".to_string());
+    let path = dir.join(name);
     fs::write(&path, json).expect("write circle");
     println!("wrote {}", path.display());
     println!(
