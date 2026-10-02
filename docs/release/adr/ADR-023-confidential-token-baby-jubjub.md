@@ -174,6 +174,16 @@ Token-to-token transfers outside the pool carry no fee in the first version.
    `cargo stylus deploy` runs constructors through the `StylusDeployer`
    factory, so the token takes the address allowed to call `setPool` as an
    argument.
+4d. **First live round, Arbitrum Sepolia, 02.10.2026** (`token_circle_live.sh`,
+   twelve transactions, all successful). The private steps move no ERC-20 at
+   all — checked on the receipts: transfer
+   `0x69f9179a2ea1faf5d0ef1f439621c4f6774a06a5baa508f02207d3044c458065`,
+   deposit into the pool
+   `0x1e3b3c238d77c2cd4cbf9935d8047362b2e238e9ed5ca694bfc01a993320ab13`,
+   note back onto a balance
+   `0x17c33e432df65171e60dae8e1b75b892d916bb35afaef4be92e7a9b0c34fcc8b`.
+   Only wrap (1 USDC in) and the two unwraps show amounts. Stylus gas: transfer
+   756k, deposit 6.13M, withdrawToToken 608k, unwrap ~610k.
 5. Client: ElGamal key from the signature, encryption, openings in the
    envelope, WASM prover, Wrap / Transfer / Unwrap screens. **WASM prover
    done** (`tidex6-prover-wasm` 2.9.0); screens next.
