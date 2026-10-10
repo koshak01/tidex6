@@ -36,9 +36,12 @@ use tidex6_pool_v2::{DepositArgs, MemoAccount, NullifierRecord, OwnerKey, PoolSt
 use crate::confidential::LocalIdentity;
 use crate::evm::note::{build_tree, fr_to_word};
 
-/// SPL Token program (the pool holds classic SPL tokens).
+/// SPL Token program (classic mints such as USDC).
 pub const TOKEN_PROGRAM: Pubkey =
     Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+/// Token-2022 program (Paxos USDG).
+pub const TOKEN_2022_PROGRAM: Pubkey =
+    Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 /// Associated Token Account program.
 pub const ATA_PROGRAM: Pubkey =
     Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -46,6 +49,24 @@ pub const ATA_PROGRAM: Pubkey =
 /// USDC on Solana devnet (Circle's test mint, faucet.circle.com).
 pub const DEVNET_USDC: Pubkey =
     Pubkey::from_str_const("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+
+/// USDG (Paxos) on Solana devnet, a Token-2022 mint (faucet.paxos.com).
+pub const DEVNET_USDG: Pubkey =
+    Pubkey::from_str_const("4F6PM96JJxngmHnZLBh9n58RH4aTVNWvDs2nuwrT5BP7");
+
+/// The USDG mint of the v2 pool on a cluster; `None` — no v2 pool there yet.
+pub fn usdg_mint(is_mainnet: bool) -> Option<Pubkey> {
+    (!is_mainnet).then_some(DEVNET_USDG)
+}
+
+/// The token program a pool mint belongs to: USDG is Token-2022, the rest classic.
+pub fn token_program_of(mint: &Pubkey) -> Pubkey {
+    if *mint == DEVNET_USDG {
+        TOKEN_2022_PROGRAM
+    } else {
+        TOKEN_PROGRAM
+    }
+}
 
 /// The USDC mint of the v2 pool on a cluster; `None` — no v2 pool there yet.
 pub fn usdc_mint(is_mainnet: bool) -> Option<Pubkey> {
@@ -90,10 +111,10 @@ pub fn owner_key_pda(wallet: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[OwnerKey::SEED_PREFIX, wallet.as_ref()], &program_id()).0
 }
 
-/// Associated token account of `owner` for `mint` (SPL Token).
+/// Associated token account of `owner` for `mint`, under the mint's token program.
 pub fn ata(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
-        &[owner.as_ref(), TOKEN_PROGRAM.as_ref(), mint.as_ref()],
+        &[owner.as_ref(), token_program_of(mint).as_ref(), mint.as_ref()],
         &ATA_PROGRAM,
     )
     .0
@@ -109,7 +130,7 @@ fn create_ata_ix(payer: &Pubkey, owner: &Pubkey, mint: &Pubkey) -> Instruction {
             AccountMeta::new_readonly(*owner, false),
             AccountMeta::new_readonly(*mint, false),
             AccountMeta::new_readonly(system_program::ID, false),
-            AccountMeta::new_readonly(TOKEN_PROGRAM, false),
+            AccountMeta::new_readonly(token_program_of(mint), false),
         ],
         data: vec![1],
     }
@@ -312,7 +333,7 @@ pub fn pay(rpc: &RpcClient, signer: &Keypair, p: &PaymentV2) -> Result<PaidV2> {
             memo: memo_pda(&leaf),
             fee_memo: memo_pda(&fee_leaf),
             payer,
-            token_program: TOKEN_PROGRAM,
+            token_program: token_program_of(&p.mint),
             system_program: system_program::ID,
         }
         .to_account_metas(None),
@@ -574,7 +595,7 @@ pub fn withdraw(
             relayer: wallet,
             relayer_token: ata(&wallet, mint),
             payer: wallet,
-            token_program: TOKEN_PROGRAM,
+            token_program: token_program_of(mint),
             system_program: system_program::ID,
         }
         .to_account_metas(None),
@@ -820,7 +841,7 @@ pub fn refund(
             memo: memo_pda(&r.leaf),
             nullifier: nullifier_pda(&r.nullifier),
             depositor,
-            token_program: TOKEN_PROGRAM,
+            token_program: token_program_of(mint),
             system_program: system_program::ID,
         }
         .to_account_metas(None),
