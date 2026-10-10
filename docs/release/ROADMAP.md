@@ -6,7 +6,7 @@
 
 ---
 
-## Now — the plan after Crypto World's Fair (October 2026)
+## Now — next steps (October 2026)
 
 In this order. Each step is live on testnets first, then mainnet.
 
@@ -21,7 +21,7 @@ Also live and growing: the same circuit on EVM chains (Arbitrum and Robinhood Ch
 
 ---
 
-## Shipped — v0.1 MVP (Colosseum Frontier, May 11 2026)
+## Shipped — v0.1 MVP (May 2026)
 
 The minimum coherent system. Everything in this layer ships in working code, runs **live on Solana mainnet**, and is demonstrated end-to-end in one flagship example.
 
@@ -89,7 +89,7 @@ The minimum coherent system. Everything in this layer ships in working code, run
 
 ## Next — v0.2 (Q3 2026)
 
-Built on top of the MVP. Each item is designed in MVP architecture and implemented after the hackathon.
+Built on top of the MVP. Each item is designed in MVP architecture.
 
 ### Proof of Innocence
 - Additional circuit: prove inclusion in a curated subset of deposits without revealing which deposit is yours
