@@ -401,6 +401,7 @@ pub fn pay(rpc: &RpcClient, signer: &Keypair, p: &PaymentV2) -> Result<PaidV2> {
                 memo_total_len: env.len() as u32,
                 fee_memo_total_len: fee_env.len() as u32,
                 memo_chunk: Vec::new(),
+                memo_writer: payer,
             },
         }
         .data(),
@@ -417,14 +418,14 @@ pub fn pay(rpc: &RpcClient, signer: &Keypair, p: &PaymentV2) -> Result<PaidV2> {
 }
 
 /// The `append_memo` instructions that write `data` into the memo of `leaf`.
-pub fn append_memo_ixs(depositor: Pubkey, leaf: &[u8; 32], data: &[u8]) -> Vec<Instruction> {
+pub fn append_memo_ixs(writer: Pubkey, leaf: &[u8; 32], data: &[u8]) -> Vec<Instruction> {
     data.chunks(MEMO_CHUNK_LEN)
         .enumerate()
         .map(|(i, chunk)| Instruction {
             program_id: program_id(),
             accounts: tidex6_pool_v2::accounts::AppendMemo {
                 memo: memo_pda(leaf),
-                depositor,
+                writer,
             }
             .to_account_metas(None),
             data: tidex6_pool_v2::instruction::AppendMemo {

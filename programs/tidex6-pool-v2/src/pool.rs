@@ -131,6 +131,10 @@ pub struct MemoAccount {
     pub mint: Pubkey,
     pub leaf: Field,
     pub depositor: Pubkey,
+    /// Who may write the envelope pieces: the depositor's own wallet, or a
+    /// one-time key the depositor named at the deposit, so a browser signs the
+    /// deposit once with the wallet and writes the envelope without it.
+    pub writer: Pubkey,
     pub refund_after: i64,
     pub amount: u64,
     pub leaf_index: u64,
@@ -146,7 +150,7 @@ impl MemoAccount {
     pub const MAX_TOTAL_LEN: usize = 8192;
 
     pub fn space(total_len: u32) -> usize {
-        8 + 32 + FIELD_ELEMENT_BYTES + 32 + 8 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + total_len as usize
+        8 + 32 + FIELD_ELEMENT_BYTES + 32 + 32 + 8 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + total_len as usize
     }
 }
 
@@ -245,6 +249,8 @@ pub struct DepositArgs {
     pub memo_total_len: u32,
     pub fee_memo_total_len: u32,
     pub memo_chunk: Vec<u8>,
+    /// Key allowed to write both envelopes (see `MemoAccount::writer`).
+    pub memo_writer: Pubkey,
 }
 
 /// Pay `amount` to the owner of `core`, and the fee to the treasury. The
@@ -326,6 +332,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
         memo.mint = mint_key;
         memo.leaf = leaf;
         memo.depositor = payer;
+        memo.writer = args.memo_writer;
         memo.refund_after = args.refund_after;
         memo.amount = args.amount;
         memo.leaf_index = first_leaf;
@@ -341,6 +348,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, args: DepositArgs) -> Result<()> {
         memo.mint = mint_key;
         memo.leaf = fee_leaf;
         memo.depositor = payer;
+        memo.writer = args.memo_writer;
         memo.refund_after = 0;
         memo.amount = fee;
         memo.leaf_index = first_leaf + 1;
@@ -603,6 +611,7 @@ pub fn handle_transfer_note(
         memo.mint = mint_key;
         memo.leaf = leaves[i];
         memo.depositor = payer;
+        memo.writer = payer;
         memo.refund_after = 0;
         memo.amount = 0;
         memo.leaf_index = first_leaf + i as u64;
