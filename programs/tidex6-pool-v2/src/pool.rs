@@ -19,7 +19,7 @@
 //! EVM pool; the nullifier is `H(H(D_NF, rho), position)` on both paths.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{TransferChecked, transfer_checked};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_poseidon::{Endianness, Parameters, hashv};
 
@@ -654,10 +654,10 @@ fn refund_tag(funder: &Pubkey, refund_after: i64) -> Result<Field> {
 /// Pay `amount` from the vault, signed by the pool PDA.
 fn pay_from_vault<'info>(
     pool: &AccountLoader<'info, PoolState>,
-    mint: &Account<'info, anchor_spl::token::Mint>,
-    vault: &Account<'info, anchor_spl::token::TokenAccount>,
+    mint: &InterfaceAccount<'info, Mint>,
+    vault: &InterfaceAccount<'info, TokenAccount>,
     to: AccountInfo<'info>,
-    token_program: &Program<'info, anchor_spl::token::Token>,
+    token_program: &Interface<'info, TokenInterface>,
     amount: u64,
 ) -> Result<()> {
     let bump = pool.load()?.bump;

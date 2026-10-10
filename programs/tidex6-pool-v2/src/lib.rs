@@ -11,7 +11,7 @@
 //! `Tidex6HiddenPoolV2`. See `pool.rs` and `docs/release/adr/ADR-022-*.md`.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 mod pool;
 mod transfer_vk;
@@ -155,7 +155,7 @@ pub struct InitPool<'info> {
     )]
     pub pool: AccountLoader<'info, PoolState>,
 
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         init,
@@ -164,8 +164,9 @@ pub struct InitPool<'info> {
         bump,
         token::mint = mint,
         token::authority = pool,
+        token::token_program = token_program,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// The upgrade authority of this program — the only one who may name a
     /// pool's treasury.
@@ -178,7 +179,7 @@ pub struct InitPool<'info> {
     #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ PoolError::NotUpgradeAuthority)]
     pub program_data: Account<'info, ProgramData>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
 }
@@ -211,7 +212,7 @@ pub struct Deposit<'info> {
     pub pool: AccountLoader<'info, PoolState>,
 
     #[account(address = pool.load()?.mint)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
@@ -219,11 +220,12 @@ pub struct Deposit<'info> {
         bump,
         token::mint = mint,
         token::authority = pool,
+        token::token_program = token_program,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut, token::mint = mint, token::authority = payer)]
-    pub depositor_token: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = mint, token::authority = payer, token::token_program = token_program)]
+    pub depositor_token: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         init,
@@ -246,7 +248,7 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -281,7 +283,7 @@ pub struct Refund<'info> {
     pub pool: AccountLoader<'info, PoolState>,
 
     #[account(address = pool.load()?.mint)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
@@ -289,11 +291,12 @@ pub struct Refund<'info> {
         bump,
         token::mint = mint,
         token::authority = pool,
+        token::token_program = token_program,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut, token::mint = mint, token::authority = depositor)]
-    pub depositor_token: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = mint, token::authority = depositor, token::token_program = token_program)]
+    pub depositor_token: InterfaceAccount<'info, TokenAccount>,
 
     // Not closed: the memo accounts are the pool's leaf list — every client
     // rebuilds the tree from them, and a closed one would leave a hole that
@@ -317,7 +320,7 @@ pub struct Refund<'info> {
     #[account(mut)]
     pub depositor: Signer<'info>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -338,7 +341,7 @@ pub struct Withdraw<'info> {
     pub pool: AccountLoader<'info, PoolState>,
 
     #[account(address = pool.load()?.mint)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
@@ -346,8 +349,9 @@ pub struct Withdraw<'info> {
         bump,
         token::mint = mint,
         token::authority = pool,
+        token::token_program = token_program,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         init,
@@ -361,8 +365,8 @@ pub struct Withdraw<'info> {
     /// CHECK: recipient wallet, bound to the proof (public inputs 3–4).
     pub recipient: UncheckedAccount<'info>,
 
-    #[account(mut, token::mint = mint, token::authority = recipient)]
-    pub recipient_token: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = mint, token::authority = recipient, token::token_program = token_program)]
+    pub recipient_token: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: relayer wallet, bound to the proof (public inputs 5–6).
     pub relayer: UncheckedAccount<'info>,
@@ -370,13 +374,13 @@ pub struct Withdraw<'info> {
     /// `dup`: a recipient withdrawing on their own is also the relayer, and
     /// the two token accounts are one. Token accounts belong to the token
     /// program, so Anchor writes neither back on exit.
-    #[account(mut, dup, token::mint = mint, token::authority = relayer)]
-    pub relayer_token: Account<'info, TokenAccount>,
+    #[account(mut, dup, token::mint = mint, token::authority = relayer, token::token_program = token_program)]
+    pub relayer_token: InterfaceAccount<'info, TokenAccount>,
 
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
