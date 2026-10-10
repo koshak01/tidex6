@@ -6,6 +6,21 @@
 
 ---
 
+## Now — the plan after Crypto World's Fair (October 2026)
+
+In this order. Each step is live on testnets first, then mainnet.
+
+1. **Public trusted-setup ceremony for the note format v2 circuits** — open at [ceremony.tidex6.com](https://ceremony.tidex6.com). It needs independent contributors: every honest contribution makes the setup safe, so the more people join, the better. Finalize, then ship verifiers on the ceremony keys.
+2. **USDG on Solana mainnet** — a note format v2 pool for USDG (Paxos), after the ceremony.
+3. **Hidden amounts everywhere, including at the edge** — balances as ElGamal ciphertexts on Baby Jubjub, so the amount stays hidden when money enters and leaves, not only inside the pool. Live today on Arbitrum Sepolia (confidential token, ADR-023); next on Solana and the other chains.
+4. **Wallet screening** — money from sanctioned wallets does not enter a pool: the pool checks the depositing and the receiving address against a sanctions list. Deposit and payout addresses are public anyway, so this needs no new circuit. Screening is not KYC: no identity, only the address. It is the base for escrow — both sides of a deal know the money is clean.
+5. **Businesses: private payments between corporate wallets and escrow** (private contracts with an arbiter, ADR-024) — most escrow is business-to-business.
+6. **Regular users** — the same product for everyday payments.
+
+Also live and growing: the same circuit on EVM chains (Arbitrum and Robinhood Chain via Stylus, Base, Hyperliquid, Arc, Whitechain), a 1% fee collected automatically into the treasury (live at [tidex6.com/treasury](https://tidex6.com/treasury/)), and AI agents paying through a local MCP server.
+
+---
+
 ## Shipped — v0.1 MVP (Colosseum Frontier, May 11 2026)
 
 The minimum coherent system. Everything in this layer ships in working code, runs **live on Solana mainnet**, and is demonstrated end-to-end in one flagship example.
@@ -171,7 +186,7 @@ Strategic direction. Research and engineering bets that compound the MVP.
 
 - No token. No ICO. No SaaS tier.
 - The verifier primitive takes no fee and has no operator — it is a permissionless, immutable program anyone can integrate. Operated pool deployments may charge a configurable per-operation fee; ours is always shown before signing and may be zero.
-- No KYC.
+- No KYC. (Wallet screening checks addresses against a sanctions list; it asks for no identity.)
 - No backdoor of any kind. No key escrow. No recovery service.
 
 We are a public good. The protocol earns adoption by being useful. Anything else is a distraction from the mission.
