@@ -49,6 +49,7 @@ full post-mortem follows the rollout.
 | 28.09 | Note amounts count millionths of a token on every chain (`unitScale = 10^(decimals-6)`): a 64-bit note holds 18 trillion tokens at 18 decimals instead of 18.4. The Stylus pool gained the public reads the Solidity pool has (an in-pool forward on Stylus would have failed without them) | `8cd91ab` |
 | 28.09 | v2 on every EVM testnet: Base Sepolia, HyperEVM (Solidity), Arbitrum Sepolia USDC/USDG and Robinhood USDG/TSLA (Stylus, verified reproducible builds); v1 testnet pools are withdraw-only | `a1c8a1a`, relayer `v3.27.0`, web `v3.67.0` |
 | 28.09 | Forward inside the Solana v2 pool (1 → 3) in the client, MCP and site; proven on devnet: a 3 USDC note became 1 to the recipient, 1.9 change and a 0.1 fee note, and both new notes were withdrawn | `fd1e012`, web `v3.68.0` |
+| 10.10 | Solana pool v2 on devnet moved to a new program `3YFGd1vqEvzdwsj4bC3XQpF1BUvZejJVdJMT4V6njQpu` on the token interface: it takes classic SPL (USDC) and Token-2022 (USDG, Paxos) mints; pools for both created; full USDG loop on chain — deposit, withdraw by the owner key, the treasury collects the fee note (the first program `6Pgc17…1sVe` stays deployed, unused) | `e1f56f9`, `9ba7023`, `f97e808` |
 
 ## Next
 
