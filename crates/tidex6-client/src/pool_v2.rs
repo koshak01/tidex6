@@ -190,6 +190,59 @@ pub fn publish_owner_key(
     send(rpc, signer, &[publish_owner_key_ix(wallet, owner_pk)]).map(Some)
 }
 
+// ── creating a pool ──────────────────────────────────────────────────────
+
+/// BPF Loader Upgradeable, the owner of the program's `ProgramData` account.
+const BPF_LOADER_UPGRADEABLE: Pubkey =
+    Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/// The instruction that creates the pool of `mint`. Only the program's upgrade
+/// authority may send it; `treasury_owner_pk` is the key fee notes are sealed to.
+pub fn init_pool_ix(
+    authority: Pubkey,
+    mint: &Pubkey,
+    treasury_owner_pk: [u8; 32],
+    fee_floor: u64,
+) -> Instruction {
+    let program_data = Pubkey::find_program_address(&[program_id().as_ref()], &BPF_LOADER_UPGRADEABLE).0;
+    Instruction {
+        program_id: program_id(),
+        accounts: tidex6_pool_v2::accounts::InitPool {
+            pool: pool_pda(mint),
+            mint: *mint,
+            vault: vault_pda(mint),
+            payer: authority,
+            program: program_id(),
+            program_data,
+            token_program: token_program_of(mint),
+            system_program: system_program::ID,
+            rent: Pubkey::from_str_const("SysvarRent111111111111111111111111111111111"),
+        }
+        .to_account_metas(None),
+        data: tidex6_pool_v2::instruction::InitPool {
+            treasury_owner_pk,
+            fee_floor,
+        }
+        .data(),
+    }
+}
+
+/// Create the pool of `mint`, signed by the program's upgrade authority.
+pub fn init_pool(
+    rpc: &RpcClient,
+    authority: &Keypair,
+    mint: &Pubkey,
+    treasury_owner_pk: [u8; 32],
+    fee_floor: u64,
+) -> Result<String> {
+    use solana_keypair::Signer;
+    send(
+        rpc,
+        authority,
+        &[init_pool_ix(authority.pubkey(), mint, treasury_owner_pk, fee_floor)],
+    )
+}
+
 // ── the pool ─────────────────────────────────────────────────────────────
 
 /// What a client needs of the pool state.

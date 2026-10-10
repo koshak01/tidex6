@@ -24,8 +24,8 @@ pub use pool::{
 pub use transfer_vk::{TRANSFER_V2_NR_PUBLIC_INPUTS, TRANSFER_V2_VERIFYING_KEY};
 pub use withdraw_vk::{WITHDRAW_V2_NR_PUBLIC_INPUTS, WITHDRAW_V2_VERIFYING_KEY};
 
-// Program key generated in the deployment sandbox, 26.09.2026 (devnet first).
-declare_id!("6Pgc17kacebLurJxCmMtrjHcpxvdQR1PtQJf63hG1sVe");
+// Devnet program key (10.10.2026): the v2 pool redeployed with the token interface, USDC and USDG pools.
+declare_id!("3YFGd1vqEvzdwsj4bC3XQpF1BUvZejJVdJMT4V6njQpu");
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
