@@ -114,7 +114,11 @@ pub fn owner_key_pda(wallet: &Pubkey) -> Pubkey {
 /// Associated token account of `owner` for `mint`, under the mint's token program.
 pub fn ata(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
-        &[owner.as_ref(), token_program_of(mint).as_ref(), mint.as_ref()],
+        &[
+            owner.as_ref(),
+            token_program_of(mint).as_ref(),
+            mint.as_ref(),
+        ],
         &ATA_PROGRAM,
     )
     .0
@@ -204,7 +208,8 @@ pub fn init_pool_ix(
     treasury_owner_pk: [u8; 32],
     fee_floor: u64,
 ) -> Instruction {
-    let program_data = Pubkey::find_program_address(&[program_id().as_ref()], &BPF_LOADER_UPGRADEABLE).0;
+    let program_data =
+        Pubkey::find_program_address(&[program_id().as_ref()], &BPF_LOADER_UPGRADEABLE).0;
     Instruction {
         program_id: program_id(),
         accounts: tidex6_pool_v2::accounts::InitPool {
@@ -239,7 +244,12 @@ pub fn init_pool(
     send(
         rpc,
         authority,
-        &[init_pool_ix(authority.pubkey(), mint, treasury_owner_pk, fee_floor)],
+        &[init_pool_ix(
+            authority.pubkey(),
+            mint,
+            treasury_owner_pk,
+            fee_floor,
+        )],
     )
 }
 

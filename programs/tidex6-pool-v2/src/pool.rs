@@ -19,7 +19,9 @@
 //! EVM pool; the nullifier is `H(H(D_NF, rho), position)` on both paths.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked};
+use anchor_spl::token_interface::{
+    Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked,
+};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_poseidon::{Endianness, Parameters, hashv};
 
