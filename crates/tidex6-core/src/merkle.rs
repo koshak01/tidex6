@@ -63,6 +63,11 @@ pub enum MerkleError {
     /// does not match the tree depth.
     #[error("merkle proof has {got} siblings but tree depth is {expected}")]
     ProofDepthMismatch { got: usize, expected: usize },
+
+    /// The requested tree depth is outside the supported range
+    /// (1..=32: the leaf index must fit in `u64`).
+    #[error("tree depth {depth} is outside the supported range 1..=32")]
+    InvalidDepth { depth: usize },
 }
 
 /// One authenticated inclusion proof for a leaf in a Merkle tree.
@@ -108,11 +113,9 @@ impl MerkleTree {
     /// zero-subtree hashes and sets the initial root to the hash of
     /// an all-zero tree at the requested depth.
     pub fn new(depth: usize) -> Result<Self, MerkleError> {
-        assert!(depth >= 1, "tree depth must be at least 1");
-        assert!(
-            depth <= 32,
-            "tree depth must fit in u64 capacity (depth <= 32)"
-        );
+        if !(1..=32).contains(&depth) {
+            return Err(MerkleError::InvalidDepth { depth });
+        }
 
         let mut zero_subtrees = Vec::with_capacity(depth + 1);
         zero_subtrees.push(Commitment::zero());

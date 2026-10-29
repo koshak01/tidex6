@@ -13,3 +13,6 @@ repository.workspace = true
 # can serve the shared assets without the production filesystem ever
 # touching them. Same trick tidex6-web already uses for templates.
 include_dir = "0.7"
+
+[lints]
+workspace = true

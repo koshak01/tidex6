@@ -501,7 +501,10 @@ impl PrivatePool {
     /// pays the fee (direct path: `relayer = recipient`, fee = 0); the
     /// user's secret never reached the server. Mirrors the Direct arm of
     /// [`WithdrawBuilder::send`] minus proving.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "число аргументов задано протоколом инструкции, группировать нечем"
+    )]
     pub fn withdraw_raw(
         &self,
         payer: &Keypair,
@@ -570,10 +573,16 @@ struct RelayerWithdrawRequest {
 struct RelayerWithdrawResponse {
     signature: String,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "поле читает только десериализатор, в коде не используется"
+    )]
     relayer_pubkey: String,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "поле читает только десериализатор, в коде не используется"
+    )]
     relayer_fee: u64,
 }
 
@@ -616,5 +625,4 @@ fn load_pk_from_disk(path: &PathBuf) -> Result<ProvingKey<Bn254>> {
 // Keep `Rc` in the use-list even though it is only referenced in
 // the type of `program_handle` — without this the import is
 // considered unused by rustc.
-#[allow(dead_code)]
 type _RcAlias = Rc<()>;

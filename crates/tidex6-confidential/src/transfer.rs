@@ -147,7 +147,7 @@ impl ConstraintSynthesizer<Fr> for TransferCircuit {
         // 6. range: 0 ≤ amount < 2^64 для всех трёх сумм.
         enforce_u64_range(cs.clone(), self.amount_in, &amount_in)?;
         enforce_u64_range(cs.clone(), self.amount_out1, &amount_out1)?;
-        enforce_u64_range(cs.clone(), self.amount_out2, &amount_out2)?;
+        enforce_u64_range(cs, self.amount_out2, &amount_out2)?;
 
         // 7. conservation: in == out1 + out2 (нельзя выпустить больше, чем зашло).
         let sum = &amount_out1 + &amount_out2;

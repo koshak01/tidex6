@@ -145,6 +145,14 @@ wildcard_imports = "deny"
 enum_glob_use = "deny"
 todo = "warn"
 unimplemented = "warn"
+dbg_macro = "warn"
+undocumented_unsafe_blocks = "warn"
+fn_params_excessive_bools = "warn"
+panic_in_result_fn = "warn"
+allow_attributes_without_reason = "warn"
+redundant_clone = "warn"
+string_add = "warn"
+unwrap_used = "warn"
 
 # Release profile tuned for onchain programs and prover binaries.
 [profile.release]

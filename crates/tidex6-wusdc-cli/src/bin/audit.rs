@@ -58,7 +58,7 @@ fn main() -> Result<()> {
 
     say(&format!("wallet:  {wallet}  (config, as auditor)"));
     say(&format!("network: {network:?}"));
-    say(&format!("pools:   USDC + USDT (auto)"));
+    say("pools:   USDC + USDT (auto)");
     say("");
 
     let mut total_seen = 0usize;

@@ -204,7 +204,10 @@ pub fn collect_waiting(
 }
 
 /// Забрать один платёж (без callback). См. [`collect_with_progress`].
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn collect(
     service: &PoolService,
     proving_key_path: &str,
@@ -234,7 +237,10 @@ pub fn collect(
 // Аргументов много, и каждый — отдельное решение вызывающего: какую ноту,
 // куда, в какой сети. Сворачивать их в структуру ради счётчика значит завести
 // тип, существующий только чтобы пройти проверку.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn collect_with_progress(
     service: &PoolService,
     proving_key_path: &str,

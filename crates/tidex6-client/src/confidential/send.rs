@@ -123,7 +123,10 @@ impl PoolService {
     // Аргументов много, и каждый — отдельное поле запроса службы. Сворачивать
     // их в структуру ради счётчика значит завести тип, существующий только
     // чтобы пройти проверку.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "число аргументов задано протоколом инструкции, группировать нечем"
+    )]
     fn deposit(
         &self,
         commitment_hex: &str,
@@ -179,7 +182,10 @@ impl PoolService {
     /// Секрет ноты сюда не попадает — только доказательство и публичные входы.
     /// Получатель связан доказательством: подменить его по дороге нельзя, эту
     /// проверку делает программа, а не наша вежливость.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "число аргументов задано протоколом инструкции, группировать нечем"
+    )]
     pub fn withdraw(
         &self,
         proof_a_hex: &str,
@@ -310,7 +316,10 @@ struct DepositResult {
 /// # Ошибки
 /// Отказ лимита приходит раньше любой отправки: платёж, отклонённый после
 /// перевода оператору, означал бы списанные деньги и ненаписанный депозит.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn send_payment(
     service: &PoolService,
     signer: &solana_keypair::Keypair,

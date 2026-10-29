@@ -8,7 +8,6 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 
 pub const WITHDRAW_V2_NR_PUBLIC_INPUTS: usize = 8;
 
-#[allow(clippy::type_complexity)]
 static WITHDRAW_V2_VK_IC: [[u8; 64]; 9] = [
     [
         0x22, 0x36, 0xc9, 0x96, 0xee, 0xe1, 0x16, 0x6d, 0xaf, 0x90, 0x62, 0x6d, 0x12, 0xff, 0x58,

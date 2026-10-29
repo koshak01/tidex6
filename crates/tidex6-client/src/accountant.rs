@@ -91,7 +91,10 @@ impl<'a> AccountantScanner<'a> {
 
     /// Fetch every memo account and return the ones whose auditor slot
     /// decrypts under this secret.
-    #[allow(deprecated)] // get_program_accounts_with_config: ui-variant would change the decode path
+    #[expect(
+        deprecated,
+        reason = "устаревший вызов сохранён: замена меняет путь декодирования"
+    )] // get_program_accounts_with_config: ui-variant would change the decode path
     pub fn scan(&self) -> Result<Vec<AccountantEntry>> {
         let accounts = self
             .rpc
@@ -141,7 +144,10 @@ pub struct MemoEnvelope {
 
 /// List every finalized memo envelope of the v2 program — raw bytes, no
 /// decryption, no secret. Read-only public data the browser scans itself.
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "устаревший вызов сохранён: замена меняет путь декодирования"
+)]
 pub fn list_memo_envelopes(rpc: &RpcClient, program_id: Pubkey) -> Result<Vec<MemoEnvelope>> {
     let accounts = rpc
         .get_program_accounts_with_config(&program_id, memo_accounts_config())
@@ -210,7 +216,10 @@ impl<'a> RecipientScanner<'a> {
 
     /// Fetch every memo account and return the ones whose recipient slot
     /// decrypts under this secret — i.e. the payments addressed to me.
-    #[allow(deprecated)] // get_program_accounts_with_config: ui-variant would change the decode path
+    #[expect(
+        deprecated,
+        reason = "устаревший вызов сохранён: замена меняет путь декодирования"
+    )] // get_program_accounts_with_config: ui-variant would change the decode path
     pub fn scan(&self) -> Result<Vec<RecipientEntry>> {
         let accounts = self
             .rpc

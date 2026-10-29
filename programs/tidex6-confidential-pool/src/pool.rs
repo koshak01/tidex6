@@ -415,7 +415,10 @@ pub fn handle_refund(
 /// relayer from the vault. Public-input order (load-bearing):
 /// `[merkle_root, nullifier_hash, recipient_hi, recipient_lo,
 ///   relayer_hi, relayer_lo, relayer_fee, amount]`.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn handle_withdraw(
     ctx: Context<Withdraw>,
     proof_a: [u8; 64],
@@ -547,7 +550,10 @@ pub fn handle_withdraw(
 /// later withdraw need not share a value.
 /// Public-input order: `[merkle_root, nullifier_hash, commitment_out1,
 /// commitment_out2]`.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn handle_transfer_note(
     ctx: Context<TransferNote>,
     proof_a: [u8; 64],

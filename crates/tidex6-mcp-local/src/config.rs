@@ -77,7 +77,7 @@ pub struct Config {
     /// нет TG-настроек). Поле читается для совместимости со старыми
     /// config.toml и **игнорируется**.
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "ключ принимается и игнорируется")]
     pub notify: Option<toml::Value>,
 }
 

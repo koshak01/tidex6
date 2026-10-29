@@ -1,13 +1,17 @@
 // Anchor macros emit cfg values for `target_os = "solana"` and
 // `feature = "anchor-debug"` that are not in rustc's default check list.
 // These are part of Anchor's internal feature gating and are not bugs.
-#![allow(unexpected_cfgs)]
+#![allow(unexpected_cfgs, reason = "код, который генерирует макрос Anchor")]
 // Anchor's `#[program]` macro generates code that uses `use super::*`
 // to bring account-context types into scope inside the program module,
 // and contains control-flow shapes that trip clippy's
 // `diverging_sub_expression` lint. Both are internal to the macro and
 // not under our control, so we silence them crate-wide.
-#![allow(clippy::wildcard_imports, clippy::diverging_sub_expression)]
+#![allow(
+    clippy::wildcard_imports,
+    clippy::diverging_sub_expression,
+    reason = "код, который генерирует макрос Anchor"
+)]
 
 //! tidex6-verifier — onchain Groth16 verifier and Day-1 primitive validation.
 //!

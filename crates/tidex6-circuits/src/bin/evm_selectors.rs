@@ -44,7 +44,7 @@ fn main() {
         h.update(sig.as_bytes());
         let d = h.finalize();
         println!("{:<52} 0x{}", sig, hex::encode(&d[..4]));
-        if sig.contains('(') && sig.chars().next().unwrap().is_uppercase() {
+        if sig.contains('(') && sig.chars().next().is_some_and(char::is_uppercase) {
             println!("{:<52} topic0 0x{}", "", hex::encode(&d[..]));
         }
     }

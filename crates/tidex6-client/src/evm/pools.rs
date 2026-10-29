@@ -121,7 +121,10 @@ const HYPERLIQUID_TUSDC: &str = "0x2c94135FB49840a0D6e0985AB1A6c48EE6c140d6";
 
 /// Строка таблицы. Семь из двенадцати полей у пулов одной цепи общие, и
 /// функция держит их в одном месте вместо повтора на каждой записи.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 const fn row(
     key: &'static str,
     name: &'static str,
@@ -152,7 +155,10 @@ const fn row(
 }
 
 /// Строка пула формата v2: платёжный, со своим реестром ключей владельца.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 const fn v2(
     key: &'static str,
     name: &'static str,

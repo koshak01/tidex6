@@ -91,7 +91,7 @@ fn main() {
 
     let cs_inner = cs.into_inner().expect("into_inner");
     let instance = cs_inner.instance_assignment.clone();
-    let witness = cs_inner.witness_assignment.clone();
+    let witness = cs_inner.witness_assignment;
 
     // Полный вектор проводов: [one, pub1..pub5, priv...] — порядок r1cs.
     let full: Vec<Fr> = instance.iter().chain(witness.iter()).copied().collect();
@@ -128,7 +128,7 @@ fn main() {
     write_section(&mut out, 1, &header);
     write_section(&mut out, 2, &data);
 
-    let home = std::env::var("HOME").unwrap();
+    let home = std::env::var("HOME").expect("переменная HOME задана в окружении");
     let path = format!("{home}/work/rust/tidex6/crates/tidex6-circuits/artifacts/withdraw.wtns");
     let mut f = std::fs::File::create(&path).expect("create wtns");
     f.write_all(&out).expect("write wtns");

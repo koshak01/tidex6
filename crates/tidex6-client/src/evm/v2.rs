@@ -363,7 +363,6 @@ pub struct PaymentV2 {
 /// * `amount` — базовые единицы токена, которые получит адресат
 /// * `refund_window` — через сколько секунд можно вернуть, 0 — нельзя
 /// * `fee_rho`, `fee_envelope` — из [`seal_fee`]
-#[allow(clippy::too_many_arguments)]
 pub fn pay(
     pool: &EvmPool,
     signer: &PrivateKeySigner,

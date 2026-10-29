@@ -37,7 +37,10 @@ type Result<T> = std::result::Result<T, ZkeyError>;
 
 struct Section {
     position: u64,
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "размер секции читается только при разборе, в коде не используется"
+    )]
     size: u64,
 }
 

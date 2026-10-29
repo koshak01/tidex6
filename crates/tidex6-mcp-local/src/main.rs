@@ -99,7 +99,7 @@ fn selftest_collect(net: &str) -> Result<()> {
         .proving_key()
         .map(|p| p.to_string_lossy().into_owned())?;
     let rpc = config.rpc_for(network).to_string();
-    let service = PoolService::new(config.pool_service.clone())?;
+    let service = PoolService::new(config.pool_service)?;
     mark("config_ok", &mut peak);
 
     // Same shape as thrash_live / tool path: multi-thread tokio + OS worker.

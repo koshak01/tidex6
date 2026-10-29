@@ -8,7 +8,6 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 
 pub const TRANSFER_V2_NR_PUBLIC_INPUTS: usize = 7;
 
-#[allow(clippy::type_complexity)]
 static TRANSFER_V2_VK_IC: [[u8; 64]; 8] = [
     [
         0x2d, 0x0c, 0x9e, 0x1a, 0xe4, 0xb1, 0xd6, 0xf5, 0x36, 0x09, 0xa9, 0xe3, 0xb1, 0xac, 0x50,

@@ -452,7 +452,10 @@ pub fn handle_refund(
 /// Withdraw a note; only the owner can build the proof. Public inputs:
 /// `[root, nullifier, recipient_hi, recipient_lo, relayer_hi, relayer_lo,
 /// relayer_fee, amount]`.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn handle_withdraw(
     ctx: Context<Withdraw>,
     proof_a: [u8; 64],
@@ -534,7 +537,10 @@ pub fn handle_withdraw(
 /// Forward a note inside the pool: payment, change to the spender, fee to
 /// the treasury. The program supplies its own treasury key and floor as
 /// public inputs. No token moves.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn handle_transfer_note(
     ctx: Context<TransferNote>,
     proof_a: [u8; 64],

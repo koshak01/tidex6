@@ -9,7 +9,6 @@
 //! Если тут multi-100MB на commitment — thrash = long-lived host + полный collect.
 
 use std::process::Command;
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -87,7 +86,7 @@ fn main() -> Result<()> {
         Network::Mainnet => cfg.rpc_mainnet.clone(),
         Network::Devnet => cfg.rpc_devnet.clone(),
     };
-    let service = PoolService::new(cfg.pool_service.clone())?;
+    let service = PoolService::new(cfg.pool_service)?;
     mark("config_ok", t0, &mut peak);
 
     let rt = tokio::runtime::Builder::new_multi_thread()

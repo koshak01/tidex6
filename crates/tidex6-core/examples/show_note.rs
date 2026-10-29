@@ -10,7 +10,7 @@ fn main() {
         Denomination::OneSol,
         Denomination::TenSol,
     ] {
-        let note = DepositNote::random(denom).unwrap();
+        let note = DepositNote::random(denom).expect("случайная нота создаётся");
         let text = note.to_text();
         println!("{}  ({} chars)", denom, text.len());
         println!("  {}", text);

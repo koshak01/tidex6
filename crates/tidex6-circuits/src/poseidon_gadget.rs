@@ -136,10 +136,12 @@ fn pos_log(line: &str) {
 /// internal state width is `nr_inputs + 1` (the extra slot is the
 /// domain tag).
 fn parameters_for(nr_inputs: usize) -> Result<PoseidonParameters<Fr>, LightPoseidonError> {
-    assert!(
-        (1..=MAX_INPUTS).contains(&nr_inputs),
-        "circom Poseidon supports 1..=12 inputs; got {nr_inputs}"
-    );
+    if !(1..=MAX_INPUTS).contains(&nr_inputs) {
+        return Err(LightPoseidonError::InvalidWidthCircom {
+            width: nr_inputs + 1,
+            max_limit: MAX_INPUTS + 1,
+        });
+    }
     let width: u8 = (nr_inputs + 1)
         .try_into()
         .expect("width fits in u8 for supported widths");
@@ -185,11 +187,9 @@ fn poseidon_hash_n_var_tagged(
     inputs: &[FpVar<Fr>],
     tag: &str,
 ) -> Result<FpVar<Fr>, SynthesisError> {
-    assert!(
-        (1..=MAX_INPUTS).contains(&inputs.len()),
-        "unsupported input count: {}",
-        inputs.len()
-    );
+    if !(1..=MAX_INPUTS).contains(&inputs.len()) {
+        return Err(SynthesisError::Unsatisfiable);
+    }
 
     let params = parameters_for(inputs.len()).map_err(|_| SynthesisError::AssignmentMissing)?;
 
@@ -224,11 +224,9 @@ fn poseidon_hash_n_var_tagged(
     for input in inputs {
         state.push(input.clone());
     }
-    assert_eq!(
-        state.len(),
-        width,
-        "initial state length must match Poseidon width"
-    );
+    if state.len() != width {
+        return Err(SynthesisError::Unsatisfiable);
+    }
 
     for round in 0..total_rounds {
         let is_full_round = round < half_full || round >= half_full + partial_rounds;

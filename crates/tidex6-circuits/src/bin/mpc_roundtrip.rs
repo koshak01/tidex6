@@ -18,7 +18,7 @@ use tidex6_circuits::zkey::read_zkey_pk;
 fn main() {
     let path = format!(
         "{}/work/rust/tidex6/_ceremony/withdraw_0000.zkey",
-        std::env::var("HOME").unwrap()
+        std::env::var("HOME").expect("переменная HOME задана в окружении")
     );
     let mut reader = BufReader::new(File::open(&path).expect("open initial zkey"));
     let initial = read_zkey_pk(&mut reader).expect("read initial pk");
@@ -64,7 +64,7 @@ fn main() {
     assert_ne!(bad, VerifyOutcome::Ok, "tampered delta must be rejected");
 
     // 4. Подделка вклада (подменить g2_spx) → отвергается.
-    let mut bad_contribs = contributions.clone();
+    let mut bad_contribs = contributions;
     bad_contribs[0].g2_spx = c2.g2_spx;
     let bad2 = verify_chain(&initial, &current, &bad_contribs, &cs);
     println!("verify_chain (подделка PoK): {bad2:?}");

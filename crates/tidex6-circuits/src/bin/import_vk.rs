@@ -22,7 +22,7 @@ use tidex6_circuits::withdraw::{prepare_verifying_key, verify_withdraw_proof};
 fn main() {
     let dir = format!(
         "{}/work/rust/tidex6/_ceremony",
-        std::env::var("HOME").unwrap()
+        std::env::var("HOME").expect("переменная HOME задана в окружении")
     );
     let vk_json: Value = read_json(&format!("{dir}/vk.json"));
     let proof_json: Value = read_json(&format!("{dir}/proof.json"));
@@ -57,7 +57,7 @@ fn main() {
         .as_array()
         .expect("public array")
         .iter()
-        .map(|v| Fr::from_str(v.as_str().unwrap()).expect("Fr"))
+        .map(|v| Fr::from_str(v.as_str().expect("элемент ключа — строка")).expect("Fr"))
         .collect();
     assert_eq!(publics.len(), 5, "expected 5 public inputs");
     let public_arr: [Fr; 5] = [publics[0], publics[1], publics[2], publics[3], publics[4]];
@@ -95,7 +95,11 @@ fn main() {
         "nr_pubinputs": sb.vk_ic.len(),
     });
     let path = format!("{dir}/../crates/tidex6-circuits/artifacts/withdraw_vk_ceremony.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).expect("write vk");
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&out).expect("ключ сериализуется в json"),
+    )
+    .expect("write vk");
     println!("wrote {path}");
     println!(
         "\nПЕТЛЯ ЗАКРЫТА: церемониальный VK верифицирует наш proof и конвертируется в solana-байты."

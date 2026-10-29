@@ -39,7 +39,7 @@ const GENESIS_ASSET_CONFIDENTIAL: &str = concat!(
 );
 
 fn main() {
-    let home = std::env::var("HOME").unwrap();
+    let home = std::env::var("HOME").expect("переменная HOME задана в окружении");
     let dir = format!("{home}/.tidex6-ceremony");
     fs::create_dir_all(&dir).expect("mkdir ceremony dir");
 

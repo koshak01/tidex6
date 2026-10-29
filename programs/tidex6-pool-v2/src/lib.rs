@@ -1,5 +1,9 @@
-#![allow(unexpected_cfgs)]
-#![allow(clippy::wildcard_imports, clippy::diverging_sub_expression)]
+#![allow(unexpected_cfgs, reason = "код, который генерирует макрос Anchor")]
+#![allow(
+    clippy::wildcard_imports,
+    clippy::diverging_sub_expression,
+    reason = "код, который генерирует макрос Anchor"
+)]
 
 //! tidex6-pool-v2 — shielded pool with note format v2 (ADR-022).
 //!
@@ -90,7 +94,10 @@ pub mod tidex6_pool_v2 {
     }
 
     /// Withdraw a note (owner only, v2 withdraw circuit).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "число аргументов задано протоколом инструкции, группировать нечем"
+    )]
     pub fn withdraw(
         context: Context<Withdraw>,
         proof_a: [u8; 64],
@@ -116,7 +123,10 @@ pub mod tidex6_pool_v2 {
     /// Forward a note inside the pool: payment, change, fee. Each output
     /// gets its memo account (`memo_lens`: envelope lengths of pay, change,
     /// fee), filled with `append_memo` afterwards by the same signer.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "число аргументов задано протоколом инструкции, группировать нечем"
+    )]
     pub fn transfer_note(
         context: Context<TransferNote>,
         proof_a: [u8; 64],

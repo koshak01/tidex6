@@ -605,7 +605,10 @@ pub fn my_notes(
 /// network fee and stands as the relayer, taking no fee from the note; the
 /// proof binds both. A person collecting for themselves passes their own
 /// wallet as both.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "число аргументов задано протоколом инструкции, группировать нечем"
+)]
 pub fn withdraw(
     rpc: &RpcClient,
     signer: &Keypair,
@@ -708,7 +711,6 @@ pub struct ForwardV2<'a> {
 /// Forward part of `note` inside the pool, 1 → 3: the payment, our change,
 /// and the pool's fee — proved against the pool's own treasury key and
 /// floor. No token moves; the three envelopes follow by `append_memo`.
-#[allow(clippy::too_many_arguments)]
 pub fn forward(
     rpc: &RpcClient,
     signer: &Keypair,

@@ -123,7 +123,7 @@ impl ConstraintSynthesizer<Fr> for WithdrawCircuit {
         current.enforce_equal(&merkle_root)?;
 
         // 4. range: 0 ≤ amount < 2^64.
-        enforce_u64_range(cs.clone(), self.amount, &amount)?;
+        enforce_u64_range(cs, self.amount, &amount)?;
 
         // 5. Выплачиваемая сумма = сумма ноты.
         amount.enforce_equal(&amount_public)?;

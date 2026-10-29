@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         say(&format!("wallet:  {wallet}  (config)"));
         say(&format!("network: {network:?}"));
         say(&format!("to:      {recipient}  (same wallet)"));
-        say(&format!("pools:   USDC + USDT (auto)"));
+        say("pools:   USDC + USDT (auto)");
         say("");
     }
 

@@ -112,7 +112,12 @@ fn main() -> Result<()> {
     let nullifier_hash = nullifier.derive_hash().context("nullifier hash")?;
 
     let sibling_bytes: Vec<[u8; 32]> = proof.siblings.iter().map(|c| *c.as_bytes()).collect();
-    assert_eq!(sibling_bytes.len(), WITHDRAW_TREE_DEPTH);
+    if sibling_bytes.len() != WITHDRAW_TREE_DEPTH {
+        anyhow::bail!(
+            "доказательство содержит {} соседей, ожидалось {WITHDRAW_TREE_DEPTH}",
+            sibling_bytes.len()
+        );
+    }
     let sibling_refs: [&[u8; 32]; WITHDRAW_TREE_DEPTH] = std::array::from_fn(|i| &sibling_bytes[i]);
     let mut path_indices = [false; WITHDRAW_TREE_DEPTH];
     for (i, bit) in path_indices.iter_mut().enumerate() {

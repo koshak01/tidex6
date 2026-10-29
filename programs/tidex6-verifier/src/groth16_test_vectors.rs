@@ -18,7 +18,6 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 
 /// The IC vector of the verifying key. Stored as a `static` so it can
 /// be referenced from the `VERIFYING_KEY` constant below.
-#[allow(clippy::type_complexity)]
 static VK_IC: [[u8; 64]; 10] = [
     [
         3, 183, 175, 189, 219, 73, 183, 28, 132, 200, 83, 8, 65, 22, 184, 81, 82, 36, 181, 186, 25,

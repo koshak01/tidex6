@@ -17,7 +17,6 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 /// Number of public inputs the withdraw circuit exposes.
 pub const WITHDRAW_NR_PUBLIC_INPUTS: usize = 5;
 
-#[allow(clippy::type_complexity)]
 static WITHDRAW_VK_IC: [[u8; 64]; 6] = [
     [
         0x05, 0x96, 0x3a, 0xac, 0xbf, 0x8e, 0x59, 0x60, 0x1b, 0x50, 0x52, 0x8f, 0xc9, 0x2b, 0x34,

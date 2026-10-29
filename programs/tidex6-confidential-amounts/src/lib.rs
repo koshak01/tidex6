@@ -1,5 +1,9 @@
-#![allow(unexpected_cfgs)]
-#![allow(clippy::wildcard_imports, clippy::diverging_sub_expression)]
+#![allow(unexpected_cfgs, reason = "код, который генерирует макрос Anchor")]
+#![allow(
+    clippy::wildcard_imports,
+    clippy::diverging_sub_expression,
+    reason = "код, который генерирует макрос Anchor"
+)]
 
 //! tidex6-confidential-amounts — песочница confidential transfers с
 //! реальным SOL.

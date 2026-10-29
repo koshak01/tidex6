@@ -45,9 +45,7 @@ impl ConstraintSynthesizer<Fr> for SquareCircuit {
         })?;
 
         // Allocate the public input.
-        let y_var = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.y.ok_or(SynthesisError::AssignmentMissing)
-        })?;
+        let y_var = FpVar::<Fr>::new_input(cs, || self.y.ok_or(SynthesisError::AssignmentMissing))?;
 
         // Enforce x * x == y.
         let x_squared = &x_var * &x_var;
