@@ -5,7 +5,7 @@
 //! reuse for payments (see task 483).
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -40,17 +40,16 @@ fn store() -> &'static Mutex<HashMap<String, CeremonySession>> {
 /// Create a pending session; returns unguessable nonce (UUID).
 pub fn create_session() -> String {
     let nonce = Uuid::new_v4().to_string();
-    if let Ok(mut g) = store().lock() {
-        g.retain(|_, s| s.created_at.elapsed() < SESSION_TTL);
-        g.insert(
-            nonce.clone(),
-            CeremonySession {
-                created_at: Instant::now(),
-                status: SessionStatus::Pending,
-                wallet: None,
-            },
-        );
-    }
+    let mut g = store().lock().unwrap_or_else(PoisonError::into_inner);
+    g.retain(|_, s| s.created_at.elapsed() < SESSION_TTL);
+    g.insert(
+        nonce.clone(),
+        CeremonySession {
+            created_at: Instant::now(),
+            status: SessionStatus::Pending,
+            wallet: None,
+        },
+    );
     nonce
 }
 
@@ -63,9 +62,7 @@ pub fn complete_session(nonce: &str, wallet: impl Into<String>) {
     if nonce.is_empty() {
         return;
     }
-    let Ok(mut g) = store().lock() else {
-        return;
-    };
+    let mut g = store().lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(s) = g.get_mut(nonce) {
         if s.created_at.elapsed() >= SESSION_TTL {
             s.status = SessionStatus::Expired;
@@ -82,12 +79,8 @@ pub fn session_status(nonce: &str) -> Option<CeremonySession> {
     if nonce.is_empty() {
         return None;
     }
-    let Ok(mut g) = store().lock() else {
-        return None;
-    };
-    let Some(s) = g.get_mut(nonce) else {
-        return None;
-    };
+    let mut g = store().lock().unwrap_or_else(PoisonError::into_inner);
+    let s = g.get_mut(nonce)?;
     if s.status == SessionStatus::Pending && s.created_at.elapsed() >= SESSION_TTL {
         s.status = SessionStatus::Expired;
     }

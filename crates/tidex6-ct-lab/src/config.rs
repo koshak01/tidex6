@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -178,9 +178,10 @@ static MINT_OVERRIDES: RwLock<Option<HashMap<String, MintSet>>> = RwLock::new(No
 
 /// Установить оверрайды минтов (один раз на старте из Config).
 pub fn set_mint_overrides(mints: HashMap<String, MintSet>) {
-    if let Ok(mut m) = MINT_OVERRIDES.write() {
-        *m = Some(mints);
-    }
+    let mut overrides = MINT_OVERRIDES
+        .write()
+        .unwrap_or_else(PoisonError::into_inner);
+    *overrides = Some(mints);
 }
 
 fn mint_field<F>(net: Network, asset: Asset, pick: F) -> Option<String>
@@ -190,7 +191,7 @@ where
     let key = mint_key(net, asset);
     MINT_OVERRIDES
         .read()
-        .ok()?
+        .unwrap_or_else(PoisonError::into_inner)
         .as_ref()?
         .get(&key)
         .and_then(pick)
@@ -217,17 +218,16 @@ static ACTIVE_NETWORK: RwLock<Network> = RwLock::new(Network::Mainnet);
 
 /// Установить активную сеть (per-request из поля запроса).
 pub fn set_active_network(net: Network) {
-    if let Ok(mut n) = ACTIVE_NETWORK.write() {
-        *n = net;
-    }
+    *ACTIVE_NETWORK
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = net;
 }
 
 /// Активная сеть (дефолт Mainnet).
 pub fn active_network() -> Network {
-    ACTIVE_NETWORK
+    *ACTIVE_NETWORK
         .read()
-        .map(|n| *n)
-        .unwrap_or(Network::Mainnet)
+        .unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Активный актив (wUSDC / wUSDT) — определяет пул + минты из реестра.
@@ -236,14 +236,12 @@ pub fn active_network() -> Network {
 static ACTIVE_ASSET: RwLock<Asset> = RwLock::new(Asset::Wusdc);
 
 pub fn set_active_asset(asset: Asset) {
-    if let Ok(mut a) = ACTIVE_ASSET.write() {
-        *a = asset;
-    }
+    *ACTIVE_ASSET.write().unwrap_or_else(PoisonError::into_inner) = asset;
 }
 
 /// Активный актив (по умолчанию wUSDC).
 pub fn active_asset() -> Asset {
-    ACTIVE_ASSET.read().map(|a| *a).unwrap_or(Asset::Wusdc)
+    *ACTIVE_ASSET.read().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Config {
